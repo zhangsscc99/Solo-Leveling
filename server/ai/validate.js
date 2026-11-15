@@ -61,6 +61,8 @@ const ARG_KEY_SET = new Set(ARG_KEYS);
 // discarded when they appear at the root.
 const ENVELOPE_KEYS = new Set(["intent", "action", "name", "args", "arguments", "narration", "role", "text"]);
 
+const { extractJson } = require("./sanitize");
+
 const DEFAULT_MAX_STRING = 200;
 const DEFAULT_MAX_ARGS = 12;
 const DEFAULT_DEADLINE_MS = 20000;
@@ -129,15 +131,23 @@ function parsePayload(raw) {
   if (typeof raw === "string") {
     const text = raw.trim();
     if (!text) return { ok: false, code: "empty", error: "empty decision payload" };
-    try {
-      const parsed = JSON.parse(text);
-      if (!isPlainObject(parsed)) {
-        return { ok: false, code: "shape", error: "decision JSON was not an object" };
+    // F025：先原样解析；失败再剥 ```json 围栏/前后叙述后重试，
+    // 仍失败才是 parse 错误（调用方降级到规则兜底，不 5xx）。
+    const candidates = [text];
+    const stripped = extractJson(text);
+    if (stripped && stripped !== text) candidates.push(stripped);
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (!isPlainObject(parsed)) {
+          return { ok: false, code: "shape", error: "decision JSON was not an object" };
+        }
+        return { ok: true, value: parsed };
+      } catch {
+        // try the next candidate
       }
-      return { ok: true, value: parsed };
-    } catch {
-      return { ok: false, code: "parse", error: "decision payload was not valid JSON" };
     }
+    return { ok: false, code: "parse", error: "decision payload was not valid JSON" };
   }
   if (isPlainObject(raw)) return { ok: true, value: raw };
   return { ok: false, code: "shape", error: "decision payload must be an object or a JSON string" };
@@ -320,6 +330,35 @@ function clampVitals(vitals, save) {
 }
 
 /**
+ * F025 陈旧快照合并：intent 模板算出的 patch 是相对「AI 调用前」的旧快照
+ * 产生的绝对值。AI 返回后存档可能已被其它写入改动，直接写旧快照的绝对值
+ * 会把期间的增量回退掉。这里把 patch 隐含的增量（patch - base）重新套到
+ * 新快照上，再用 clampVitals 夹紧到 0..max。
+ *
+ * applyVitalsDelta(base, fresh, patch) -> { hp, mp }
+ *   base  AI 调用前读到的快照（patch 的参照系）
+ *   fresh AI 返回后重读的快照（增量的落点；缺失时退回 base）
+ *   patch intent 模板产出的 { hp?, mp? } 绝对值
+ * 永不抛异常；patch 里没有的字段回落到 fresh 当前值。
+ */
+function applyVitalsDelta(base, fresh, patch) {
+  const b = isPlainObject(base) ? base : {};
+  const f = isPlainObject(fresh) ? fresh : b;
+  const p = isPlainObject(patch) ? patch : {};
+
+  const vitals = {};
+  for (const key of ["hp", "mp"]) {
+    const target = toIntegerOrNull(p[key]);
+    if (target === null) continue;
+    const baseVal = toIntegerOrNull(b[key]);
+    const freshVal = toIntegerOrNull(f[key]);
+    vitals[key] =
+      freshVal === null ? target : freshVal + (baseVal === null ? 0 : target - baseVal);
+  }
+  return clampVitals(vitals, f);
+}
+
+/**
  * Awaits fn() but gives up after `ms` (default 20s). Timeouts and thrown
  * errors both resolve with the supplied fallback — nothing is thrown and the
  * timer is always cleared, so a fast path never keeps the loop alive.
@@ -403,5 +442,6 @@ module.exports = {
   isKnownIntent,
   normalizeDecision,
   clampVitals,
+  applyVitalsDelta,
   withDeadline,
 };

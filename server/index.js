@@ -644,7 +644,10 @@ api.post("/ai-action", async (req, res) => {
 
     const outcome = executeIntent(save, intentId) || executeIntent(save, "observe");
     if (outcome.patch) {
-      store.updateSave(save.id, outcome.patch);
+      // F025：await AI 期间存档可能已被其它写入改动，outcome.patch 是相对旧
+      // 快照的绝对值。重读存档，把 patch 隐含的增量套到新快照上再夹紧写回。
+      const fresh = store.getSave(save.id) || save;
+      store.updateSave(save.id, aiValidate.applyVitalsDelta(save, fresh, outcome.patch));
     }
     const questNote = settleDailyQuests(save.id, input);
     const reply = store.appendLog(
