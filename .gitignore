@@ -7,3 +7,5 @@ data/
 *.db-shm
 .env
 .env.*
+.agent-run.lock
+.deploy.lock

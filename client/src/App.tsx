@@ -3,56 +3,215 @@ import { createSave, getLog, getSave, sendAction, LogEntry, Save } from "./api";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
-function Bar({ label, value, max, kind }: { label: string; value: number; max: number; kind: "hp" | "mp" }) {
+const CHAPTERS = [
+  "双重地下城",
+  "每日任务",
+  "猎人协会评级",
+  "地下城突袭",
+  "转职任务",
+  "红门",
+  "恶魔城",
+  "济州岛",
+];
+
+const ACTION_BUTTONS = [
+  { label: "探索前进", input: "前进", primary: true },
+  { label: "环顾四周", input: "观察" },
+  { label: "潜行", input: "潜行" },
+  { label: "休息", input: "休息" },
+];
+
+type TabKey = "inventory" | "skills" | "stats" | "map" | "quests";
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "inventory", label: "背包" },
+  { key: "skills", label: "技能" },
+  { key: "stats", label: "属性" },
+  { key: "map", label: "地图" },
+  { key: "quests", label: "任务" },
+];
+
+interface InvItem {
+  item_id: string;
+  qty: number;
+}
+
+function Gauge({ label, value, max, kind }: { label: string; value: number; max: number; kind: "hp" | "mp" }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div className="bar-row">
-      <span className="bar-label">{label}</span>
-      <div className="bar">
-        <div className={`bar-fill ${kind}`} style={{ width: `${pct}%` }} />
+    <div className={`gauge gauge-${kind}`}>
+      <span className="gauge-label">{label}</span>
+      <div className="gauge-track">
+        <div className="gauge-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span className="bar-text">
-        {value}/{max}
+      <span className="gauge-num">
+        {value}
+        <i>/</i>
+        {max}
       </span>
     </div>
   );
 }
 
-function StatusPanel({ save }: { save: Save }) {
+function StatusBar({ save, onOpenDrawer }: { save: Save; onOpenDrawer: () => void }) {
   const s = save.stats;
+  const chapterName = CHAPTERS[save.chapter - 1] ?? `第${save.chapter}章`;
   return (
-    <div className="panel status">
-      <div className="status-top">
-        <span className="status-name">{save.player_name}</span>
-        <span className="status-rank">{save.rank}</span>
-        <span className="status-meta">Lv.{save.level}</span>
-        <span className="status-meta">第 {save.chapter} 章</span>
-        <span className="status-meta">金币 {save.gold}</span>
-        <span className="status-meta">XP {save.xp}</span>
+    <header className="status">
+      <div className="status-id">
+        <span className="rank-badge">{save.rank}</span>
+        <div className="status-idbox">
+          <span className="status-name">{save.player_name}</span>
+          <span className="status-sub">
+            <span>Lv.{save.level}</span>
+            <i className="status-div" />
+            <span>
+              第{save.chapter}章 {chapterName}
+            </span>
+          </span>
+        </div>
       </div>
-      <div className="bars">
-        <Bar label="HP" value={save.hp} max={save.max_hp} kind="hp" />
-        <Bar label="MP" value={save.mp} max={save.max_mp} kind="mp" />
+      <div className="status-gauges">
+        <Gauge label="HP" value={save.hp} max={save.max_hp} kind="hp" />
+        <Gauge label="MP" value={save.mp} max={save.max_mp} kind="mp" />
       </div>
-      <div className="stats-row">
-        <span>力量 <b>{s.strength}</b></span>
-        <span>敏捷 <b>{s.agility}</b></span>
-        <span>体力 <b>{s.vitality}</b></span>
-        <span>智力 <b>{s.intelligence}</b></span>
-        <span>感知 <b>{s.perception}</b></span>
+      <div className="status-nums">
+        <span className="stat">
+          力<b>{s.strength}</b>
+        </span>
+        <span className="stat">
+          敏<b>{s.agility}</b>
+        </span>
+        <span className="stat">
+          体<b>{s.vitality}</b>
+        </span>
+        <span className="stat">
+          智<b>{s.intelligence}</b>
+        </span>
+        <span className="stat">
+          感<b>{s.perception}</b>
+        </span>
+        <span className="stat stat-gold">
+          金币<b>{save.gold}</b>
+        </span>
+        <span className="stat">
+          XP<b>{save.xp}</b>
+        </span>
+      </div>
+      <button className="drawer-toggle" onClick={onOpenDrawer} aria-label="打开档案面板">
+        档案
+      </button>
+    </header>
+  );
+}
+
+function HoloWindow({ entry }: { entry: LogEntry }) {
+  const m = entry.content.match(/^【([^】]+)】\s*([\s\S]*)$/);
+  const title = m ? m[1] : "系统";
+  const body = m ? m[2].trim() : entry.content;
+  const danger = /警|错误|失败|中断|危险|惩罚/.test(title);
+  return (
+    <div className={`holo${danger ? " holo-danger" : ""}`}>
+      <div className="holo-inner">
+        <div className="holo-title">{title}</div>
+        <div className="holo-body">{body}</div>
       </div>
     </div>
   );
 }
 
+function StageEntry({ entry }: { entry: LogEntry }) {
+  if (entry.role === "system") return <HoloWindow entry={entry} />;
+  if (entry.role === "user") {
+    return (
+      <div className="echo">
+        <span className="echo-text">{entry.content}</span>
+      </div>
+    );
+  }
+  return <p className="narration">{entry.content}</p>;
+}
+
+function SidePanel({ tab, save, inventory }: { tab: TabKey; save: Save; inventory: InvItem[] }) {
+  switch (tab) {
+    case "inventory":
+      return inventory.length ? (
+        <ul className="inv-list">
+          {inventory.map((it) => (
+            <li key={it.item_id} className="inv-item">
+              <span className="inv-name">{it.item_id.replace(/_/g, " ")}</span>
+              <span className="inv-qty">×{it.qty}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="side-empty">背包是空的。战利品会出现在这里。</p>
+      );
+    case "skills":
+      return <p className="side-empty">尚未习得技能。系统的馈赠尚未到来。</p>;
+    case "stats": {
+      const s = save.stats;
+      const rows: [string, number][] = [
+        ["力量", s.strength],
+        ["敏捷", s.agility],
+        ["体力", s.vitality],
+        ["智力", s.intelligence],
+        ["感知", s.perception],
+      ];
+      const top = Math.max(...rows.map((r) => r[1]), 1);
+      return (
+        <div className="stat-table">
+          {rows.map(([label, v]) => (
+            <div className="stat-line" key={label}>
+              <span className="stat-line-label">{label}</span>
+              <div className="stat-line-track">
+                <div className="stat-line-fill" style={{ width: `${(v / top) * 100}%` }} />
+              </div>
+              <span className="stat-line-num">{v}</span>
+            </div>
+          ))}
+          <div className="stat-line stat-line-meta">
+            <span className="stat-line-label">经验值</span>
+            <span className="stat-line-num">{save.xp}</span>
+          </div>
+          <div className="stat-line stat-line-meta">
+            <span className="stat-line-label">自由属性点</span>
+            <span className="stat-line-num">0</span>
+          </div>
+        </div>
+      );
+    }
+    case "map":
+      return (
+        <ol className="map-list">
+          {CHAPTERS.map((name, i) => {
+            const ch = i + 1;
+            const state = ch < save.chapter ? "done" : ch === save.chapter ? "now" : "locked";
+            return (
+              <li key={ch} className={`map-node map-${state}`}>
+                <span className="map-ch">Ch.{ch}</span>
+                <span className="map-name">{name}</span>
+                <span className="map-state">{state === "done" ? "已踏破" : state === "now" ? "当前位置" : "未解锁"}</span>
+              </li>
+            );
+          })}
+        </ol>
+      );
+    case "quests":
+      return <p className="side-empty">暂无进行中的任务。继续推进剧情，系统会下发指令。</p>;
+  }
+}
+
 export default function App() {
   const [save, setSave] = useState<Save | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [inventory, setInventory] = useState<InvItem[]>([]);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<TabKey>("inventory");
+  const [drawer, setDrawer] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,8 +221,9 @@ export default function App() {
       return;
     }
     getSave(Number(raw))
-      .then(async ({ save }) => {
+      .then(async ({ save, inventory }) => {
         setSave(save);
+        setInventory(inventory);
         setLog(await getLog(save.id));
       })
       .catch(() => localStorage.removeItem(STORAGE_KEY))
@@ -73,6 +233,56 @@ export default function App() {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [log]);
+
+  const dispatch = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || !save || busy) return;
+      setBusy(true);
+      setLog((l) => [...l, { id: Date.now(), role: "user", content: trimmed }]);
+      try {
+        const { reply, save: updated } = await sendAction(save.id, trimmed);
+        setSave(updated);
+        setLog((l) => [...l, reply]);
+      } catch {
+        setLog((l) => [
+          ...l,
+          { id: Date.now() + 1, role: "system", content: "【警报】与系统的连接中断。请检查网络后重试。" },
+        ]);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [save, busy]
+  );
+
+  const openTab = useCallback((key: TabKey) => {
+    setTab(key);
+    setDrawer(true);
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "inventory" || !save) return;
+    getSave(save.id)
+      .then((r) => setInventory(r.inventory))
+      .catch(() => {});
+  }, [tab, save]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDrawer(false);
+        return;
+      }
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= ACTION_BUTTONS.length) dispatch(ACTION_BUTTONS[n - 1].input);
+      else if (n >= 5 && n < 5 + TABS.length) openTab(TABS[n - 5].key);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dispatch, openTab]);
 
   const onCreate = useCallback(
     async (e: FormEvent) => {
@@ -96,57 +306,53 @@ export default function App() {
   );
 
   const onSend = useCallback(
-    async (e: FormEvent) => {
+    (e: FormEvent) => {
       e.preventDefault();
       const text = input.trim();
-      if (!text || !save || busy) return;
-      setBusy(true);
+      if (!text) return;
       setInput("");
-      const userEntry: LogEntry = { id: Date.now(), role: "user", content: text };
-      setLog((l) => [...l, userEntry]);
-      try {
-        const { reply, save: updated } = await sendAction(save.id, text);
-        setSave(updated);
-        setLog((l) => [...l, reply]);
-      } catch {
-        setLog((l) => [
-          ...l,
-          { id: Date.now() + 1, role: "system", content: "【系统】连接中断，请稍后再试。" },
-        ]);
-      } finally {
-        setBusy(false);
-      }
+      dispatch(text);
     },
-    [input, save, busy]
+    [input, dispatch]
   );
 
   if (loading) {
-    return <div className="app"><div className="create"><p className="sub">载入中……</p></div></div>;
+    return (
+      <div className="app app-gate">
+        <div className="holo">
+          <div className="holo-inner">
+            <div className="holo-title">系统</div>
+            <div className="holo-body">正在接入猎人行会终端……</div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!save) {
     return (
-      <div className="app">
-        <div className="create">
-          <h1>SOLO LEVELING</h1>
-          <p className="sub">
-            最弱的 E 级猎人，在双重地下城的尽头获得了「系统」。
-            <br />
-            输入你的名字，开始这段从底层登顶的旅程。
-          </p>
-          <form onSubmit={onCreate}>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="猎人代号"
-              maxLength={20}
-              autoFocus
-            />
-            <button type="submit" disabled={busy || !name.trim()}>
-              觉醒
-            </button>
-          </form>
-          {error && <p className="error">{error}</p>}
+      <div className="app app-gate">
+        <div className="holo holo-gate">
+          <div className="holo-inner">
+            <div className="holo-title">觉醒协议</div>
+            <div className="holo-body gate-body">
+              <p className="gate-line">检测到适格者。最弱兵器，亦可登顶。</p>
+              <p className="gate-line">登记猎人代号，接入「系统」。</p>
+              <form className="gate-form" onSubmit={onCreate}>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="猎人代号"
+                  maxLength={20}
+                  autoFocus
+                />
+                <button type="submit" className="btn primary" disabled={busy || !name.trim()}>
+                  觉醒
+                </button>
+              </form>
+              {error && <p className="gate-error">{error}</p>}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -154,25 +360,82 @@ export default function App() {
 
   return (
     <div className="app">
-      <StatusPanel save={save} />
-      <div className="panel log" ref={logRef}>
-        {log.map((entry) => (
-          <div key={entry.id} className={`log-entry ${entry.role}`}>
-            {entry.content}
+      <StatusBar save={save} onOpenDrawer={() => setDrawer(true)} />
+
+      <main className="stage" ref={logRef}>
+        <div className="stage-col">
+          {log.map((entry) => (
+            <StageEntry key={entry.id} entry={entry} />
+          ))}
+          {busy && (
+            <div className="pending">
+              <span className="pending-dot" />
+              系统处理中
+            </div>
+          )}
+        </div>
+      </main>
+
+      <div className={`drawer-veil${drawer ? " show" : ""}`} onClick={() => setDrawer(false)} />
+      <aside className={`sidebar${drawer ? " open" : ""}`} aria-label="档案面板">
+        <nav className="side-tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              className={`side-tab${tab === t.key ? " active" : ""}`}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+        <div className="side-body">
+          <SidePanel tab={tab} save={save} inventory={inventory} />
+        </div>
+      </aside>
+
+      <footer className="actions">
+        <div className="action-groups">
+          <div className="btn-group">
+            <span className="group-label">行动</span>
+            {ACTION_BUTTONS.map((b, i) => (
+              <button
+                key={b.label}
+                className={`btn${b.primary ? " primary" : ""}`}
+                disabled={busy}
+                onClick={() => dispatch(b.input)}
+                title={`快捷键 ${i + 1}`}
+              >
+                {b.label}
+                <kbd>{i + 1}</kbd>
+              </button>
+            ))}
           </div>
-        ))}
-      </div>
-      <form className="panel input-bar" onSubmit={onSend}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="输入你的行动……（试试「状态」「帮助」「观察」「前进」）"
-          autoFocus
-        />
-        <button type="submit" disabled={busy || !input.trim()}>
-          发送
-        </button>
-      </form>
+          <div className="btn-group">
+            <span className="group-label">系统</span>
+            {TABS.map((t, i) => (
+              <button key={t.key} className="btn" onClick={() => openTab(t.key)} title={`快捷键 ${i + 5}`}>
+                {t.label}
+                <kbd>{i + 5}</kbd>
+              </button>
+            ))}
+            <button className="btn" disabled={busy} onClick={() => dispatch("存档")}>
+              存档
+            </button>
+          </div>
+        </div>
+        <form className="input-row" onSubmit={onSend}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="做点别的……（自由行动）"
+            aria-label="自由行动输入"
+          />
+          <button type="submit" className="btn primary" disabled={busy || !input.trim()}>
+            发送
+          </button>
+        </form>
+      </footer>
     </div>
   );
 }
