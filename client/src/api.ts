@@ -24,7 +24,9 @@ export interface Save {
   stats: Stats;
   free_points: number;
   gold: number;
+  kills: number;
   chapter: number;
+  cleared: boolean;
 }
 
 export interface LogEntry {
@@ -127,6 +129,22 @@ export interface QuestsView {
   penalty: QuestPenalty;
 }
 
+export interface EndingStats {
+  level: number;
+  kills: number;
+  shadows: number;
+  clear_time: string;
+  chapters_cleared: number;
+}
+
+export interface Ending {
+  chapter: number;
+  title: string;
+  epilogue: string;
+  stats: EndingStats;
+  lines: string[];
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -165,6 +183,10 @@ export const getSkills = () => req<{ skills: Skill[] }>("/skills").then((r) => r
 
 // 任务视图：主线由章节推导，每日进度与惩罚倒计时全部服务端结算。
 export const getQuests = (id: number) => req<QuestsView>(`/saves/${id}/quests`);
+
+// 通关结算：等级/击杀/影子/耗时全部服务端按存档实时结算，本地只渲染。
+export const fetchEnding = (saveId: number): Promise<Ending> =>
+  req<{ ending: Ending }>(`/saves/${saveId}/ending`).then((r) => r.ending);
 
 // 背包操作：只传 item_id 与 op，所有数值（回复量、装备加成、qty）由服务端决定。
 export const useItem = (save_id: number, item_id: string, op: ItemOp) =>
