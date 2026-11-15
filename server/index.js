@@ -468,26 +468,58 @@ function claimMainReward(saveId, chapterId) {
 
 // F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章起点、
 // HP/MP 恢复至上限一半、deaths+1。返回播报行，未死返回 null。
+// F095：第 1 章「首次」死亡是剧情事件——接入 ch1_death 濒死支线，
+// 系统提前完成绑定，一次性补满升级差额（实质 +1 级：满血上限、
+// 自由属性点入账），让死亡成为推进而不是零收益循环。触发条件
+// chapter===1 && deaths===0，终生只此一次；第 2 章起死亡仍是纯回溯。
 function settleDeath(saveId) {
   const save = store.getSave(saveId);
   if (!save || save.hp > 0) return null;
   const chapter = chaptersEngine.getChapter(save.chapter) || chaptersEngine.getChapter(1);
   const first = chapter ? chaptersEngine.firstSceneOf(chapter) : null;
-  store.updateSave(saveId, {
-    hp: Math.max(1, Math.round(save.max_hp * 0.5)),
-    mp: Math.max(0, Math.round(save.max_mp * 0.5)),
+  const patch = {
     chapter: chapter ? chapter.index : 1,
     scene: first ? first.id : null,
     deaths: (Number(save.deaths) || 0) + 1,
     encounter_clock: 0,
     encounter_cd: 0,
-  });
+  };
+  const lines = ["【系统】你倒下了……视野在尖锐的警报声里碎成一片黑雪。"];
+
+  let halfOfHp = Number(save.max_hp) || 1;
+  let halfOfMp = Number(save.max_mp) || 0;
+  if (chapter && chapter.index === 1 && (Number(save.deaths) || 0) === 0) {
+    const nearDeath = chaptersEngine.getScene("ch1_death");
+    if (nearDeath && nearDeath.text) lines.push(nearDeath.text);
+    // 补满距下一级的 XP 差额 → applyXp 结算恰好 +1 级。
+    const before = Math.max(1, Math.trunc(Number(save.level) || 1));
+    const need = Math.max(1, (Number(progression.xpToNext(before)) || 0) - (Number(save.xp) || 0));
+    const { state } = progression.applyXp(save, need);
+    if (state.level > before) {
+      const gained = Math.max(0, (Number(state.free_points) || 0) - (Number(save.free_points) || 0));
+      patch.level = state.level;
+      patch.xp = state.xp;
+      patch.free_points = state.free_points;
+      patch.max_hp = state.max_hp;
+      patch.max_mp = state.max_mp;
+      halfOfHp = state.max_hp;
+      halfOfMp = state.max_mp;
+      lines.push(
+        `【觉醒】濒死之际，那面蓝色光幕再度展开——【检测到适格个体，「系统」提前完成绑定。】` +
+        `等级提升 Lv.${before} → Lv.${state.level} · 自由属性点 +${gained} · HP/MP 上限提升。`
+      );
+    }
+  }
+
+  patch.hp = Math.max(1, Math.round(halfOfHp * 0.5));
+  patch.mp = Math.max(0, Math.round(halfOfMp * 0.5));
+  store.updateSave(saveId, patch);
   store.clearCombat(saveId);
   const title = chapter ? `「${chapter.title}」` : "";
-  return [
-    "【系统】你倒下了……视野在尖锐的警报声里碎成一片黑雪。",
-    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章${title}的起点，伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`,
-  ];
+  lines.push(
+    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章${title}的起点，伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`
+  );
+  return lines;
 }
 
 // 击杀冷却：击杀后至少移动这么多次（换场景）才会再掷遭遇——原地连点
@@ -529,7 +561,7 @@ function encounterBlockedByCooldown(save, scene) {
 // F088 遭遇判定：boss 场景必遇本章 boss（已击杀过的守关房按普通场景掷
 // 小怪，防止原地无限刷 boss 吃经验）；否则按保底计数/章节遭遇率掷点。
 // 种子 = 存档 + 场景 + 落空计数 + 开战盐 seq，确定性可复现但场场不同。
-function tryEncounter(save, sceneId) {
+function tryEncounter(save, sceneId, opts) {
   const scene = chaptersEngine.getScene(sceneId);
   const chapter = chaptersEngine.getChapter(save.chapter);
   if (!scene || !chapter) return null;
@@ -538,7 +570,14 @@ function tryEncounter(save, sceneId) {
     scene.kind === "boss" && sceneChapter && bossCleared(save, sceneChapter.id)
       ? { ...scene, kind: "dungeon" }
       : scene;
-  const clock = Math.max(0, Math.trunc(Number(save.encounter_clock) || 0));
+  // F095 逃生阀：从守关战「逃跑」成功会挂上 boss 房再入冷却——
+  // encounter_clock 负值即「残骸重新凝聚中」，两步移动内再进同一
+  // boss 房不再强制开战（已击杀的守关房本就不走 boss 判定，不受影响）。
+  // opts.forceBoss：玩家在冷却期内原地「攻击」= 主动挑战守关者，
+  // 显式叫阵压过冷却——逃生阀只保证「不被迫打」，不没收「想打」的权利。
+  const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
+  if (effective.kind === "boss" && rawClock < 0 && !(opts && opts.forceBoss)) return null;
+  const clock = Math.max(0, rawClock);
   const seq = nextEncounterSeq(save);
   const seed = `${save.id}:${scene.id}:${clock}:${seq}`;
   const enemy = encounterEngine.roll({ chapterIndex: chapter.index, scene: effective, clock, seed });
@@ -606,6 +645,9 @@ function advanceWithEncounter(save) {
     if (!moved) return res;
     patch.encounter_cd = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
     if (patch.chapter && patch.chapter !== save.chapter) patch.encounter_clock = 0;
+    // 撤离后的真实移动同样消耗 boss 房再入冷却（负值向 0 倒数）。
+    const fleeClock = Math.trunc(Number(save.encounter_clock) || 0);
+    if (fleeClock < 0) patch.encounter_clock = Math.min(0, fleeClock + 1);
     applyTailGate(res, chaptersEngine.getChapter(patch.chapter || save.chapter), false);
     return res;
   }
@@ -637,13 +679,17 @@ function advanceWithEncounter(save) {
       patch.scene
     );
   }
+  const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
   if (enemy) {
     res.combat = { op: "set", enemy, turn: 1 };
-    patch.encounter_clock = 0;
+    // 开战清零保底；boss 逃跑冷却未走完则继续倒数（不互相吞掉）。
+    patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
     res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+  } else if (rawClock < 0) {
+    patch.encounter_clock = Math.min(0, rawClock + 1);
   } else if (!(patch.chapter && patch.chapter !== save.chapter)) {
-    patch.encounter_clock = Math.max(0, Math.trunc(Number(save.encounter_clock) || 0)) + 1;
+    patch.encounter_clock = rawClock + 1;
   }
 
   applyTailGate(res, nextChapter, Boolean(enemy && enemy.boss));
@@ -676,11 +722,17 @@ function skillGate(save, input) {
   return { ok: true, skill };
 }
 
+// boss 房逃跑再入冷却步数：从守关战「逃跑」撤回上一场景后，这么多次
+// 真实移动内再进同一 boss 房不会强制重遇同一守关者。
+const BOSS_FLEE_COOLDOWN = 2;
+
 // 交战中统一走 engine/combat.js resolveTurn 结算一回合。种子由存档 +
 // 开战盐（enemy.seq，每场战斗唯一）+ 回合数构成，确定性可复现且场场
 // 不同；事件文案全部由引擎产出，本函数只做落库参数与播报拼装
 // （HP/MP 变化如实写出，不变不写）。
-function combatTurn(save, cbt, action, input, skill) {
+// opts.retreatOnFlee：显式「逃跑」指令成功时允许撤退回上一主线场景
+// （守关 boss 专用逃生阀）；「前进」强行撤离走另一条路——向前落点。
+function combatTurn(save, cbt, action, input, skill, opts) {
   let itemUse = null;
   if (action === "item") {
     // 道具必须真实消耗且药效对版：玩家点名（「使用道具 低级治疗药水」）
@@ -822,6 +874,26 @@ function combatTurn(save, cbt, action, input, skill) {
   } else if (fled || patch.hp <= 0) {
     // 逃跑成功 / 玩家倒下：交战态都必须收敛。死亡由 settleDeath 统一结算。
     res.combat = { op: "clear" };
+    // F095 逃生阀：守关 boss 房里的显式「逃跑」成功 = 真的脱离 boss 房，
+    // 撤回本章主线链上一场景（没有上一场景则原地脱离），并挂 2 步再入
+    // 冷却——冷却期重进 boss 房不会立刻重遇同一守关者，玩家永远有
+    // 「退出去练级再打回来」的余地，不会被锁死在守关战里。
+    if (fled && patch.hp > 0 && cbt.enemy.boss && opts && opts.retreatOnFlee) {
+      patch.encounter_clock = -BOSS_FLEE_COOLDOWN;
+      const bossChapter =
+        chaptersEngine.getChapterOfScene(save.scene) || chaptersEngine.getChapter(save.chapter);
+      const idx = bossChapter ? chaptersEngine.pathIndexOf(bossChapter, save.scene) : -1;
+      const prev =
+        idx > 0 ? chaptersEngine.chapterPath(bossChapter)[idx - 1] : null;
+      if (prev) {
+        patch.scene = prev.id;
+        res.content +=
+          `\n【战斗】你且战且退，撤回了「${prev.title}」——` +
+          `守关者的残骸在身后缓缓凝聚，两步之内不会再立刻成军。`;
+      } else {
+        res.content += `\n【战斗】你摆脱了${e.name}的纠缠——它需要时间重新凝聚成形。`;
+      }
+    }
   } else {
     res.combat = { op: "turn", enemy: e, turn: state.turn };
   }
@@ -847,18 +919,27 @@ function peacefulCombatIntent(save, input, action) {
         events: [],
       };
     }
-    const enemy = tryEncounter(save, scene ? scene.id : null);
+    // boss 房逃跑冷却是负值 encounter_clock：原地出招不算「移动」，
+    // 既不倒数也不清零——冷却只随真实移动推进。但冷却期的 boss 房里
+    // 原地「攻击」= 主动叫阵，守关者被提前惊动成形——压过冷却直接开战。
+    const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
+    const bossChallenge =
+      scene && scene.kind === "boss" && rawClock < 0 &&
+      !bossCleared(save, (chaptersEngine.getChapterOfScene(scene.id) || {}).id);
+    const enemy = tryEncounter(save, scene ? scene.id : null, bossChallenge ? { forceBoss: true } : undefined);
     if (enemy) {
       return {
-        patch: { encounter_clock: 0, encounter_seq: enemy.seq },
-        content: `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`,
+        patch: { encounter_clock: rawClock < 0 ? rawClock : 0, encounter_seq: enemy.seq },
+        content: bossChallenge
+          ? `【遭遇】你主动逼近满地残骸——${enemy.name} Lv.${enemy.level} 被惊动，提前凝聚成形，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`
+          : `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`,
         events: [],
         combat: { op: "set", enemy, turn: 1 },
       };
     }
     return {
       patch: {
-        encounter_clock: Math.max(0, Math.trunc(Number(save.encounter_clock) || 0)) + 1,
+        encounter_clock: rawClock < 0 ? rawClock : rawClock + 1,
       },
       content: "【系统】你摆出战斗架势，四周却空无一物——周围没有可攻击的目标。",
       events: [],
@@ -881,7 +962,7 @@ function combatIntent(save, input, action) {
     if (!gate.ok) return { patch: null, content: gate.content, events: [] };
     skill = gate.skill;
   }
-  return combatTurn(save, cbt, action, input, skill);
+  return combatTurn(save, cbt, action, input, skill, { retreatOnFlee: action === "flee" });
 }
 
 // Whitelisted intents. Each entry owns its log role, the
