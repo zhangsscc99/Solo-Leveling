@@ -13,6 +13,7 @@
 const fs = require("fs");
 const path = require("path");
 const chaptersEngine = require("./chapters");
+const endingEngine = require("./ending");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "quests.json");
 
@@ -282,10 +283,17 @@ const DEFAULT_MAIN_REWARD = { xp: 100, "gold": 50 };
 function buildMainQuests(chapterList, save, mainRewards) {
   const current = Math.max(1, Math.trunc(Number(save && save.chapter) || 1));
   const rewards = mainRewards || {};
+  // F082：已通关（当前场景为 ch8_epilogue）时当前章主线收束为 done——
+  // 数据层先保证 done/cleared 正确，「已达成」的 UI 呈现归 F091。
+  const cleared = endingEngine.hasCleared(save);
 
   return (chapterList || []).map((chapter) => {
     const status =
-      chapter.index < current ? "done" : chapter.index === current ? "active" : "locked";
+      chapter.index < current || (chapter.index === current && cleared)
+        ? "done"
+        : chapter.index === current
+          ? "active"
+          : "locked";
     const target = Math.max(1, chaptersEngine.chapterPath(chapter).length);
     let done = 0;
     if (status === "done") done = target;

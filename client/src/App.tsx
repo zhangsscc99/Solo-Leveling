@@ -379,17 +379,24 @@ export default function App() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [log]);
 
-  // 战斗态没有服务端字段：日志里出现明确交战信号（遭遇X / 第N回合）时
-  // 自动展开面板；gate 由 engage 跳变到 ended 的那一次收束关闭。
-  // 边沿触发而非电平触发：ended 残留期内手动打开的面板不会被后续日志
-  // 强行关掉，engage 持续期内手动收起的面板也不会被下一条日志重新顶开。
+  // 战斗面板开合：save.combat（服务端真实交战态）是第一信号，日志里的
+  // 明确交战信号（遭遇X / 第N回合）做兼容兜底；gate 由 engage 跳变到
+  // ended 的那一次收束关闭。边沿触发而非电平触发：ended 残留期内手动
+  // 打开的面板不会被后续日志强行关掉，engage 持续期内手动收起的面板
+  // 也不会被下一条日志重新顶开。
+  const liveCombat = Boolean(save && save.combat);
+  const liveRef = useRef(false);
+  useEffect(() => {
+    if (liveCombat && !liveRef.current) setCombatOpen(true);
+    liveRef.current = liveCombat;
+  }, [liveCombat]);
   useEffect(() => {
     const gate = detectCombatGate(log);
     const prev = gateRef.current;
     gateRef.current = gate;
     if (gate === "engage" && prev !== "engage") setCombatOpen(true);
-    else if (gate === "ended" && prev === "engage") setCombatOpen(false);
-  }, [log]);
+    else if (gate === "ended" && prev === "engage" && !liveCombat) setCombatOpen(false);
+  }, [log, liveCombat]);
 
   const dispatch = useCallback(
     async (text: string) => {

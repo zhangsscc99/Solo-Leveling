@@ -70,7 +70,7 @@ test("fallback.parse: 背包/观察类输入落到 observe", () => {
 });
 
 test("fallback.parse never returns empty: garbage falls back to observe", () => {
-  for (const input of ["攻击！asdfgh", "🌀🌀🌀", "", "   ", null, undefined, 42, {}]) {
+  for (const input of ["asdfgh zzz qqq", "🌀🌀🌀", "", "   ", null, undefined, 42, {}]) {
     const r = fallback.parse(input);
     assert.equal(r.intent, "observe", `input ${JSON.stringify(input)}`);
     assert.ok(v.INTENT_IDS.has(r.intent));

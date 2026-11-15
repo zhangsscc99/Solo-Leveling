@@ -16,6 +16,12 @@ const INTENT_MATCHERS = [
   { intent: "shadow_deploy", match: DEPLOY_COMMAND },
   { intent: "shadow_undeploy", match: UNDEPLOY_COMMAND },
   { intent: "shadow_formation", match: FORMATION_COMMAND },
+  // F088 战斗意图：无交战时由遭遇表判定能否开战，交战中走 resolveTurn。
+  { intent: "attack", match: /攻击|打击|砍|斩|刺|击杀|消灭|猎杀|attack|strike|fight/i },
+  { intent: "skill", match: /释放技能|施放技能|使用技能|施放|咏唱|释放|skill|cast/i },
+  { intent: "defend", match: /防御|格挡|招架|防守|defend|block|guard/i },
+  { intent: "item", match: /使用道具|道具|喝药|吃药|use item|use potion|item/i },
+  { intent: "flee", match: /逃跑|逃离|撤退|逃走|flee|escape|retreat/i },
   { intent: "status", match: /状态|面板|属性|status|stat/i },
   { intent: "help", match: /帮助|指令|help/i },
   { intent: "observe", match: /观察|查看|环顾|四周|环境|看|look|inspect/i },
