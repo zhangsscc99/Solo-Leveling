@@ -59,7 +59,10 @@ function sceneView(save) {
   if (!chapter || !scene) return base;
   const total = chaptersEngine.chapterPath(chapter).length;
   const idx = chaptersEngine.pathIndexOf(chapter, scene.id);
-  const steps = idx + 1;
+  // F098：主线计数取「当前位置」与「已到达最远步序（main_steps 高水位）」
+  // 的较大值——死亡回溯只退位置不退计数。scene_index 仍如实暴露真实站位。
+  const kept = Math.max(0, Math.trunc(Number(save.main_steps) || 0));
+  const steps = Math.min(total, Math.max(idx + 1, kept));
   const gate = chaptersEngine.unlockedFor(save, chapter);
   return {
     scene: scene.id,
@@ -68,7 +71,7 @@ function sceneView(save) {
     chapter_steps: steps,
     chapter_total: total,
     chapter_progress: `${steps}/${total}`,
-    chapter_completed: idx >= 0 && idx === total - 1,
+    chapter_completed: total > 0 && steps >= total,
     chapter_unlock: {
       level: gate.level,
       chapter: gate.chapter,
@@ -591,17 +594,31 @@ function claimMainReward(saveId, chapterId) {
   return [`【主线】第${chapter.index}章主线达成，奖励入账 ${parts.join(" · ")}。`, ...lines];
 }
 
-// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章起点、
+// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章入口、
 // HP/MP 恢复至上限一半、deaths+1。返回播报行，未死返回 null。
 // F095：第 1 章「首次」死亡是剧情事件——接入 ch1_death 濒死支线，
 // 系统提前完成绑定，一次性补满升级差额（实质 +1 级：满血上限、
 // 自由属性点入账），让死亡成为推进而不是零收益循环。触发条件
 // chapter===1 && deaths===0，终生只此一次；第 2 章起死亡仍是纯回溯。
+// F098：回溯只退位置不退主线——已到达的最远主线步序写入 main_steps
+// 高水位（saveView 的 chapter_progress 取站位与水位较大值），播报分行
+// 写清「落点回入口 / 主线计数保留」，两句话都是真实发生的，不互相矛盾。
+// 首死另发一次性保底 XP（DEATH_CONSOLATION_XP，终生一次，deaths>0 后不再
+// 发）——死亡给一条出路，但不是刷经验的门。
+const DEATH_CONSOLATION_XP = 30;
+
 function settleDeath(saveId) {
   const save = store.getSave(saveId);
   if (!save || save.hp > 0) return null;
   const chapter = chaptersEngine.getChapter(save.chapter) || chaptersEngine.getChapter(1);
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
   const first = chapter ? chaptersEngine.firstSceneOf(chapter) : null;
+  // 倒下那一刻的站位也要计入水位：max(本次站位, 历史水位)，封顶链长。
+  const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save.scene) : -1;
+  const kept = Math.min(
+    path.length,
+    Math.max(idx + 1, Math.trunc(Number(save.main_steps) || 0))
+  );
   const patch = {
     chapter: chapter ? chapter.index : 1,
     scene: first ? first.id : null,
@@ -609,11 +626,13 @@ function settleDeath(saveId) {
     encounter_clock: 0,
     encounter_cd: 0,
   };
+  if (kept > 0) patch.main_steps = kept;
   const lines = ["【系统】你倒下了……视野在尖锐的警报声里碎成一片黑雪。"];
+  const firstDeath = (Number(save.deaths) || 0) === 0;
 
   let halfOfHp = Number(save.max_hp) || 1;
   let halfOfMp = Number(save.max_mp) || 0;
-  if (chapter && chapter.index === 1 && (Number(save.deaths) || 0) === 0) {
+  if (chapter && chapter.index === 1 && firstDeath) {
     const nearDeath = chaptersEngine.getScene("ch1_death");
     if (nearDeath && nearDeath.text) lines.push(nearDeath.text);
     // 补满距下一级的 XP 差额 → applyXp 结算恰好 +1 级。
@@ -636,14 +655,49 @@ function settleDeath(saveId) {
     }
   }
 
+  // F098 首死保底 XP：在觉醒结算之上叠加（无觉醒则单独入账）。只在确实
+  // 带来收益（XP 增加或跨级）时写播报——满级档 applyXp 会把 XP 归零，
+  // 那种情况不发也不说，文案永远只写真实发生的数值。
+  if (firstDeath) {
+    const base = { ...save, ...patch };
+    const { state } = progression.applyXp(base, DEATH_CONSOLATION_XP);
+    const leveled = state.level > (Number(base.level) || 1);
+    const gained = state.xp > (Number(base.xp) || 0);
+    if (leveled || gained) {
+      patch.xp = state.xp;
+      patch.level = state.level;
+      patch.free_points = state.free_points;
+      patch.max_hp = state.max_hp;
+      patch.max_mp = state.max_mp;
+      if (state.rank && state.rank !== save.rank) patch.rank = state.rank;
+      if (leveled) {
+        halfOfHp = state.max_hp;
+        halfOfMp = state.max_mp;
+      }
+      lines.push(
+        `【系统】初次倒下，系统把逸散的经验重新凝结给你——XP +${DEATH_CONSOLATION_XP}` +
+          (leveled ? `，等级提升 Lv.${base.level} → Lv.${state.level}` : "") +
+          `。（仅此一次，之后的回溯不再补发）`
+      );
+    }
+  }
+
   patch.hp = Math.max(1, Math.round(halfOfHp * 0.5));
   patch.mp = Math.max(0, Math.round(halfOfMp * 0.5));
   store.updateSave(saveId, patch);
   store.clearCombat(saveId);
-  const title = chapter ? `「${chapter.title}」` : "";
   lines.push(
-    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章${title}的起点，伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`
+    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章的入口` +
+      `${first ? `「${first.title}」` : ""}，` +
+      `伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`
   );
+  if (chapter && path.length && kept > 0) {
+    const mark = path[kept - 1];
+    lines.push(
+      `【系统】已保留：第${chapter.index}章 主线 ${kept}/${path.length}` +
+        `${mark ? ` · 「${mark.title}」` : ""}——走过的里程碑不会被回溯抹去。`
+    );
+  }
   return lines;
 }
 
@@ -1591,7 +1645,23 @@ function applyOutcome(saveId, outcome) {
     ) {
       outcome.patch.rest_used = 0;
     }
-    if (outcome.patch) store.updateSave(saveId, outcome.patch);
+    if (outcome.patch) {
+      store.updateSave(saveId, outcome.patch);
+      // F098 主线高水位：落点在本章主线链上推进到第几步，main_steps 就
+      // 至少记到第几步（只进不退）；跨章落点换新章重新计。死亡回溯在其后
+      // 执行，只改 scene 不动水位——进度计数因此不被回溯抹掉。
+      const after = store.getSave(saveId);
+      const chAfter = after ? chaptersEngine.getChapter(after.chapter) : null;
+      const idxAfter = chAfter ? chaptersEngine.pathIndexOf(chAfter, after.scene) : -1;
+      const sameChapter = before && after && after.chapter === before.chapter;
+      const prevWater = sameChapter
+        ? Math.max(0, Math.trunc(Number(before.main_steps) || 0))
+        : 0;
+      const water = Math.max(prevWater, idxAfter + 1);
+      if (after && water !== Math.max(0, Math.trunc(Number(after.main_steps) || 0))) {
+        store.updateSave(saveId, { main_steps: water });
+      }
+    }
     if (outcome.combat) {
       if (outcome.combat.op === "set") {
         store.setCombat(saveId, outcome.combat.enemy, outcome.combat.turn || 1);
@@ -1693,7 +1763,9 @@ api.get("/chapters", (req, res) => {
     if (state === "current") {
       const scene = chaptersEngine.currentScene(save);
       const idx = scene ? chaptersEngine.pathIndexOf(chapter, scene.id) : -1;
-      steps = idx >= 0 ? idx + 1 : 0;
+      // 与 saveView 同一口径：高水位只进不退——回溯后位置退、计数不退。
+      const kept = Math.max(0, Math.trunc(Number(save.main_steps) || 0));
+      steps = Math.min(mainTotal, Math.max(idx + 1, kept));
     }
     return { ...view, state, progress: { current: steps, target: mainTotal } };
   });
