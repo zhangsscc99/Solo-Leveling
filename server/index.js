@@ -105,11 +105,24 @@ function combatView(combat) {
   };
 }
 
+// F089 终章收束：一次性拒绝文案。/action、/ai-action 的入口短路与
+// advanceOutcome 的兜底共用同一句——无论连点多少次，玩家看到的永远是
+// 这同一条指引，且（经入口短路时）一行日志都不产生。
+const EPILOGUE_REFUSAL =
+  "【系统】已抵达故事的终章，前路已尽。打开「结算」面板，回看这一路的战绩。";
+
+// 终章拒绝回复不落库，拿不到真实日志行号——用递减负数占位作前端渲染
+// key，与真实行号域（>=1）天然不撞。
+let epilogueReplySeq = 0;
+
 // 出参统一带派生字段：xp_to_next 由等级曲线算出，free_points 兜底 0。
 // cleared 是通关唯一判定（endingEngine.hasCleared：当前场景为 ch8_epilogue），
 // 前端「结算」tab 与 /saves/:id/ending 门禁共用同一结论，不各自推导。
+// at_epilogue 与 cleared 同值，是 F089 给前端的显式终章态信号——前端按
+// 字段渲染「查看结算」入口，不做任何文本匹配。
 function saveView(save) {
   if (!save) return save;
+  const cleared = endingEngine.hasCleared(save);
   return {
     ...save,
     ...sceneView(save),
@@ -117,7 +130,8 @@ function saveView(save) {
     kills: Number(save.kills) || 0,
     deaths: Number(save.deaths) || 0,
     combat: combatView(store.getCombat(save.id)),
-    cleared: endingEngine.hasCleared(save),
+    cleared,
+    at_epilogue: cleared,
     xp_to_next: progression.xpToNext(save.level),
   };
 }
@@ -373,14 +387,13 @@ function advanceOutcome(save) {
 
   const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
 
-  // 已站在主线链尾：再前进即过门穿章；没有下一章 = 全篇终点，
-  // 只给收束提示，不重复输出结局正文。
+  // 已站在主线链尾：再前进即过门穿章；没有下一章 = 全篇终点。
+  // F089：终章拒绝推进——零体力消耗、零落点改动；正常入口在路由层短路
+  // （连日志都不写），这里只是 ai-action 非常规输入映射到 advance 时的
+  // 兜底，保证任何路径都扣不到血。
   if (idx === path.length - 1) {
     if (!nextChapter) {
-      return {
-        patch: vit.patch,
-        content: `【系统】此处已是故事的终章，再无前路。\n${vit.note}`,
-      };
+      return { patch: null, content: EPILOGUE_REFUSAL };
     }
     return chapterGate(save, chapter, nextChapter, vit);
   }
@@ -1779,6 +1792,18 @@ api.post("/action", (req, res) => {
     return res.status(404).json({ error: "save not found" });
   }
 
+  // F089 终章收束：已在 ch8_epilogue（endingEngine.hasCleared，与
+  // save.cleared / at_epilogue 同一判定）时「前进」整体拒绝——用户输入
+  // 与播报都不进日志、不结算 HP/MP、不掷遭遇；回包只带一次性指引与同
+  // 一份 save，连点多少次都是同一句话、日志零增长。
+  if (intentRules.resolveIntent(input) === "advance" && endingEngine.hasCleared(save)) {
+    return res.json({
+      reply: { id: --epilogueReplySeq, role: "system", content: EPILOGUE_REFUSAL },
+      save: saveView(save),
+      ending_ready: true,
+    });
+  }
+
   store.appendLog(save.id, "user", input);
 
   // Server-side authority: the resolved intent's own delta is applied and the
@@ -1833,6 +1858,17 @@ api.post("/ai-action", async (req, res) => {
     const save = store.getSave(saveId);
     if (!save) {
       return res.status(404).json({ error: "save not found" });
+    }
+
+    // 与 /action 同一短路（F089）：终章态「前进」拒绝——不写日志不扣体力，
+    // AI 网关也不必为一次必拒的指令白跑一趟。
+    if (intentRules.resolveIntent(input) === "advance" && endingEngine.hasCleared(save)) {
+      return res.json({
+        reply: { id: --epilogueReplySeq, role: "system", content: EPILOGUE_REFUSAL },
+        intent: "advance",
+        save: saveView(save),
+        ending_ready: true,
+      });
     }
 
     store.appendLog(save.id, "user", input);
