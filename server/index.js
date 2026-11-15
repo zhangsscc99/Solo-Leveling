@@ -350,7 +350,7 @@ const INTENTS = [
   {
     id: "status",
     role: "system",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:状态|面板|属性|status|stats?)/i,
+    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:(?:查看|打开|看看?|调出)\s*)?(?:状态|面板|属性|status|stats?)/i,
     build: (save) => {
       const s = save.stats || {};
       return {
@@ -390,7 +390,7 @@ const INTENTS = [
   {
     id: "advance",
     role: "narrator",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:前进|探索|走|移动|离开|进入|advance|go)/i,
+    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:前进|探索|走|移动|离开|进入|advance|explore|go)/i,
     build: (save) => {
       const hp = clamp(save.hp - 3, 1, save.max_hp);
       const mp = clamp(save.mp - 2, 0, save.max_mp);
@@ -906,7 +906,7 @@ api.post("/ai-action", async (req, res) => {
       degraded = true;
     }
 
-    const outcome = executeIntent(save, intentId) || executeIntent(save, "observe");
+    const outcome = executeIntent(save, intentId, input) || executeIntent(save, "observe", input);
     if (outcome.patch) {
       // F025：await AI 期间存档可能已被其它写入改动，outcome.patch 是相对旧
       // 快照的绝对值。重读存档，把 patch 隐含的增量套到新快照上再夹紧写回。
@@ -920,6 +920,7 @@ api.post("/ai-action", async (req, res) => {
       questNote ? `${outcome.content}\n${questNote}` : outcome.content
     );
     const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
+    if (outcome.shadows) payload.shadows = outcome.shadows;
     if (degraded) payload.degraded = true;
     res.json(payload);
   } catch (err) {

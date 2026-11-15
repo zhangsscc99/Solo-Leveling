@@ -15,6 +15,9 @@
 // copy: this module must not require the server entry point, which owns the
 // listener and the sqlite handle). Keep in sync if that list changes.
 const INTENTS = Object.freeze([
+  "shadow_deploy",
+  "shadow_undeploy",
+  "shadow_formation",
   "status",
   "help",
   "observe",

@@ -1,6 +1,6 @@
 // F021/F024 规则兜底解析器：AI 网关失败、超时、输出非法时，
 // 用关键词把自由输入映射到白名单 intent，保证 /ai-action 永远有回应。
-// CommonJS，无依赖，纯函数，永不抛异常。
+// CommonJS，纯函数，永不抛异常。
 //
 // parse(input) -> { intent, args, content? }
 //   intent  白名单 id（与 server/index.js 的 INTENTS 一致）
@@ -11,11 +11,17 @@
 
 // 与 server/index.js 的 INTENTS 一致：指令词必须出现在句首（允许礼貌前缀），
 // 叙述句（如「我想让影子出战后休息」）不匹配任何意图，落到 observe 兜底。
+// 影子三条指令直接复用引擎正则，保证 /action 与降级解析行为一致。
+const { DEPLOY_COMMAND, UNDEPLOY_COMMAND, FORMATION_COMMAND } = require("../engine/shadow");
+
 const RULES = [
-  { intent: "status", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:状态|面板|属性|status|stats?)/i },
+  { intent: "shadow_deploy", match: DEPLOY_COMMAND },
+  { intent: "shadow_undeploy", match: UNDEPLOY_COMMAND },
+  { intent: "shadow_formation", match: FORMATION_COMMAND },
+  { intent: "status", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:(?:查看|打开|看看?|调出)\s*)?(?:状态|面板|属性|status|stats?)/i },
   { intent: "help", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:帮助|指令|help)/i },
   { intent: "observe", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:观察|查看|环顾|四周|环境|看|look|inspect)/i },
-  { intent: "advance", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:前进|继续|探索|走|移动|离开|进入|深入|前行|advance|go|move|continue)/i },
+  { intent: "advance", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:前进|继续|探索|走|移动|离开|进入|深入|前行|advance|explore|go|move|continue)/i },
   { intent: "sneak", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:潜行|藏匿|隐蔽|躲|sneak|stealth|hide)/i },
   { intent: "rest", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:休息|睡觉|休整|小憩|恢复|rest|sleep)/i },
   { intent: "save", match: /^(?:(?:请|麻烦|帮我)\s*)*(?:存档|保存|save)/i },

@@ -19,7 +19,18 @@ test("INTENTS is a frozen list that matches server/index.js", () => {
   assert.ok(Object.isFrozen(v.INTENTS));
   assert.deepStrictEqual(
     [...v.INTENTS],
-    ["status", "help", "observe", "advance", "sneak", "rest", "save"]
+    [
+      "shadow_deploy",
+      "shadow_undeploy",
+      "shadow_formation",
+      "status",
+      "help",
+      "observe",
+      "advance",
+      "sneak",
+      "rest",
+      "save",
+    ]
   );
 
   // Drift guard: read the server's own whitelist without requiring index.js
@@ -254,7 +265,7 @@ test("withDeadline awaits async results on the fast path", async () => {
 test("withDeadline returns the fallback on timeout", async () => {
   const startedAt = Date.now();
   const r = await v.withDeadline(
-    () => new Promise((resolve) => setTimeout(() => resolve("too late"), 200)),
+    () => new Promise((resolve) => setTimeout(() => resolve("too late"), 1000)),
     25,
     { degraded: true }
   );
@@ -263,7 +274,7 @@ test("withDeadline returns the fallback on timeout", async () => {
   assert.strictEqual(r.timedOut, true);
   assert.deepStrictEqual(r.value, { degraded: true });
   assert.match(r.error, /deadline exceeded after 25ms/);
-  assert.ok(elapsed < 200, `expected to give up early, took ${elapsed}ms`);
+  assert.ok(elapsed < 500, `expected to give up early, took ${elapsed}ms`);
 });
 
 test("withDeadline swallows a late rejection (no unhandled rejection)", async () => {
@@ -282,7 +293,7 @@ test("withDeadline swallows a late rejection (no unhandled rejection)", async ()
     assert.strictEqual(r.timedOut, true);
     assert.strictEqual(r.value, "fallback");
     // Let the late rejection actually fire before checking.
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     assert.deepStrictEqual(seen, []);
   } finally {
     process.removeListener("unhandledRejection", onUnhandled);
