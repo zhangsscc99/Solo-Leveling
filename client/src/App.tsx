@@ -737,17 +737,27 @@ export default function App() {
               {ACTION_BUTTONS.map((b, i) => {
                 // 交战中的和平意图被服务端改判为提示且零收益——前台直接
                 // 禁用，避免玩家误以为「休息」能免费回血。「前进」保留：
-                // 交战中它是撤离掷逃。
+                // 交战中它是撤离掷逃。休息另吃 F086 配额口径：满状态/次数
+                // 用尽时禁用，原因文案由服务端 save.rest 下发，不硬编码。
                 const blocked = Boolean(b.combatBlock && save.combat);
+                const restInfo = b.input === "休息" ? save.rest : null;
+                const restBlocked = Boolean(restInfo && !restInfo.available);
+                const reason = blocked
+                  ? "交战中无法使用"
+                  : restBlocked
+                    ? restInfo?.reason || "暂时无法休息"
+                    : null;
                 return (
                   <button
                     key={b.label}
                     className={`btn${b.primary ? " primary" : ""}`}
-                    disabled={busy || blocked}
+                    disabled={busy || blocked || restBlocked}
                     onClick={() => dispatch(b.input)}
-                    title={blocked ? "交战中无法使用" : `快捷键 ${i + 1}`}
+                    title={reason || `快捷键 ${i + 1}`}
+                    aria-disabled={busy || blocked || restBlocked}
                   >
                     {b.label}
+                    {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>
                 );

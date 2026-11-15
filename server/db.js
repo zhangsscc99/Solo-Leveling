@@ -132,6 +132,11 @@ if (!saveCols.includes("encounter_seq")) {
 if (!saveCols.includes("encounter_cd")) {
   db.exec("ALTER TABLE saves ADD COLUMN encounter_cd INTEGER NOT NULL DEFAULT 0");
 }
+// F086 休息配额：本章已用休息次数，跨章（patch.chapter 变更）由
+// applyOutcome 归零——配额按章计而不是永久消耗。
+if (!saveCols.includes("rest_used")) {
+  db.exec("ALTER TABLE saves ADD COLUMN rest_used INTEGER NOT NULL DEFAULT 0");
+}
 if (!saveCols.includes("boss_cleared_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN boss_cleared_json TEXT NOT NULL DEFAULT '[]'");
 }
@@ -256,7 +261,7 @@ function getSave(id) {
 const MUTABLE_COLUMNS = [
   "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
-  "encounter_seq", "encounter_cd",
+  "encounter_seq", "encounter_cd", "rest_used",
 ];
 
 function updateSave(id, patch) {

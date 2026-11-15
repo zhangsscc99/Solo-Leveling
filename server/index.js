@@ -108,15 +108,33 @@ function combatView(combat) {
 // 出参统一带派生字段：xp_to_next 由等级曲线算出，free_points 兜底 0。
 // cleared 是通关唯一判定（endingEngine.hasCleared：当前场景为 ch8_epilogue），
 // 前端「结算」tab 与 /saves/:id/ending 门禁共用同一结论，不各自推导。
+// F086 休息配额：每章 REST_LIMIT 次，跨章重置；可用性与剩余次数随
+// saveView 暴露给前端（按钮 disabled + 原因文案都由这里给，前端不
+// 硬编码口径）。reason 为 null 表示可休息。
+const REST_LIMIT = 3;
+
+function restStatus(save, combat) {
+  const used = Math.max(0, Math.trunc(Number(save && save.rest_used) || 0));
+  const remaining = Math.max(0, REST_LIMIT - used);
+  let reason = null;
+  if (combat) reason = "交战中无法休息";
+  else if (save.hp >= save.max_hp && save.mp >= save.max_mp)
+    reason = "体力与魔力俱满，无需休息";
+  else if (remaining <= 0) reason = `本章休息次数已用完（0/${REST_LIMIT}）`;
+  return { available: reason === null, remaining, reason };
+}
+
 function saveView(save) {
   if (!save) return save;
+  const combat = store.getCombat(save.id);
   return {
     ...save,
     ...sceneView(save),
     free_points: Number(save.free_points) || 0,
     kills: Number(save.kills) || 0,
     deaths: Number(save.deaths) || 0,
-    combat: combatView(store.getCombat(save.id)),
+    combat: combatView(combat),
+    rest: restStatus(save, combat),
     cleared: endingEngine.hasCleared(save),
     xp_to_next: progression.xpToNext(save.level),
   };
@@ -1182,7 +1200,7 @@ const INTENTS = [
         "【系统】可用指令：\n" +
         "「状态」查看属性面板 · 「帮助」列出指令 · 「观察」环顾四周\n" +
         "「前进」推进剧情（消耗少量体力） · 「潜行」压低气息（消耗 5 MP）\n" +
-        "「休息」恢复体力与魔力 · 「存档」写入当前进度\n" +
+        "「休息」恢复体力与魔力（每章 3 次，休憩会推进时间、可能惊动敌人） · 「存档」写入当前进度\n" +
         "「影子」查看编队 · 「影子出战 <名字>」遣影入阵 · 「影子撤回 <名字>」令其归队\n" +
         "遭遇战中：「攻击」「释放技能 <名字>」「防御」「使用道具」「逃跑」或「前进」强行撤离\n" +
         "其余自由输入将交由叙事层判定，未识别的动作不会改变状态。",
@@ -1227,17 +1245,54 @@ const INTENTS = [
     id: "rest",
     role: "narrator",
     build: (save) => {
+      const status = restStatus(save, store.getCombat(save.id));
+      // 满血满蓝或配额耗尽：诚实拒绝，不产收益、不耗次数、不写虚构数值。
+      if (!status.available) {
+        return {
+          patch: null,
+          content:
+            `【系统】${status.reason}。` +
+            (status.remaining > 0 ? `本章还可休息 ${status.remaining}/${REST_LIMIT} 次。` : ""),
+        };
+      }
       const hp = clamp(save.hp + 15, 0, save.max_hp);
       const mp = clamp(save.mp + 8, 0, save.max_mp);
       const deltas = [];
       if (hp !== save.hp) deltas.push(`HP ${save.hp}→${hp}`);
       if (mp !== save.mp) deltas.push(`MP ${save.mp}→${mp}`);
-      return {
-        patch: { hp, mp },
-        content:
-          `你背靠石柱坐下，闭上眼调整呼吸。系统在视野边缘安静地跳动着，体力与魔力一点点回流。\n` +
-          (deltas.length ? `（恢复 ${deltas.join(" · ")}）` : "（状态已是满值）"),
+      const patch = {
+        hp,
+        mp,
+        rest_used: Math.max(0, Math.trunc(Number(save.rest_used) || 0)) + 1,
       };
+      let content =
+        `你背靠石柱坐下，闭上眼调整呼吸。体力与魔力一点点回流，但休憩并非免费——` +
+        `时间在流逝，黑暗里有什么东西正循声靠近。\n` +
+        `（恢复 ${deltas.join(" · ")} · 本章剩余休息 ${status.remaining - 1}/${REST_LIMIT} 次）`;
+
+      // 休息推进时间：击杀冷却随之衰减一格，保底计数照常推进，并按当前
+      // 场景遭遇表掷一次遇敌判定——撞上敌人则休憩被打断、直接开战。
+      const cdNext = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
+      patch.encounter_cd = cdNext;
+      const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
+      const scene = save.scene ? chaptersEngine.getScene(save.scene) : null;
+      let enemy = null;
+      if (
+        scene &&
+        !encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, scene)
+      ) {
+        enemy = tryEncounter({ ...save, encounter_cd: cdNext }, save.scene);
+      }
+      const res = { patch, content, combat: null };
+      if (enemy) {
+        res.combat = { op: "set", enemy, turn: 1 };
+        patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
+        patch.encounter_seq = enemy.seq;
+        res.content += `\n【遭遇】休憩被硬生生打断——${enemy.name} Lv.${enemy.level} 摸到了你的藏身处，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+      } else {
+        patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : rawClock + 1;
+      }
+      return res;
     },
   },
   {
@@ -1320,6 +1375,11 @@ function executeIntent(save, intentId, input) {
 // 中途抛错整体回滚，绝不出现「奖发了标记没写」的重复发奖窗口。
 function applyOutcome(saveId, outcome) {
   const run = store.transaction(() => {
+    // 跨章落点：本章休息配额随地图翻新归零（F086，与 encounter_clock
+    // 同一时机重置）。
+    if (outcome.patch && outcome.patch.chapter !== undefined) {
+      outcome.patch.rest_used = 0;
+    }
     if (outcome.patch) store.updateSave(saveId, outcome.patch);
     if (outcome.combat) {
       if (outcome.combat.op === "set") {

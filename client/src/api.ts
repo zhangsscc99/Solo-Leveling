@@ -40,6 +40,14 @@ export interface SceneChoice {
   label: string;
 }
 
+// F086 休息可用性：服务端统一给出口径（满状态/次数用尽/交战中），
+// 前端只消费 reason 文案，不各自推导。
+export interface RestStatus {
+  available: boolean;
+  remaining: number;
+  reason: string | null;
+}
+
 export interface Save {
   id: number;
   player_name: string;
@@ -58,6 +66,7 @@ export interface Save {
   deaths: number;
   chapter: number;
   combat: CombatState | null;
+  rest: RestStatus;
   cleared: boolean;
   // F074 场景运行时字段（saveView 派生，服务端结算）：
   // 当前场景 + 本章主线进度 steps/total + 本章 unlock 软门判定。

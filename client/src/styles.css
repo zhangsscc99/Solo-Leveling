@@ -1424,6 +1424,29 @@ button {
   color: #fff;
 }
 
+/* F086 休息剩余次数：左上角小角标，与 kbd 键帽成对 */
+.btn .rest-count {
+  position: absolute;
+  top: -7px;
+  left: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  line-height: 12px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-align: center;
+  color: var(--dim);
+  background: var(--hull);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+}
+
+.btn:disabled .rest-count {
+  color: var(--system-dim);
+  border-color: var(--system-dim);
+}
+
 /* 数字快捷键：右上角小键帽 */
 .btn kbd {
   position: absolute;
