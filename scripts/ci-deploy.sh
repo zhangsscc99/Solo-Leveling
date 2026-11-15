@@ -11,7 +11,12 @@ flock -n 9 || { echo 'another deploy is running'; exit 3; }
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 fail() { echo "[$(ts)] FAILED STEP: $STEP" >&2; exit 1; }
-step() { STEP="$1"; echo "[$(ts)] STEP $2/7 $STEP"; }
+step() { STEP="$1"; echo "[$(ts)] STEP $2/8 $STEP"; }
+
+# last-known-good ref: recorded after every successful deploy; used as the
+# rollback target if the E2E gate rejects this deploy.
+DEPLOYED_REF_FILE="$ROOT/.deployed-ref"
+PREV_REF="$(cat "$DEPLOYED_REF_FILE" 2>/dev/null || git -C "$ROOT" rev-parse 'HEAD~1' 2>/dev/null || git -C "$ROOT" rev-parse HEAD)"
 
 step preflight 1
 if ! pm2 jlist | grep -q '"name":"solo-leveling"'; then
@@ -67,5 +72,19 @@ code=$(curl -fsS -o /tmp/ci-deploy-index.html -w '%{http_code}' "$APP_URL") || f
 grep -q 'id="root"' /tmp/ci-deploy-index.html || { echo "[$(ts)] app page missing id=\"root\"" >&2; fail; }
 echo "[$(ts)] OK app-page (HTTP $code, root element present)"
 
+step e2e 8
+if node "$ROOT/scripts/e2e/run-all.mjs"; then
+  echo "[$(ts)] OK e2e"
+else
+  echo "[$(ts)] E2E gate failed — rolling back to ${PREV_REF:0:12}" >&2
+  # release the deploy lock so rollback.sh can take it
+  exec 9>&-
+  if ! "$ROOT/scripts/rollback.sh" "$PREV_REF"; then
+    echo "[$(ts)] rollback to $PREV_REF also failed" >&2
+  fi
+  fail
+fi
+
+git -C "$ROOT" rev-parse HEAD > "$DEPLOYED_REF_FILE" 2>/dev/null || true
 echo "[$(ts)] DEPLOY OK"
 exit 0

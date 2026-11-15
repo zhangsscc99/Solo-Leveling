@@ -1,0 +1,9 @@
+{
+  "name": "solo-leveling-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright E2E gate for https://openfolio.uk/game (chromium-1140, --no-sandbox)",
+  "dependencies": {
+    "playwright-core": "1.48.2"
+  }
+}
