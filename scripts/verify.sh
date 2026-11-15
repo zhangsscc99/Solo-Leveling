@@ -70,7 +70,9 @@ if [ -z "$cmd" ]; then
 fi
 
 t0="$(date +%s%3N)"
-(cd "$ROOT" && bash -c "$cmd")
+# 环境隔离：API_BASE 常被其它项目的 shell 环境泄漏进来，导致断言打到错误端口。
+# 只有显式传入 SL_VERIFY_API_BASE 才覆盖，否则清空让 _http.mjs 回落到本机 3020。
+( cd "$ROOT" && API_BASE="${SL_VERIFY_API_BASE:-}" bash -c "$cmd" )
 rc=$?
 t1="$(date +%s%3N)"
 

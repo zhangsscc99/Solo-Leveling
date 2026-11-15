@@ -29,12 +29,12 @@
 ## M2 AI 接入
 
 - [x] F020 服务端 AI 网关模块：调用 OpenCode Go `deepseek-v4.1-flash`，key 读 `OPENCODE_GO_API_KEY`，带 `x-opencode-session` ✅ (2026-11-15 opencode)
-- [ ] F021 `/game/api/ai-action` 端点：自由输入 → AI JSON → 白名单校验 → 引擎执行 → 叙述返回
+- [x] F021 `/game/api/ai-action` 端点：自由输入 → AI JSON → 白名单校验 → 引擎执行 → 叙述返回 ✅ (2026-11-15 cron)
   verify: node scripts/assert/ai-action.mjs
   risk: med
 - [x] F022 防幻觉校验层：intent 白名单、数值按引擎为准、HP/MP 夹紧、超时 20s 降级 ✅ (2026-11-15 opencode)
 - [x] F023 上下文压缩：只发状态摘要 + 最近 6 条日志，控制 token ✅ (2026-11-15 opencode)
-- [ ] F024 AI 失败兜底：规则解析器（关键词匹配）保证不卡死
+- [x] F024 AI 失败兜底：规则解析器（关键词匹配）保证不卡死 ✅ (2026-11-15 cron)
   verify: node scripts/assert/ai-fallback.mjs
   risk: med
 
@@ -52,10 +52,10 @@
 
 - [x] F040 章节/场景数据模型与加载器（JSON 驱动） ✅ (2026-11-15 opencode)
 - [x] F041 Ch1 双地下城：石像、命令之律、濒死觉醒 ✅ (2026-11-15 devin)
-- [ ] F042 Ch2 每日任务 + 惩罚副本
+- [x] F042 Ch2 每日任务 + 惩罚副本 ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 2 "每日任务|惩罚"
   risk: low
-- [ ] F043 Ch3 猎人协会评级 + 车海印初遇
+- [x] F043 Ch3 猎人协会评级 + 车海印初遇 ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 3 "评级|车海印"
   risk: low
 
@@ -65,31 +65,31 @@
 - [ ] F051 影子编队与出战（最多 N 个）
   verify: node scripts/assert/shadow-formation.mjs
   risk: med
-- [ ] F052 影子成长（等级、技能继承）
+- [x] F052 影子成长（等级、技能继承） ✅ (2026-11-15 cron)
   verify: node scripts/assert/shadow-growth.mjs
   risk: med
 
 ## M6 剧情 Ch4–Ch7
 
-- [ ] F060 Ch4 地下城突袭 + 蓝色毒蛇王
+- [x] F060 Ch4 地下城突袭 + 蓝色毒蛇王 ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 4 "毒蛇"
   risk: low
-- [ ] F061 Ch5 转职任务 + 暗影君主
+- [x] F061 Ch5 转职任务 + 暗影君主 ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 5 "转职|暗影君主"
   risk: low
-- [ ] F062 Ch6 红门 + 冰精灵女王
+- [x] F062 Ch6 红门 + 冰精灵女王 ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 6 "红门|冰精灵"
   risk: low
-- [ ] F063 Ch7 恶魔城 + 恶魔城城主
+- [x] F063 Ch7 恶魔城 + 恶魔城城主 ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 7 "恶魔城"
   risk: low
 
 ## M7 终章
 
-- [ ] F070 Ch8 济州岛 + 蚁王 Beru 多阶段 Boss
+- [x] F070 Ch8 济州岛 + 蚁王 Beru 多阶段 Boss ✅ (2026-11-15 cron)
   verify: node scripts/assert/chapter.mjs 8 "蚁王|Beru"
   risk: low
-- [ ] F071 结局文本与通关统计
+- [x] F071 结局文本与通关统计 ✅ (2026-11-15 cron)
   verify: node scripts/assert/ending.mjs
   risk: low
 
@@ -98,3 +98,15 @@
 - [x] F080 `scripts/ci-deploy.sh` 部署闸门（build → smoke → restart → 复检） ✅ (2026-11-15 devin)
 - [x] F081 `scripts/rollback.sh` 失败回滚 ✅ (2026-11-15 devin)
 - [x] F082 部署锁 `.deploy.lock` 防并发部署 ✅ (2026-11-15 devin)
+
+## 后续（本轮审查产出，待实现）
+
+- [ ] F072 影子成长接入五项属性：growth 的 perLevel 现用 atk/def/hp，而引擎 STAT_KEYS 是 strength/agility/vitality/intelligence/perception，sanitizeStats 会全部丢弃；改为五项属性并给出 stats→combat 映射，附 `npm run sim` 对比数据
+  verify: node scripts/assert/shadow-attr.mjs
+  risk: med
+- [ ] F073 真实通关结算：ch8 的 stats 目前是 sample 占位，改为结算时由存档填充（等级/击杀/影子数/耗时）+ 前端结算面板渲染，并让 ending.mjs 断言 sample 标记被移除
+  verify: node scripts/assert/ending-stats.mjs
+  risk: med
+- [ ] F025 `/ai-action` 加固：剥离 AI 返回的 ```json 围栏、AI 返回后重读存档避免陈旧快照覆盖 HP/MP、补 `server/ai/fallback.test.js` 与端点单测
+  verify: node --test server/ai/fallback.test.js
+  risk: low
