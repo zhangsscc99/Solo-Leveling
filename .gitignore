@@ -1,6 +1,11 @@
-node_modules/
+node_modules
+client/node_modules
 dist/
-data/
+/data/
+/server/data/*
+!/server/data/items.json
+!/server/data/drops.json
+!/server/data/levels.json
 *.db
 *.db-journal
 *.db-wal
