@@ -583,6 +583,9 @@ function tryEncounter(save, sceneId, opts) {
   const scene = chaptersEngine.getScene(sceneId);
   const chapter = chaptersEngine.getChapter(save.chapter);
   if (!scene || !chapter) return null;
+  // 结局场景不掷怪：抵达/憩息于 ch8_epilogue 是收束时刻——落地、休息、
+  // 原地叫阵三条掷点路径共用本漏斗，一处拦截全部覆盖。
+  if (scene.id === endingEngine.EPILOGUE_SCENE_ID) return null;
   const sceneChapter = chaptersEngine.getChapterOfScene(scene.id);
   const effective =
     scene.kind === "boss" && sceneChapter && bossCleared(save, sceneChapter.id)
@@ -1255,8 +1258,11 @@ const INTENTS = [
             (status.remaining > 0 ? `本章还可休息 ${status.remaining}/${REST_LIMIT} 次。` : ""),
         };
       }
-      const hp = clamp(save.hp + 15, 0, save.max_hp);
-      const mp = clamp(save.mp + 8, 0, save.max_mp);
+      // 回复量与上限成比例：ceil(35% max HP) / ceil(40% max MP)。血池随
+      // 等级放大后固定小额回复会让配额等于死路——3 次 × 35% 必把任意
+      // 残血拉回 ≥80% 安全线，低章也不会一觉回满失去代价感。
+      const hp = clamp(save.hp + Math.ceil(save.max_hp * 0.35), 0, save.max_hp);
+      const mp = clamp(save.mp + Math.ceil(save.max_mp * 0.40), 0, save.max_mp);
       const deltas = [];
       if (hp !== save.hp) deltas.push(`HP ${save.hp}→${hp}`);
       if (mp !== save.mp) deltas.push(`MP ${save.mp}→${mp}`);
@@ -1275,13 +1281,15 @@ const INTENTS = [
       const cdNext = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
       patch.encounter_cd = cdNext;
       const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
-      const scene = save.scene ? chaptersEngine.getScene(save.scene) : null;
+      // 掷敌口径与 sceneView 同一派生（currentScene 含新档 NULL scene 的
+      // 自愈落点）：save.scene 为空时旧码跳过掷点，开局休息零风险。
+      const scene = chaptersEngine.currentScene(save);
       let enemy = null;
       if (
         scene &&
         !encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, scene)
       ) {
-        enemy = tryEncounter({ ...save, encounter_cd: cdNext }, save.scene);
+        enemy = tryEncounter({ ...save, encounter_cd: cdNext }, scene.id);
       }
       const res = { patch, content, combat: null };
       if (enemy) {
@@ -1376,8 +1384,13 @@ function executeIntent(save, intentId, input) {
 function applyOutcome(saveId, outcome) {
   const run = store.transaction(() => {
     // 跨章落点：本章休息配额随地图翻新归零（F086，与 encounter_clock
-    // 同一时机重置）。
-    if (outcome.patch && outcome.patch.chapter !== undefined) {
+    // 同一时机重置）。仅当章节真的变化才重置——同值回写不清零配额。
+    const before = store.getSave(saveId);
+    if (
+      outcome.patch &&
+      outcome.patch.chapter !== undefined &&
+      outcome.patch.chapter !== (before && before.chapter)
+    ) {
       outcome.patch.rest_used = 0;
     }
     if (outcome.patch) store.updateSave(saveId, outcome.patch);

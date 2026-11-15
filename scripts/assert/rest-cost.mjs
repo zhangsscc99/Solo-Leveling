@@ -54,8 +54,10 @@ assert(s.hp < s.max_hp, `expected HP below max after 前进 (got ${s.hp}/${s.max
 
 const before = s;
 r = await doAct("休息");
+// 「严格上升」断在休息动作自己的回包上：休息惊动敌人时，脱离过程中
+// 掷逃失败吃的反击不属于休息收益——r.save 是回血入账瞬间的快照。
+assert(r.save.hp > before.hp, `injured rest must strictly raise HP (${before.hp} -> ${r.save.hp})`);
 s = await ensureOutOfCombat(); // 休息若惊动敌人，先脱离再取快照
-assert(s.hp > before.hp, `injured rest must strictly raise HP (${before.hp} -> ${s.hp})`);
 // 代价三选一以上：次数减少 / 金币减少 / 触发了遇敌（rest 后曾进战斗，
 // ensureOutOfCombat 已脱离，用 rest_used/remaining 与击杀冷却之外
 // 的直接信号——remaining 递减或 encounter_seq 变化或当时进入交战）。
