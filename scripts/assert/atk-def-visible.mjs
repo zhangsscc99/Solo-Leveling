@@ -16,7 +16,7 @@ import { loadPW, findChrome } from "../e2e/lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
-const BASE_URL = (process.env.BASE_URL || "http://127.0.0.1:3097/game").replace(/\/+$/, "");
+const BASE_URL = (process.env.BASE_URL || process.env.E2E_BASE_URL || "https://openfolio.uk/game").replace(/\/+$/, "");
 const API = `${BASE_URL}/api`;
 const SHOT_DIR = "/www/hermes-home/cache/scratch";
 
