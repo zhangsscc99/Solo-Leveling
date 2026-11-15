@@ -42,6 +42,21 @@ CREATE TABLE IF NOT EXISTS log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_log_save_id ON log (save_id, id);
+
+CREATE TABLE IF NOT EXISTS shadows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  save_id INTEGER NOT NULL REFERENCES saves(id) ON DELETE CASCADE,
+  shadow_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  rank TEXT NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  source TEXT,
+  skills TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadows_save_id ON shadows (save_id, id);
+CREATE INDEX IF NOT EXISTS idx_shadows_shadow_id ON shadows (save_id, shadow_id);
 `);
 
 const DEFAULT_STATS = {
@@ -74,6 +89,19 @@ const stmts = {
     SELECT id, role, content, created_at FROM (
       SELECT id, role, content, created_at FROM log WHERE save_id = ? ORDER BY id DESC LIMIT ?
     ) ORDER BY id ASC
+  `),
+  insertShadow: db.prepare(`
+    INSERT INTO shadows (save_id, shadow_id, name, rank, level, source, skills)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `),
+  getShadows: db.prepare(`
+    SELECT shadow_id, name, rank, level, source, skills, created_at
+    FROM shadows WHERE save_id = ? ORDER BY id ASC
+  `),
+  countShadows: db.prepare(`SELECT COUNT(*) AS n FROM shadows WHERE save_id = ?`),
+  getShadow: db.prepare(`
+    SELECT shadow_id, name, rank, level, source, skills, created_at
+    FROM shadows WHERE save_id = ? AND shadow_id = ?
   `),
 };
 
@@ -134,4 +162,55 @@ function getLog(saveId, limit) {
   return stmts.getLog.all(saveId, limit);
 }
 
-module.exports = { createSave, getSave, getInventory, appendLog, getLog, updateSave };
+// ---------------------------------------------------------------------------
+// shadows（影子提取 / Arise 的持久化，F050 引擎产出、F051 接线写入）
+// ---------------------------------------------------------------------------
+
+function toShadow(row) {
+  if (!row) return null;
+  const { skills, created_at: createdAt, shadow_id: id, ...rest } = row;
+  let parsed = [];
+  try {
+    const value = JSON.parse(skills || "[]");
+    parsed = Array.isArray(value) ? value : [];
+  } catch {
+    parsed = [];
+  }
+  return { id, ...rest, skills: parsed, createdAt };
+}
+
+function addShadow(saveId, shadow) {
+  if (!saveId || !shadow || !shadow.id) return null;
+  stmts.insertShadow.run(
+    saveId,
+    shadow.id,
+    shadow.name || shadow.source || "未知影子",
+    shadow.rank || "E",
+    Number.isFinite(Number(shadow.level)) ? Math.max(1, Math.floor(Number(shadow.level))) : 1,
+    shadow.source || null,
+    JSON.stringify(Array.isArray(shadow.skills) ? shadow.skills : []),
+  );
+  stmts.touchSave.run(saveId);
+  return toShadow(stmts.getShadow.get(saveId, shadow.id));
+}
+
+function getShadows(saveId) {
+  return stmts.getShadows.all(saveId).map(toShadow);
+}
+
+function countShadows(saveId) {
+  const row = stmts.countShadows.get(saveId);
+  return row ? Number(row.n) || 0 : 0;
+}
+
+module.exports = {
+  createSave,
+  getSave,
+  getInventory,
+  appendLog,
+  getLog,
+  updateSave,
+  addShadow,
+  getShadows,
+  countShadows,
+};
