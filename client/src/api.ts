@@ -81,6 +81,52 @@ export interface Skill {
   learn_level: number;
 }
 
+export type MainQuestStatus = "active" | "done" | "locked";
+export type DailyQuestStatus = "active" | "done";
+
+export interface QuestProgress {
+  current: number;
+  target: number;
+}
+
+export interface QuestReward {
+  xp: number;
+  gold: number;
+  items?: { id: string; name: string; qty: number }[];
+}
+
+export interface MainQuest {
+  id: string;
+  chapter: number;
+  title: string;
+  desc: string;
+  progress: QuestProgress;
+  reward: QuestReward;
+  status: MainQuestStatus;
+}
+
+export interface DailyQuest {
+  id: string;
+  title: string;
+  desc: string;
+  progress: QuestProgress;
+  reward: QuestReward;
+  status: DailyQuestStatus;
+}
+
+export interface QuestPenalty {
+  active: boolean;
+  seconds_left: number;
+  desc: string;
+}
+
+export interface QuestsView {
+  main: MainQuest[];
+  daily: DailyQuest[];
+  daily_reset_at: string;
+  penalty: QuestPenalty;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -116,6 +162,9 @@ export const getItems = () => req<{ items: Item[] }>("/items").then((r) => r.ite
 
 // 技能目录与物品目录同为纯数据，只读；习得/解锁由 learn_level 与存档等级判定。
 export const getSkills = () => req<{ skills: Skill[] }>("/skills").then((r) => r.skills);
+
+// 任务视图：主线由章节推导，每日进度与惩罚倒计时全部服务端结算。
+export const getQuests = (id: number) => req<QuestsView>(`/saves/${id}/quests`);
 
 // 背包操作：只传 item_id 与 op，所有数值（回复量、装备加成、qty）由服务端决定。
 export const useItem = (save_id: number, item_id: string, op: ItemOp) =>
