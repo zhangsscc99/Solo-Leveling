@@ -4,6 +4,8 @@ const express = require("express");
 const Database = require("better-sqlite3");
 const store = require("./db");
 const progression = require("./engine/progression");
+const chaptersEngine = require("./engine/chapters");
+const questEngine = require("./engine/quests");
 
 const VERSION = "0.1.0";
 const HOST = "127.0.0.1";
@@ -48,6 +50,9 @@ const SLOT_OF = { weapon: "weapon", armor: "armor" };
 const SLOT_LABEL = { weapon: "武器", armor: "防具" };
 
 const SKILLS = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "skills.json"), "utf8"));
+
+// 任务数据走引擎加载器：quests.json 校验不过会在启动时直接抛错。
+const QUESTS = questEngine.loadQuests();
 
 const db = new Database(path.join(__dirname, "..", "data", "game.db"));
 
@@ -449,6 +454,55 @@ api.get("/saves/:id/log", (req, res) => {
   res.json({ log: store.getLog(save.id, limit) });
 });
 
+// 任务面板：主线由章节数据推导（当前章进行中/已过 done/未解锁），
+// 每日任务读 quest_daily 当天进度，惩罚倒计时由引擎按上一 quest-day
+// 是否清完计算 —— 全部为纯函数拼装，这里只做取数。
+api.get("/saves/:id/quests", (req, res) => {
+  const save = store.getSave(Number(req.params.id));
+  if (!save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+  const now = new Date();
+  res.json(
+    questEngine.buildView({
+      save,
+      data: QUESTS,
+      chaptersData: chaptersEngine.loadChapters(),
+      todayRows: store.getDailyQuests(save.id, questEngine.dayKey(now)),
+      prevRows: store.getDailyQuests(save.id, questEngine.prevDayKey(now)),
+      now,
+    })
+  );
+});
+
+// 每日任务结算：输入 → 事件（前进/技能/击败）→ 当天进度累加；
+// 完成的任务当场发奖励（XP/金币/物品），并返回一行播报并入本条回复。
+function settleDailyQuests(saveId, input) {
+  const events = questEngine.detectEvents(input);
+  if (!events.length) return null;
+  const key = questEngine.dayKey(new Date());
+  const { updates, completed } = questEngine.applyDailyEvents(
+    QUESTS.daily,
+    store.getDailyQuests(saveId, key),
+    events
+  );
+  for (const u of updates) {
+    store.setDailyQuest(saveId, key, u.quest_id, u.progress, u.done);
+  }
+  if (!completed.length) return null;
+
+  const fresh = store.getSave(saveId);
+  const total = questEngine.mergeRewards(completed);
+  store.updateSave(saveId, { xp: fresh.xp + total.xp, gold: fresh.gold + total.gold });
+  for (const item of total.items) {
+    invStmts.add.run(saveId, item.id, item.qty);
+  }
+  const names = completed.map((q) => `「${q.title}」`).join("、");
+  const parts = [`XP +${total.xp}`, `金币 +${total.gold}`];
+  if (total.items.length) parts.push(total.items.map((i) => `${i.name} ×${i.qty}`).join("、"));
+  return `【任务】每日任务完成：${names}。奖励已入账 ${parts.join(" · ")}。`;
+}
+
 api.post("/action", (req, res) => {
   const body = req.body && typeof req.body === "object" ? req.body : {};
 
@@ -486,7 +540,13 @@ api.post("/action", (req, res) => {
   if (outcome.patch) {
     store.updateSave(save.id, outcome.patch);
   }
-  const reply = store.appendLog(save.id, outcome.role, outcome.content);
+  // 每日任务进度随真实动作推进；完成播报并进本条回复，不重开日志行。
+  const questNote = settleDailyQuests(save.id, input);
+  const reply = store.appendLog(
+    save.id,
+    outcome.role,
+    questNote ? `${outcome.content}\n${questNote}` : outcome.content
+  );
   res.json({ reply, save: saveView(store.getSave(save.id)) });
 });
 

@@ -58,6 +58,17 @@ CREATE TABLE IF NOT EXISTS shadows (
 
 CREATE INDEX IF NOT EXISTS idx_shadows_save_id ON shadows (save_id, id);
 CREATE INDEX IF NOT EXISTS idx_shadows_shadow_id ON shadows (save_id, shadow_id);
+
+-- 每日任务进度：按「quest-day」（04:00 UTC 为界的日期键）分天记录，
+-- 跨天自然隔离，惩罚结算只回看前一天。
+CREATE TABLE IF NOT EXISTS quest_daily (
+  save_id INTEGER NOT NULL REFERENCES saves(id) ON DELETE CASCADE,
+  day_key TEXT NOT NULL,
+  quest_id TEXT NOT NULL,
+  progress INTEGER NOT NULL DEFAULT 0,
+  done INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (save_id, day_key, quest_id)
+);
 `);
 
 // CREATE TABLE IF NOT EXISTS 不会给已有表补列，老库走 ALTER 迁移。
@@ -109,6 +120,16 @@ const stmts = {
   getShadow: db.prepare(`
     SELECT shadow_id, name, rank, level, source, skills, created_at
     FROM shadows WHERE save_id = ? AND shadow_id = ?
+  `),
+  getDailyQuests: db.prepare(`
+    SELECT quest_id, progress, done FROM quest_daily
+    WHERE save_id = ? AND day_key = ?
+  `),
+  setDailyQuest: db.prepare(`
+    INSERT INTO quest_daily (save_id, day_key, quest_id, progress, done)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(save_id, day_key, quest_id)
+    DO UPDATE SET progress = excluded.progress, done = excluded.done
   `),
 };
 
@@ -214,6 +235,23 @@ function countShadows(saveId) {
   return row ? Number(row.n) || 0 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// quest_daily（每日任务进度，F008：/action 里按 quest-day 累加）
+// ---------------------------------------------------------------------------
+
+function getDailyQuests(saveId, dayKey) {
+  return stmts.getDailyQuests.all(saveId, dayKey).map((row) => ({
+    quest_id: row.quest_id,
+    progress: Number(row.progress) || 0,
+    done: Boolean(row.done),
+  }));
+}
+
+function setDailyQuest(saveId, dayKey, questId, progress, done) {
+  stmts.setDailyQuest.run(saveId, dayKey, questId, Math.max(0, Math.trunc(Number(progress) || 0)), done ? 1 : 0);
+  stmts.touchSave.run(saveId);
+}
+
 module.exports = {
   createSave,
   getSave,
@@ -224,4 +262,6 @@ module.exports = {
   addShadow,
   getShadows,
   countShadows,
+  getDailyQuests,
+  setDailyQuest,
 };

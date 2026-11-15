@@ -2207,3 +2207,217 @@ button {
     transform: none;
   }
 }
+
+/* ── 任务面板 ──────────────────────────────
+   主线/每日两段：区块题走发丝线分栏，任务行是发丝线列表（无卡片）。
+   状态徽记只借功能色：system=进行中 / faint=已达成 / gate=未解锁；
+   进度条复用计量槽语法；惩罚与高危警示用 blood 系，压在小字与 2px 边条上。
+*/
+.quest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.q-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  color: var(--dim);
+}
+
+.q-head-meta {
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* mono 只承载数值：倒计时读数 */
+.q-head-meta b {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  color: var(--tick);
+  margin-left: 2px;
+}
+
+.q-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.q-row {
+  padding: var(--sp-2) 0 var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.q-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.q-title {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.q-badge {
+  margin-left: auto;
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+.q-badge.b-active {
+  color: var(--system);
+  border-color: var(--system-dim);
+}
+
+.q-badge.b-done {
+  color: var(--faint);
+  border-color: var(--line);
+}
+
+.q-badge.b-locked {
+  color: var(--gate);
+  opacity: 0.7;
+}
+
+.q-desc {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+.q-prog {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.q-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.q-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #134a7a, var(--system));
+}
+
+.q-num {
+  min-width: 36px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+.q-num i {
+  font-style: normal;
+  color: var(--faint);
+}
+
+.q-rw {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.q-rw-label {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.q-rw-vals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.q-rw-val {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+
+.q-rw-val b {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text);
+  margin-left: 4px;
+}
+
+/* 状态梯度：已完成收暗，未解锁只剩标题与徽记（不剧透情报） */
+.q-done .q-title {
+  color: var(--dim);
+}
+
+.q-done .q-fill {
+  opacity: 0.4;
+}
+
+.q-locked .q-title {
+  color: var(--faint);
+}
+
+/* 惩罚副本：2px 左边条 + 极淡底，倒计时数值是唯一高亮 */
+.q-penalty {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 2px solid var(--blood-dim);
+  background: rgba(255, 77, 104, 0.05);
+}
+
+.q-penalty-tag {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--blood);
+}
+
+.q-penalty-num {
+  margin-left: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--blood);
+}
+
+.q-penalty-desc {
+  margin: 2px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+.q-warn {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--blood);
+}
+
+.q-empty {
+  margin: var(--sp-3) 0;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}

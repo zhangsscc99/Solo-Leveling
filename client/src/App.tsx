@@ -4,6 +4,7 @@ import {
   Equipment,
   getItems,
   getLog,
+  getQuests,
   getSave,
   getSkills,
   InventoryRow,
@@ -12,6 +13,7 @@ import {
   sendAction,
   spendStat,
   LogEntry,
+  QuestsView,
   Save,
   Skill,
   StatKey,
@@ -19,6 +21,7 @@ import {
 } from "./api";
 import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
 import InventoryPanel from "./panels/InventoryPanel";
+import QuestPanel from "./panels/QuestPanel";
 import SkillsPanel from "./panels/SkillsPanel";
 import StatsPanel from "./panels/StatsPanel";
 
@@ -188,6 +191,8 @@ function SidePanel({
   statBusy,
   statNotice,
   onSpendStat,
+  quests,
+  questsError,
 }: {
   tab: TabKey;
   save: Save;
@@ -204,6 +209,8 @@ function SidePanel({
   statBusy: boolean;
   statNotice: string | null;
   onSpendStat: (stat: StatKey) => void;
+  quests: QuestsView | null;
+  questsError: boolean;
 }) {
   switch (tab) {
     case "inventory":
@@ -247,7 +254,7 @@ function SidePanel({
         </ol>
       );
     case "quests":
-      return <p className="side-empty">暂无进行中的任务。继续推进剧情，系统会下发指令。</p>;
+      return <QuestPanel data={quests} error={questsError} />;
   }
 }
 
@@ -263,6 +270,8 @@ export default function App() {
   const [statNotice, setStatNotice] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsError, setSkillsError] = useState(false);
+  const [quests, setQuests] = useState<QuestsView | null>(null);
+  const [questsError, setQuestsError] = useState(false);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -400,6 +409,17 @@ export default function App() {
         setEquipment(r.equipment);
       })
       .catch(() => {});
+  }, [tab, save]);
+
+  // 任务面板打开时拉取；save 每次动作后变化 → 进度与倒计时顺带刷新。
+  useEffect(() => {
+    if (tab !== "quests" || !save) return;
+    getQuests(save.id)
+      .then((view) => {
+        setQuests(view);
+        setQuestsError(false);
+      })
+      .catch(() => setQuestsError(true));
   }, [tab, save]);
 
   useEffect(() => {
@@ -557,6 +577,8 @@ export default function App() {
               statBusy={statBusy}
               statNotice={statNotice}
               onSpendStat={onSpendStat}
+              quests={quests}
+              questsError={questsError}
             />
           </div>
           <div className="side-foot">
