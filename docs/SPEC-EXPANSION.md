@@ -23,3 +23,6 @@
 
 - [ ] 把 `server/engine/` 接进主流程：`POST /game/api/saves/:id/item` 与 `/action` 目前仍是内置 INTENTS，需要一条 `/game/api/battle/turn` 端点把 `resolveTurn()` + `rollLoot()` + `applyXp()` 串成「战斗一轮 → 掉落 → 升级」闭环，并写回 saves/inventory
 - [ ] 物品目录与掉落表对账：`server/data/items.json` 与 `drops.json` 的 `item_id` 尚无交叉校验，加一个 `npm run check:data` 脚本断言掉落表里每个 item_id 都能在物品目录找到、分类/稀有度字段合法
+- [ ] 技能结算闭环：`释放技能 <name>` 目前只命中 placeholder intent，需按 `server/data/skills.json` 的 `mp_cost`/`cooldown` 在服务端真实扣 MP、按回合记冷却，MP 不足时把原因写进系统播报（前端冷却目前只是本地 state，切面板即丢）
+- [ ] 章节数据接进运行时：`server/engine/chapters.js` 尚未被 `server/index.js` 消费——加 `GET /game/api/chapters` 与 `/game/api/scene`，「地图」面板与 `/action 前进` 都改从 JSON 场景图取文本，替换 App.tsx 写死的 `CHAPTERS` 数组
+- [ ] 侧栏滚动区底部留白：技能面板最后一张卡片被 `.side-scroll` 视口硬切（无 bottom padding / 渐隐），给 `.side-scroll` 加 `padding-bottom` 或底部渐隐遮罩，背包面板同处一并修
