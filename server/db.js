@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS shadows (
   source TEXT,
   skills TEXT,
   deployed INTEGER NOT NULL DEFAULT 0,
+  stats_json TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -79,9 +80,13 @@ if (!saveCols.includes("free_points")) {
 }
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
+// F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
 const shadowCols = db.prepare("PRAGMA table_info(shadows)").all().map((c) => c.name);
 if (!shadowCols.includes("deployed")) {
   db.exec("ALTER TABLE shadows ADD COLUMN deployed INTEGER NOT NULL DEFAULT 0");
+}
+if (!shadowCols.includes("stats_json")) {
+  db.exec("ALTER TABLE shadows ADD COLUMN stats_json TEXT");
 }
 
 const DEFAULT_STATS = {

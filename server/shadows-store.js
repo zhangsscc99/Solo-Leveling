@@ -5,11 +5,11 @@
 // （旧版按 (save_id, shadow_id) 广播 UPDATE 的产物）不会再被一次全部翻转。
 // 视图对象同时暴露 id（shadow_id，展示/点名用）与 rowId（主键，写库用）。
 
-const COLS = "id, shadow_id, name, rank, level, source, skills, deployed, created_at";
+const COLS = "id, shadow_id, name, rank, level, source, skills, stats_json, deployed, created_at";
 
 function toShadow(row) {
   if (!row) return null;
-  const { id: rowId, skills, created_at: createdAt, shadow_id: id, deployed, ...rest } = row;
+  const { id: rowId, skills, stats_json, created_at: createdAt, shadow_id: id, deployed, ...rest } = row;
   let parsed = [];
   try {
     const value = JSON.parse(skills || "[]");
@@ -17,18 +17,28 @@ function toShadow(row) {
   } catch {
     parsed = [];
   }
-  return { id, rowId, ...rest, skills: parsed, deployed: !!Number(deployed), createdAt };
+  // stats_json 非法 / 非对象 / 缺失 → 不挂 stats，读侧由引擎按 rank baseStats 兜底。
+  let stats;
+  try {
+    const value = JSON.parse(stats_json || "null");
+    if (value && typeof value === "object" && !Array.isArray(value)) stats = value;
+  } catch {
+    stats = undefined;
+  }
+  const shadow = { id, rowId, ...rest, skills: parsed, deployed: !!Number(deployed), createdAt };
+  if (stats) shadow.stats = stats;
+  return shadow;
 }
 
 function createShadowStore(db) {
   const stmts = {
     touchSave: db.prepare(`UPDATE saves SET updated_at = datetime('now') WHERE id = ?`),
     insert: db.prepare(`
-      INSERT INTO shadows (save_id, shadow_id, name, rank, level, source, skills)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO shadows (save_id, shadow_id, name, rank, level, source, skills, stats_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateByRow: db.prepare(`
-      UPDATE shadows SET name = ?, rank = ?, level = ?, source = ?, skills = ?
+      UPDATE shadows SET name = ?, rank = ?, level = ?, source = ?, skills = ?, stats_json = ?
       WHERE id = ? AND save_id = ?
     `),
     bySave: db.prepare(`SELECT ${COLS} FROM shadows WHERE save_id = ? ORDER BY id ASC`),
@@ -65,10 +75,15 @@ function createShadowStore(db) {
     const level = Number.isFinite(Number(shadow.level)) ? Math.max(1, Math.floor(Number(shadow.level))) : 1;
     const source = shadow.source || null;
     const skills = JSON.stringify(Array.isArray(shadow.skills) ? shadow.skills : []);
+    // F072：五项属性存 stats_json，缺失/非法 → NULL，读侧由引擎按 rank baseStats 兜底。
+    const statsJson =
+      shadow.stats && typeof shadow.stats === "object" && !Array.isArray(shadow.stats)
+        ? JSON.stringify(shadow.stats)
+        : null;
     const existing = stmts.byShadowId.get(saveId, shadow.id);
     const rowId = existing
-      ? (stmts.updateByRow.run(name, rank, level, source, skills, existing.id, saveId), existing.id)
-      : stmts.insert.run(saveId, shadow.id, name, rank, level, source, skills).lastInsertRowid;
+      ? (stmts.updateByRow.run(name, rank, level, source, skills, statsJson, existing.id, saveId), existing.id)
+      : stmts.insert.run(saveId, shadow.id, name, rank, level, source, skills, statsJson).lastInsertRowid;
     stmts.touchSave.run(saveId);
     return getShadowByRow(saveId, rowId);
   }

@@ -5,6 +5,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const shadow = require("./shadow");
+const statsLib = require("./stats");
 
 // ---------------------------------------------------------------------------
 // 测试夹具
@@ -365,7 +366,7 @@ const GROWTH_CFG = {
   growth: {
     maxLevel: 10,
     xp: { base: 100, exponent: 1 },
-    perLevel: { atk: 2, def: 1, hp: 10 },
+    perLevel: { strength: 2, agility: 1, vitality: 1, intelligence: 1, perception: 1 },
     inherit: { slots: 2, chance: 1, levelDiscount: 0.5 },
   },
 };
@@ -382,21 +383,57 @@ test("xpForLevel: 曲线单调递增且最小为 1", () => {
 });
 
 test("grantXp: 经验累积升级并加属性，不可变返回新对象", () => {
-  const s = { name: "狼影", level: 1, xp: 0, stats: { atk: 5, def: 3, hp: 50 } };
+  const s = {
+    name: "狼影", level: 1, xp: 0,
+    stats: { strength: 5, agility: 4, vitality: 6, intelligence: 3, perception: 3 },
+  };
   const res = shadow.grantXp(s, 550, GROWTH_CFG); // lv1→2 花 100，lv2→3 花 200，余 250 不够 lv3(300)
   assert.equal(res.leveledTo, 3);
   assert.equal(res.gained, 2);
   assert.equal(res.shadow.level, 3);
   assert.equal(res.shadow.xp, 250);
-  assert.equal(res.shadow.stats.atk, 9, "每级 +2，升 2 级 → +4");
-  assert.equal(res.shadow.stats.def, 5);
-  assert.equal(res.shadow.stats.hp, 70);
+  assert.equal(res.shadow.stats.strength, 9, "strength 每级 +2，升 2 级 → +4");
+  assert.equal(res.shadow.stats.agility, 6);
+  assert.equal(res.shadow.stats.vitality, 8);
+  assert.equal(res.shadow.stats.intelligence, 5);
+  assert.equal(res.shadow.stats.perception, 5);
+  for (const k of ["atk", "def", "hp"]) {
+    assert.ok(!(k in res.shadow.stats), `旧键 ${k} 不再产出`);
+  }
   assert.equal(s.level, 1, "原对象不被修改");
-  assert.equal(s.stats.atk, 5);
+  assert.equal(s.stats.strength, 5);
+});
+
+test("grantXp: 成长落在五项属性上，sanitizeStats 不再清零（F072 回归锁）", () => {
+  const s = {
+    level: 1, xp: 0,
+    stats: { strength: 6, agility: 5, vitality: 6, intelligence: 3, perception: 4 },
+  };
+  const res = shadow.grantXp(s, 550, GROWTH_CFG); // → Lv.3
+  const sanitized = statsLib.sanitizeStats(res.shadow);
+  let total = 0;
+  for (const key of statsLib.STAT_KEYS) {
+    assert.equal(sanitized[key], res.shadow.stats[key], `sanitizeStats 应保留 ${key}`);
+    total += sanitized[key];
+  }
+  assert.ok(total > 0, "消毒后五项总和必须 > 0（旧实现此处全被清零）");
+});
+
+test("growth.perLevel 键集合恰为五项属性（无 atk/def/hp）", () => {
+  const keys = Object.keys(shadow.loadConfig().growth.perLevel).sort();
+  assert.deepEqual(keys, [...statsLib.STAT_KEYS].sort());
+});
+
+test("normalizeConfig: 旧版 atk/def/hp perLevel 被忽略，回落默认五项", () => {
+  const cfg = shadow.normalizeConfig({ growth: { perLevel: { atk: 9, def: 9, hp: 99 } } });
+  assert.deepEqual(cfg.growth.perLevel, shadow.DEFAULT_CONFIG.growth.perLevel);
 });
 
 test("grantXp: 到 maxLevel 封顶不越级，剩余经验清零", () => {
-  const s = { name: "封顶影", level: 9, xp: 0, stats: { atk: 0, def: 0, hp: 0 } };
+  const s = {
+    name: "封顶影", level: 9, xp: 0,
+    stats: { strength: 0, agility: 0, vitality: 0, intelligence: 0, perception: 0 },
+  };
   const res = shadow.grantXp(s, 999999, GROWTH_CFG);
   assert.equal(res.leveledTo, 10);
   assert.equal(res.gained, 1);
@@ -600,4 +637,92 @@ test("formationSummary: 出战计数 / 战力合计 / 上限 / deployed 名单",
   assert.ok(f.power > 0);
   assert.equal(f.shadows.length, 3);
   assert.ok(f.shadows.every((s) => s.stats && Number.isFinite(s.power)));
+});
+
+// ---------------------------------------------------------------------------
+// F072 stats → 战斗折算 / 初始五项属性
+// ---------------------------------------------------------------------------
+
+test("combatProfile: 五项属性按 stats.js 公式折算为战斗数值", () => {
+  const prof = shadow.combatProfile({
+    level: 5,
+    stats: { strength: 10, agility: 8, vitality: 12, intelligence: 5, perception: 6 },
+  });
+  assert.equal(prof.atk, 16); // round(1.6 × 10)
+  assert.ok(Math.abs(prof.def - 9.6) < 1e-9, `def 应为 9.6，实际 ${prof.def}`); // 0.8 × 12
+  assert.equal(prof.maxHp, 220); // 80 + 4×5 + 10×12
+  assert.equal(prof.initiative, 11); // 8 + 0.5×6
+  assert.deepEqual(Object.keys(prof.stats).sort(), [...statsLib.STAT_KEYS].sort());
+});
+
+test("combatProfile: 坏输入安全降级不抛异常", () => {
+  assert.doesNotThrow(() => shadow.combatProfile(null));
+  assert.doesNotThrow(() => shadow.combatProfile(undefined));
+  assert.doesNotThrow(() =>
+    shadow.combatProfile({ level: NaN, stats: { strength: -3, vitality: "x" } }),
+  );
+  const p = shadow.combatProfile(null);
+  assert.ok(p.atk >= 1 && Number.isFinite(p.def) && Number.isFinite(p.maxHp));
+});
+
+test("rollExtraction: 成功影子携带 growth.baseStats 初始五项属性", () => {
+  const enemy = deadEnemy({ rank: "E", level: 1 });
+  const player = makePlayer();
+  const { result } = findRoll(enemy, player, true);
+  assert.deepEqual(result.shadow.stats, {
+    strength: 6,
+    agility: 5,
+    vitality: 6,
+    intelligence: 3,
+    perception: 4,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 老影子兜底：五项 stats 缺失 / 全 0 → 按 rank baseStats，不静默清零
+// ---------------------------------------------------------------------------
+
+test("combatProfile: 老版 {atk,def,hp} / 缺 stats 影子按 rank baseStats 兜底", () => {
+  const fresh = shadow.combatProfile({
+    rank: "E",
+    level: 1,
+    stats: { strength: 6, agility: 5, vitality: 6, intelligence: 3, perception: 4 },
+  });
+  for (const legacy of [
+    { rank: "E", level: 1, stats: { atk: 20, def: 9, hp: 160 } },
+    { rank: "E", level: 1 },
+    { rank: "E", level: 1, stats: null },
+    { rank: "E", level: 1, stats: { strength: 0, agility: 0, vitality: 0, intelligence: 0, perception: 0 } },
+  ]) {
+    assert.deepEqual(shadow.combatProfile(legacy), fresh);
+    assert.ok(shadow.combatProfile(legacy).atk > 1, "不得退化为 atk=1");
+  }
+
+  // rank 未知 / 缺失 → 回退 E 档；非 E 档用各自的 baseStats
+  const rankD = shadow.combatProfile({ rank: "D", level: 1, stats: { hp: 50 } });
+  assert.deepEqual(rankD.stats, shadow.DEFAULT_CONFIG.growth.baseStats.D);
+  assert.deepEqual(
+    shadow.combatProfile({ rank: "Z", level: 1 }).stats,
+    shadow.DEFAULT_CONFIG.growth.baseStats.E,
+  );
+});
+
+test("combatProfile: 五项部分存在（至少一项 > 0）不触发兜底", () => {
+  const p = shadow.combatProfile({ rank: "S", level: 1, stats: { strength: 3 } });
+  assert.equal(p.stats.strength, 3);
+  assert.equal(p.stats.vitality, 0, "其余缺失项按 0，不套 S 档 baseStats");
+});
+
+test("grantXp: 老影子五项缺失时从 baseStats[rank] 起点成长", () => {
+  const legacy = { rank: "E", level: 1, xp: 0, stats: { atk: 20, def: 9, hp: 160 } };
+  const res = shadow.grantXp(legacy, shadow.xpForLevel(1, GROWTH_CFG), GROWTH_CFG);
+  assert.equal(res.shadow.level, 2);
+  // baseStats.E（默认配置）+ GROWTH_CFG.perLevel × 1
+  const base = shadow.DEFAULT_CONFIG.growth.baseStats.E;
+  for (const key of statsLib.STAT_KEYS) {
+    assert.equal(res.shadow.stats[key], base[key] + GROWTH_CFG.growth.perLevel[key]);
+  }
+  for (const k of ["atk", "def", "hp"]) {
+    assert.ok(!(k in res.shadow.stats), `旧键 ${k} 不再产出`);
+  }
 });

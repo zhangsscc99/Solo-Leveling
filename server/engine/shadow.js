@@ -13,11 +13,18 @@
 //   xpForLevel(level)                    → 升到下一级所需经验（growth.xp 曲线）
 //   grantXp(shadow, xp)                  → { shadow, leveledTo, gained }（升级+属性成长）
 //   inheritSkills(shadow, enemy, rng)    → 新影子对象（按 growth.inherit 继承技能）
+//   combatProfile(shadow)                → { stats, atk, def, maxHp, initiative }（五项→战斗折算）
 //
 // F052 成长设计理由：影子是玩家军团的长期投资，数值取保守曲线 ——
-// xp 需求 base*level^1.5（前期几十经验一级、后期明显放缓），每级 atk+2/def+1/hp+10
-// 与 rank 基础值同量级，50 级封顶防止单个影子碾压主线；技能继承限制 2 槽 + 60% 概率
-// + 技能等级减半，保证「提取强怪仍有收益但不如原生」。
+// xp 需求 base*level^1.5（前期几十经验一级、后期明显放缓），每级合计 +4 点
+// 五项属性（玩家每级 3 自由点的同量级；影子无装备/加点，略高作补偿），
+// 50 级封顶防止单个影子碾压主线；技能继承限制 2 槽 + 60% 概率 + 技能等级减半，
+// 保证「提取强怪仍有收益但不如原生」。
+//
+// F072：成长落到全项目统一的五项属性（strength/agility/vitality/intelligence/
+// perception，即 stats.js STAT_KEYS）。战斗折算不在此重写系数，统一调 stats.js：
+// atk=1.6×strength、def=0.8×vitality、maxHp=80+4×level+10×vitality、
+// 先手=agility+0.5×perception。
 //
 // 本模块不写库；持久化由 server/db.js 的 shadows 表负责（F051 接线）。
 
@@ -25,6 +32,8 @@ const fs = require("fs");
 const path = require("path");
 
 const { createRng, hashSeed } = require("./rng");
+const statsLib = require("./stats");
+const { STAT_KEYS } = statsLib;
 
 const CONFIG_PATH = path.join(__dirname, "..", "data", "shadow.json");
 
@@ -68,7 +77,15 @@ const DEFAULT_CONFIG = {
   growth: {
     maxLevel: 50,
     xp: { base: 100, exponent: 1.5 },
-    perLevel: { atk: 2, def: 1, hp: 10 },
+    perLevel: { strength: 1.5, agility: 1, vitality: 0.5, intelligence: 0.5, perception: 0.5 },
+    baseStats: {
+      E: { strength: 6, agility: 5, vitality: 6, intelligence: 3, perception: 4 },
+      D: { strength: 9, agility: 8, vitality: 9, intelligence: 5, perception: 6 },
+      C: { strength: 13, agility: 12, vitality: 13, intelligence: 7, perception: 9 },
+      B: { strength: 18, agility: 17, vitality: 18, intelligence: 10, perception: 12 },
+      A: { strength: 24, agility: 23, vitality: 24, intelligence: 14, perception: 16 },
+      S: { strength: 32, agility: 30, vitality: 32, intelligence: 18, perception: 21 },
+    },
     inherit: { slots: 2, chance: 0.6, levelDiscount: 0.5 },
   },
   // F051 编队：可同时出战的影子上限，单点调参（shadow.json 的 formation.maxDeployed）。
@@ -231,18 +248,31 @@ function normalizeConfig(raw) {
   const growthDefaults = DEFAULT_CONFIG.growth;
   const xpSrc = isPlainObject(growthSrc.xp) ? growthSrc.xp : {};
   const perLevelSrc = isPlainObject(growthSrc.perLevel) ? growthSrc.perLevel : {};
+  const baseStatsSrc = isPlainObject(growthSrc.baseStats) ? growthSrc.baseStats : {};
   const inheritSrc = isPlainObject(growthSrc.inherit) ? growthSrc.inherit : {};
+  // perLevel 只认五项属性；旧版 atk/def/hp 键直接忽略回落默认（语义不同，不折算）。
+  const perLevel = {};
+  for (const key of STAT_KEYS) {
+    perLevel[key] = nonNegative(perLevelSrc[key], growthDefaults.perLevel[key]);
+  }
+  // baseStats 只产出已知 rank × 五项：非法/缺失逐项回落该 rank 默认值，未知 rank 忽略。
+  const baseStats = {};
+  for (const rank of RANK_ORDER) {
+    const given = isPlainObject(baseStatsSrc[rank]) ? baseStatsSrc[rank] : {};
+    const row = {};
+    for (const key of STAT_KEYS) {
+      row[key] = nonNegative(given[key], growthDefaults.baseStats[rank][key]);
+    }
+    baseStats[rank] = row;
+  }
   const growth = {
     maxLevel: Math.max(1, Math.floor(num(growthSrc.maxLevel, growthDefaults.maxLevel))),
     xp: {
       base: positive(xpSrc.base, growthDefaults.xp.base),
       exponent: positive(xpSrc.exponent, growthDefaults.xp.exponent),
     },
-    perLevel: {
-      atk: nonNegative(perLevelSrc.atk, growthDefaults.perLevel.atk),
-      def: nonNegative(perLevelSrc.def, growthDefaults.perLevel.def),
-      hp: nonNegative(perLevelSrc.hp, growthDefaults.perLevel.hp),
-    },
+    perLevel,
+    baseStats,
     inherit: {
       slots: Math.max(0, Math.floor(num(inheritSrc.slots, growthDefaults.inherit.slots))),
       chance: clamp(num(inheritSrc.chance, growthDefaults.inherit.chance), 0, 1),
@@ -437,7 +467,8 @@ function shadowCap(playerLevel, config) {
 //
 // options.now：固定时间戳（毫秒），用于让 createdAt 也确定化；省略则取 Date.now()。
 // 成功返回的 shadow 是「刚提取、Lv.1、未成长」的原始形态：
-//   { id, name, rank, level: 1, source: enemy.name, skills, createdAt }
+//   { id, name, rank, level: 1, source: enemy.name, stats, skills, createdAt }
+// stats = growth.baseStats[rank] 的浅拷贝（五项初始属性）。
 function rollExtraction(input, config) {
   const opts = isPlainObject(input) ? input : {};
   const { enemy, player, seed, now } = opts;
@@ -470,11 +501,40 @@ function rollExtraction(input, config) {
     rank,
     level: 1,
     source: sourceName,
+    stats: baseStatsFor(rank, cfg),
     skills: copySkills(enemy.skills),
     createdAt: new Date(nowMs).toISOString(),
   };
 
   return { success: true, chance, roll, shadow, reason: "ok" };
+}
+
+// Lv.1 初始属性：growth.baseStats[rank] 浅拷贝为五项非负整数；配置异常降级全 0。
+function baseStatsFor(rank, cfg) {
+  const table = cfg && isPlainObject(cfg.growth) && isPlainObject(cfg.growth.baseStats)
+    ? cfg.growth.baseStats
+    : {};
+  const row = isPlainObject(table[rank]) ? table[rank] : {};
+  const stats = {};
+  for (const key of STAT_KEYS) stats[key] = Math.max(0, Math.floor(num(row[key], 0)));
+  return stats;
+}
+
+// 影子当前生效的五项属性：sanitizeStats 消毒后若五项缺失或全为 0
+// （含 F072 前落库的老版 {atk,def,hp} 影子），按 rank 的 baseStats 兜底
+// —— 老影子得到与同 rank 新影子一致的起点，而不是静默清零退化成 atk=1。
+// rank 未知 / 缺失回退 E 档。部分缺失（至少一项 > 0）不触发兜底，按原值消毒。
+function effectiveStats(shadow, cfg) {
+  const src = isPlainObject(shadow) && isPlainObject(shadow.stats) ? shadow.stats : {};
+  const stats = {};
+  let total = 0;
+  for (const key of STAT_KEYS) {
+    stats[key] = Math.max(0, num(src[key], 0));
+    total += stats[key];
+  }
+  if (total > 0) return stats;
+  const rank = normalizeRank(isPlainObject(shadow) ? shadow.rank : "E", cfg.rankOrder);
+  return baseStatsFor(rank, cfg);
 }
 
 // 技能按敌人原样带入（浅拷贝，不做成长/重算）。非法值一律空数组。
@@ -512,16 +572,16 @@ function grantXp(shadow, xp, config) {
 
   let level = Math.min(shadowLevel(src), cfg.growth.maxLevel);
   let pool = Math.max(0, Math.floor(num(src.xp, 0))) + amount;
-  const stats = { ...(isPlainObject(src.stats) ? src.stats : {}) };
+  // stats 只保留五项属性：旧影子数据里的 atk/def/hp 等杂键不再携带；
+  // 五项缺失/全 0 时按 rank baseStats 兜底（老影子不被静默清零）。
+  const stats = effectiveStats(src, cfg);
 
   while (level < cfg.growth.maxLevel) {
     const need = xpForLevel(level, cfg);
     if (pool < need) break;
     pool -= need;
     level += 1;
-    stats.atk = num(stats.atk, 0) + cfg.growth.perLevel.atk;
-    stats.def = num(stats.def, 0) + cfg.growth.perLevel.def;
-    stats.hp = num(stats.hp, 0) + cfg.growth.perLevel.hp;
+    for (const key of STAT_KEYS) stats[key] += cfg.growth.perLevel[key];
   }
   if (level >= cfg.growth.maxLevel) pool = 0;
 
@@ -569,6 +629,30 @@ function inheritSkills(shadow, defeatedEnemy, rng, config) {
   return {
     ...src,
     skills: [...(Array.isArray(src.skills) ? src.skills : []), ...inherited],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// F072 stats → 战斗折算（stats→combat 的唯一入口，系数全部来自 stats.js）
+// ---------------------------------------------------------------------------
+//
+// 返回 { stats, atk, def, maxHp, initiative }：
+//   atk        = max(1, round(1.6 × strength))
+//   def        = 0.8 × vitality
+//   maxHp      = 80 + 4 × level + 10 × vitality
+//   initiative = agility + 0.5 × perception
+// 纯函数；null / NaN / 负数输入安全降级，不抛异常。
+// config 用于缺 stats 时定位 growth.baseStats（折算系数不在 shadow.json，统一走 stats.js）。
+function combatProfile(shadow, config) {
+  const cfg = configOr(config);
+  const stats = effectiveStats(shadow, cfg);
+  const holder = { stats };
+  return {
+    stats,
+    atk: statsLib.physicalDamage(holder, 0),
+    def: statsLib.defenseOf(holder),
+    maxHp: statsLib.maxHpFor(shadow && shadow.level, stats),
+    initiative: statsLib.initiative(holder),
   };
 }
 
@@ -665,25 +749,11 @@ function maxDeployed(config) {
 // 影子属性：db 层只持久化 rank/level/skills（stats 是成长的内存产物），
 // 因此这里「显式 stats 优先，缺省按 rank 基础值 + 每级 growth.perLevel 推导」，
 // 与 grantXp 的升级曲线同源，保证同一影子战力可复算。
+// F051 面板口径的战斗数值：统一委托 combatProfile（F072），把五项属性折算成
+// atk / def / hp，避免编队面板与战斗结算各算一套。hp 取 maxHp。
 function shadowStats(shadow, config) {
-  const cfg = configOr(config);
-  const src = isPlainObject(shadow) ? shadow : {};
-  if (isPlainObject(src.stats)) {
-    return {
-      atk: num(src.stats.atk, 0),
-      def: num(src.stats.def, 0),
-      hp: num(src.stats.hp, 0),
-    };
-  }
-  const rank = normalizeRank(src.rank, cfg.rankOrder);
-  const idx = Math.max(0, cfg.rankOrder.indexOf(rank));
-  const lv = shadowLevel(src);
-  const base = { atk: 6 + idx * 4, def: 3 + idx * 2, hp: 40 + idx * 30 };
-  return {
-    atk: base.atk + (lv - 1) * cfg.growth.perLevel.atk,
-    def: base.def + (lv - 1) * cfg.growth.perLevel.def,
-    hp: base.hp + (lv - 1) * cfg.growth.perLevel.hp,
-  };
+  const prof = combatProfile(shadow, config);
+  return { atk: prof.atk, def: prof.def, hp: prof.maxHp };
 }
 
 // 战力映射：atk + def + hp/10（hp 量级大一个数量级，折算后与其他两项同权）。
@@ -775,6 +845,7 @@ module.exports = {
   canDeploy,
   canUndeploy,
   formationSummary,
+  combatProfile,
   loadConfig,
   normalizeConfig,
   clearCache,
