@@ -68,6 +68,9 @@ export interface Save {
   combat: CombatState | null;
   rest: RestStatus;
   cleared: boolean;
+  // F089 终章态信号（=cleared，当前场景即 ch8_epilogue）：前端按字段渲染
+  // 「查看结算」入口与终章横幅，不做文本匹配。
+  at_epilogue: boolean;
   // F074 场景运行时字段（saveView 派生，服务端结算）：
   // 当前场景 + 本章主线进度 steps/total + 本章 unlock 软门判定。
   scene: string | null;
@@ -293,7 +296,7 @@ export const spendStat = (save_id: number, stat: StatKey) =>
   );
 
 export const sendAction = (save_id: number, input: string) =>
-  req<{ reply: LogEntry; save: Save; shadows?: ShadowFormation }>("/action", {
+  req<{ reply: LogEntry; save: Save; shadows?: ShadowFormation; ending_ready?: boolean }>("/action", {
     method: "POST",
     body: JSON.stringify({ save_id, input }),
   });

@@ -2837,3 +2837,34 @@ button {
 .cn-total {
   color: var(--text);
 }
+
+/* ── 终章横幅（F089）──────────────────────────────
+   一次性收束文案：不是系统窗也不是逐条日志——衬线长句夹在上下发丝线
+   之间，左缘一道系统色刻度标记收束点；唯一动作是「查看结算」主键。
+   常驻但只渲染一次，不落库不刷屏；窄屏下随 .stage-col 自然换行。 */
+.epilogue-banner {
+  max-width: 60ch;
+  margin: var(--sp-6) 0 var(--sp-4);
+  padding: var(--sp-4) 0 var(--sp-4) var(--sp-4);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid var(--system);
+}
+
+.epilogue-kicker {
+  margin-bottom: var(--sp-2);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  color: var(--system);
+  text-shadow: 0 0 8px var(--system-dim);
+}
+
+.epilogue-text {
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-serif);
+  font-size: var(--fs-narr);
+  line-height: 1.9;
+  color: #c8d6ec;
+}

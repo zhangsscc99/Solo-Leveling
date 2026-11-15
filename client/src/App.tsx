@@ -566,12 +566,17 @@ export default function App() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const n = Number(e.key);
-      if (n >= 1 && n <= ACTION_BUTTONS.length) dispatch(ACTION_BUTTONS[n - 1].input);
-      else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
+      if (n >= 1 && n <= ACTION_BUTTONS.length) {
+        const b = ACTION_BUTTONS[n - 1];
+        // 终章态快捷键 1 与按钮同义：不再发「前进」，直接开结算。
+        // 交战态除外——此时「前进」是撤离掷逃，必须照常发出。
+        if (b.input === "前进" && cleared && !liveCombat) openTab("ending");
+        else dispatch(b.input);
+      } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat]);
 
   const onCreate = useCallback(
     async (e: FormEvent) => {
@@ -672,6 +677,19 @@ export default function App() {
           {log.map((entry) => (
             <StageEntry key={entry.id} entry={entry} />
           ))}
+          {save.at_epilogue && (
+            // F089 一次性终章文案：按 save.at_epilogue 常驻一块横幅，不落
+            // 日志、不随动作刷屏；附结算入口，与「查看结算」按钮同向。
+            <div className="epilogue-banner" role="status">
+              <div className="epilogue-kicker">故事的终章</div>
+              <p className="epilogue-text">
+                船已进港，账已结清。所有战斗与抉择都凝固成了战绩——前路已尽，剩下的只有回看。
+              </p>
+              <button className="btn primary" onClick={() => openTab("ending")}>
+                查看结算
+              </button>
+            </div>
+          )}
           {busy && (
             <div className="pending">
               <span className="pending-dot" />
@@ -748,6 +766,23 @@ export default function App() {
                   : restBlocked
                     ? restInfo?.reason || "暂时无法休息"
                     : null;
+                // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
+                // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
+                // 不再发这条必拒指令。交战态除外：此时「前进」是撤离掷逃，
+                // 主按钮改标「前进（撤离）」照常发出。
+                if (b.input === "前进" && save.at_epilogue && !save.combat) {
+                  return (
+                    <button
+                      key={b.label}
+                      className="btn primary"
+                      onClick={() => openTab("ending")}
+                      title="快捷键 1"
+                    >
+                      查看结算
+                      <kbd>{i + 1}</kbd>
+                    </button>
+                  );
+                }
                 return (
                   <button
                     key={b.label}
@@ -757,7 +792,7 @@ export default function App() {
                     title={reason || `快捷键 ${i + 1}`}
                     aria-disabled={busy || blocked || restBlocked}
                   >
-                    {b.label}
+                    {b.input === "前进" && save.at_epilogue && save.combat ? "前进（撤离）" : b.label}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>
