@@ -34,6 +34,37 @@ function vitalsLine(save) {
   return `HP ${save.hp}/${save.max_hp} · MP ${save.mp}/${save.max_mp}`;
 }
 
+// F074 场景运行时：主线进度 = 当前场景在本章主线遍历序中的位置 + 1。
+// save.scene 缺失或错章时按本章首场景展示（与「前进」结算的自愈口径一致），
+// 所以新档也能直接拿到 scene / chapter_progress 字段。
+function sceneView(save) {
+  const chapter = chaptersEngine.getChapter(save && save.chapter);
+  const scene = chaptersEngine.currentScene(save);
+  const base = {
+    scene: scene ? scene.id : null,
+    scene_title: null,
+    scene_index: -1,
+    chapter_steps: 0,
+    chapter_total: 0,
+    chapter_progress: "0/0",
+    next_choices: [],
+  };
+  if (!chapter || !scene) return base;
+  const idx = chaptersEngine.pathIndexOf(chapter, scene.id);
+  const steps = idx + 1;
+  return {
+    scene: scene.id,
+    scene_title: scene.title,
+    scene_index: idx,
+    chapter_steps: steps,
+    chapter_total: chapter.scenes.length,
+    chapter_progress: `${steps}/${chapter.scenes.length}`,
+    next_choices: (Array.isArray(scene.choices) ? scene.choices : [])
+      .slice(0, 3)
+      .map((c) => ({ id: c.id, label: c.label })),
+  };
+}
+
 // 出参统一带派生字段：xp_to_next 由等级曲线算出，free_points 兜底 0。
 // cleared 是通关唯一判定（endingEngine.hasCleared：当前场景为 ch8_epilogue），
 // 前端「结算」tab 与 /saves/:id/ending 门禁共用同一结论，不各自推导。
@@ -41,6 +72,7 @@ function saveView(save) {
   if (!save) return save;
   return {
     ...save,
+    ...sceneView(save),
     free_points: Number(save.free_points) || 0,
     kills: Number(save.kills) || 0,
     cleared: endingEngine.hasCleared(save),
@@ -190,6 +222,90 @@ function itemLine(item) {
   return "素材";
 }
 
+
+// 推进体力消耗（沿用原数值）：HP-3 下限 1、MP-2 下限 0。
+// 数值没动过的一律不进文案——HP 已 1 时不得输出「HP 1→1」这种虚构消耗，
+// 只写「体力已见底」。
+function vitalsCost(save) {
+  const hp = save.hp <= 1 ? save.hp : clamp(save.hp - 3, 1, save.max_hp);
+  const mp = clamp(save.mp - 2, 0, save.max_mp);
+  const parts = [];
+  if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
+  if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
+  const note = parts.length
+    ? `（体力消耗 ${parts.join(" · ")}${save.hp <= 1 ? " · 体力已见底" : ""}）`
+    : "（体力已见底）";
+  return { patch: { hp, mp }, note };
+}
+
+// 章节门（F075）：抵达本章主线最末场景 = 本章已到达场景数集满。
+// 准入通过 → chapter+1 并落到下一章首个场景，同时写入一行主线播报；
+// 准入失败 → 留在当前场景，仅提示所需等级（exitScene 为即将走完的末景，
+// 其原文并进本次回复，不让任何一段章节文本被静默跳过）。
+function chapterGate(save, chapter, nextChapter, vit, exitScene) {
+  const gate = chaptersEngine.unlockedFor(save, nextChapter);
+  if (!gate.ok) {
+    return {
+      patch: vit.patch,
+      content:
+        `【主线】通往第${nextChapter.index}章的门没有开启——需 Lv.${gate.level} 才能进入第${nextChapter.index}章。\n` +
+        vit.note,
+    };
+  }
+  const first = chaptersEngine.firstSceneOf(nextChapter);
+  const exitText = exitScene ? `${exitScene.text}\n` : "";
+  return {
+    patch: { ...vit.patch, scene: first.id, chapter: nextChapter.index },
+    content:
+      `${exitText}【主线】第${nextChapter.index}章「${nextChapter.title}」开启。\n` +
+      `${first.text}\n${vit.note}`,
+  };
+}
+
+// 「前进」结算：沿本章主线遍历序推进 save.scene，日志正文一律用落点
+// 场景的真实 text；集满本章场景触发章节门，全篇终点只输出收束叙述。
+function advanceOutcome(save) {
+  const chapter = chaptersEngine.getChapter(save.chapter);
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  if (!path.length) {
+    return { patch: null, content: "【系统】前路在此断裂，暂无可以踏足之地。" };
+  }
+  const vit = vitalsCost(save);
+  const idx = chaptersEngine.pathIndexOf(chapter, save.scene);
+
+  // 老存档自愈：save.scene 为空、悬空或错章 → 落到本章第一个场景。
+  if (idx < 0) {
+    return {
+      patch: { ...vit.patch, scene: path[0].id },
+      content: `${path[0].text}\n${vit.note}`,
+    };
+  }
+
+  const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
+
+  // 已站在主线最末场景（经「观察」等分支落点）：再前进即穿章；
+  // 没有下一章 = 全篇终点（ch8_epilogue），只收束不改写进度。
+  if (idx === path.length - 1) {
+    if (!nextChapter) {
+      return {
+        patch: vit.patch,
+        content: `${path[idx].text}\n【系统】此处已是故事的终章，再无前路。\n${vit.note}`,
+      };
+    }
+    return chapterGate(save, chapter, nextChapter, vit, null);
+  }
+
+  const next = path[idx + 1];
+  // 这一步将抵达主线最末场景 = 本章 N/N 集满：有下一章时当场结算章节门。
+  if (idx + 1 === path.length - 1 && nextChapter) {
+    return chapterGate(save, chapter, nextChapter, vit, next);
+  }
+
+  return {
+    patch: { ...vit.patch, scene: next.id },
+    content: `${next.text}\n${vit.note}`,
+  };
+}
 
 // Whitelisted intents. Each entry owns its log role, the
 // deterministic state delta and the narration text — every number is computed
@@ -391,25 +507,40 @@ const INTENTS = [
   {
     id: "observe",
     role: "narrator",
-    build: () => ({
-      patch: null,
-      content:
-        "你环顾四周：残破的神殿大厅内烛火摇曳，远处的石门紧闭，门缝里渗出幽蓝色的微光，空气里弥漫着尘土与铁锈的气味。石像的嘴角似乎还残留着那抹笑意。",
-    }),
+    build: (save) => {
+      const chapter = chaptersEngine.getChapter(save.chapter);
+      const scene = chapter ? chaptersEngine.currentScene(save) : null;
+      if (!scene) {
+        return { patch: null, content: "你环顾四周，只有浓得化不开的黑暗。" };
+      }
+      const choices = Array.isArray(scene.choices) ? scene.choices : [];
+      const obs = choices.find(
+        (c) => c && (c.id === "observe" || (typeof c.label === "string" && c.label.includes("观察")))
+      );
+      const target =
+        obs && typeof obs.next === "string" && obs.next ? chaptersEngine.getScene(obs.next) : null;
+      // 观察分支必须落在本章内，跨界/悬空 id 一律降级为不推进的观察叙述。
+      if (target && chapter.scenes.some((s) => s.id === target.id)) {
+        const vit = vitalsCost(save);
+        const flag =
+          obs.effects && typeof obs.effects.flag === "string" && obs.effects.flag
+            ? obs.effects.flag
+            : null;
+        return {
+          patch: { ...vit.patch, scene: target.id },
+          content: `${target.text}${flag ? `\n（获得标记：${flag}）` : ""}\n${vit.note}`,
+        };
+      }
+      return {
+        patch: null,
+        content: `你放慢呼吸，重新审视「${scene.title}」。\n${scene.text}`,
+      };
+    },
   },
   {
     id: "advance",
     role: "narrator",
-    build: (save) => {
-      const hp = clamp(save.hp - 3, 1, save.max_hp);
-      const mp = clamp(save.mp - 2, 0, save.max_mp);
-      return {
-        patch: { hp, mp },
-        content:
-          `你踩着碎石向那扇石门挪去，脚下的石砖忽然下沉半寸，机关咬合的声音在暗处响起。你屏住呼吸，从缝隙里挤了过去。\n` +
-          `（体力消耗 HP ${save.hp}→${hp} · MP ${save.mp}→${mp}）`,
-      };
-    },
+    build: (save) => advanceOutcome(save),
   },
   {
     id: "sneak",
@@ -946,7 +1077,12 @@ api.post("/ai-action", async (req, res) => {
       // F025：await AI 期间存档可能已被其它写入改动，outcome.patch 是相对旧
       // 快照的绝对值。重读存档，把 patch 隐含的增量套到新快照上再夹紧写回。
       const fresh = store.getSave(save.id) || save;
-      store.updateSave(save.id, aiValidate.applyVitalsDelta(save, fresh, outcome.patch));
+      const merged = aiValidate.applyVitalsDelta(save, fresh, outcome.patch);
+      // applyVitalsDelta 只回算 hp/mp；scene/chapter 等剧情进度字段原样透传。
+      for (const [key, value] of Object.entries(outcome.patch)) {
+        if (key !== "hp" && key !== "mp") merged[key] = value;
+      }
+      store.updateSave(save.id, merged);
     }
     const questNote = settleDailyQuests(save.id, input);
     const reply = store.appendLog(

@@ -370,6 +370,83 @@ function currentScene(save) {
   return chapter.scenes[0];
 }
 
+// ---------------------------------------------------------------------------
+// 场景运行时（F074/F075）
+// ---------------------------------------------------------------------------
+
+// 本章首个场景（数组首项）。
+function firstSceneOf(chapter) {
+  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
+  return scenes[0] || null;
+}
+
+// scene.id 在本章 scenes[] 的下标（0 基；-1 = 不属于本章）。
+function sceneIndexIn(chapter, sceneId) {
+  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
+  return scenes.findIndex((s) => s && s.id === sceneId);
+}
+
+// 场景的默认下一步：next_scene，缺失时取首个带目标的选择项的 next。
+// 返回值可能为 null（终点场景）或跨界/悬空 id，调用方自行兜底。
+function nextSceneOf(scene) {
+  if (!scene || typeof scene !== "object") return null;
+  if (typeof scene.next_scene === "string" && scene.next_scene) return scene.next_scene;
+  const choices = Array.isArray(scene.choices) ? scene.choices : [];
+  const pick = choices.find((c) => c && typeof c.next === "string" && c.next);
+  return pick ? pick.next : null;
+}
+
+// 本章主线遍历序（覆盖全部场景，含支线）：从首场景沿 next_scene
+// （缺失取首个未到访的 choices[].next）前进；断链、回环或跨界时按数组
+// 顺序补入最早未到访场景，直至本章场景用尽。
+// 「本章已到达场景数」= 当前场景在遍历序中的位置 + 1，故遍历序即主线步序。
+function chapterPath(chapter) {
+  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
+  const byId = new Map(scenes.map((s) => [s && s.id, s]));
+  const path = [];
+  const seen = new Set();
+  let cur = scenes[0] || null;
+  while (cur && !seen.has(cur.id)) {
+    path.push(cur);
+    seen.add(cur.id);
+    let nextId =
+      typeof cur.next_scene === "string" && cur.next_scene && !seen.has(cur.next_scene) && byId.has(cur.next_scene)
+        ? cur.next_scene
+        : null;
+    if (!nextId) {
+      const pick = (Array.isArray(cur.choices) ? cur.choices : []).find(
+        (c) => c && typeof c.next === "string" && c.next && !seen.has(c.next) && byId.has(c.next)
+      );
+      nextId = pick ? pick.next : null;
+    }
+    if (!nextId) {
+      const fill = scenes.find((s) => s && !seen.has(s.id));
+      nextId = fill ? fill.id : null;
+    }
+    cur = nextId ? byId.get(nextId) : null;
+  }
+  return path;
+}
+
+// scene.id 在主线遍历序中的位置（0 基；-1 = 不属于本章）。
+function pathIndexOf(chapter, sceneId) {
+  return chapterPath(chapter).findIndex((s) => s && s.id === sceneId);
+}
+
+// 下一章准入（章节门）：unlock.chapter（已抵达前置章节）与 unlock.level
+// （推荐等级）满足其一即可进入；线性推进时前置章节必然已满足，等级门槛
+// 用于拦截跳章/异常进度。返回 { ok, level }，level 为展示用推荐等级。
+function unlockedFor(save, chapter) {
+  const req = chapter && chapter.unlock;
+  const levelReq = req && Number.isInteger(req.level) ? req.level : null;
+  const chapterReq = req && Number.isInteger(req.chapter) ? req.chapter : null;
+  if (levelReq === null && chapterReq === null) return { ok: true, level: null };
+  const level = Math.trunc(Number(save && save.level) || 0);
+  const ch = Math.trunc(Number(save && save.chapter) || 0);
+  const ok = (levelReq !== null && level >= levelReq) || (chapterReq !== null && ch >= chapterReq);
+  return { ok, level: levelReq };
+}
+
 module.exports = {
   DATA_PATH,
   VALID_KINDS,
@@ -384,4 +461,10 @@ module.exports = {
   getScene,
   getChapterOfScene,
   currentScene,
+  firstSceneOf,
+  sceneIndexIn,
+  nextSceneOf,
+  chapterPath,
+  pathIndexOf,
+  unlockedFor,
 };
