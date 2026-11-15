@@ -19,15 +19,23 @@ const BASE_CHANCE = 0.3;
 const PER_CHAPTER = 0.05;
 const MAX_CHANCE = 0.75;
 
-// 小怪等级随章节爬升：ch1 最弱的一口也咬得动人，ch8 的小兵足以秒掉
-// 低等级乱入者——死亡回溯（F077）就是为此而存在。
-const MOB_LEVEL_BASE = 2;
-const MOB_LEVEL_STEP = 5;
-const BOSS_LEVEL_BONUS = 3;
+// F095 章节期望等级：玩家抵达本章时按 XP 曲线应处的等级。取「本章小怪
+// + boss + 主线奖励 + 每日任务」全收后大致够到下一章期望的中位——
+// ch1 期望 Lv.2（新档 Lv.1 + 新手装备 + 3 瓶药水即可险胜守关者），
+// 之后随章节单调抬升；后章略压半档，留出练级空间但不再出现
+// mobLevel(1)=2、boss+3=Lv.5 碾压 Lv.1 的死锁。
+const EXPECTED_LEVEL = { 1: 2, 2: 4, 3: 6, 4: 9, 5: 12, 6: 15, 7: 19, 8: 24 };
+const BOSS_LEVEL_BONUS = 1;
 
-function mobLevel(chapterIndex) {
+function expectedLevel(chapterIndex) {
   const ch = Math.max(1, Math.trunc(S.num(chapterIndex)) || 1);
-  return MOB_LEVEL_BASE + (ch - 1) * MOB_LEVEL_STEP;
+  return EXPECTED_LEVEL[ch] || EXPECTED_LEVEL[8];
+}
+
+// 小怪等级 = 本章期望等级（模板 levelBonus 叠加出强一档的变体）；
+// 守关 boss = 期望 +1——门口一战必须真打，但同章期望等级玩家应能拿下。
+function mobLevel(chapterIndex) {
+  return expectedLevel(chapterIndex);
 }
 
 // 由等级推导五项属性：boss 力量/体力加成更厚。与 stats.js 的折算系数
@@ -43,7 +51,10 @@ function scaledStats(level, boss) {
   };
 }
 
-function makeEnemy({ id, name, rank, level, hp, xp, boss }) {
+// 攻防默认由等级属性折算（atk = 1.6×str，def = 0.8×vit）；模板允许像
+// hp/xp 一样写显式 atk/def 覆盖——ch1 守关者即用它把单回合伤害压到
+// Lv.1 玩家 DPS 之下（期望等级生成的 atk 仍偏高，见 F095 平衡推导）。
+function makeEnemy({ id, name, rank, level, hp, xp, boss, atk, def }) {
   const stats = scaledStats(level, boss);
   const maxHp = Math.max(1, Math.round(S.num(hp) || 1));
   return {
@@ -56,8 +67,8 @@ function makeEnemy({ id, name, rank, level, hp, xp, boss }) {
     maxHp,
     xp: Math.max(1, Math.round(S.num(xp) || 1)),
     boss: Boolean(boss),
-    atk: Math.round(stats.strength * 1.6),
-    def: Math.round(stats.vitality * 0.8),
+    atk: atk !== undefined ? Math.max(1, Math.round(S.num(atk) || 1)) : Math.round(stats.strength * 1.6),
+    def: def !== undefined ? Math.max(0, Math.round(S.num(def))) : Math.round(stats.vitality * 0.8),
   };
 }
 
@@ -72,62 +83,66 @@ const BOSS_XP_PER_LEVEL = 8;
 
 // 章节遭遇表：小怪池 + boss。名字取自本章题材，id 尽量对回 drops.json
 // 已有掉落键；没有对应掉落键的（如哥布林、试炼亡魂）走 fallback 表。
+// hp/xp 为显式预算：小怪约 4 刀、boss 约 8–10 刀（按本章期望等级的
+// 玩家 DPS 折算，含 E→S 等级压制系数），XP 与 levels.json 曲线配套——
+// 一章全收大致把玩家推过下一章期望等级线。ch1 守关者额外写死 atk：
+// Lv.1 新档单回合承伤必须低于自身 DPS（bossDmg/playerDmg < 1）。
 const CHAPTER_ENEMIES = {
   1: {
     mobs: [
-      { id: "dungeon_wolf", name: "地下城狼", rank: "E", hp: 58, xp: 18 },
-      { id: "broken_statue", name: "石像残兵", rank: "E", levelBonus: 1, hp: 70, xp: 22 },
+      { id: "dungeon_wolf", name: "地下城狼", rank: "E", hp: 42, xp: 18 },
+      { id: "broken_statue", name: "石像残兵", rank: "E", levelBonus: 1, hp: 52, xp: 22 },
     ],
-    boss: { id: "stone_guardian", name: "石像守卫", rank: "D", hp: 130, xp: 80 },
+    boss: { id: "stone_guardian", name: "石像守卫", rank: "D", hp: 75, xp: 75, atk: 16 },
   },
   2: {
     mobs: [
-      { id: "venom_serpent", name: "沙地毒蛇", rank: "D", hp: 80, xp: 30 },
-      { id: "penalty_sandworm", name: "惩罚沙虫", rank: "D", hp: 95, xp: 34 },
+      { id: "venom_serpent", name: "沙地毒蛇", rank: "D", hp: 78, xp: 30 },
+      { id: "penalty_sandworm", name: "惩罚沙虫", rank: "D", hp: 88, xp: 36 },
     ],
-    boss: { id: "venom_serpent", name: "惩罚副本·毒牙蛇", rank: "D", hp: 190, xp: 110 },
+    boss: { id: "venom_serpent", name: "惩罚副本·毒牙蛇", rank: "D", hp: 200, xp: 400 },
   },
   3: {
     mobs: [
-      { id: "goblin_scout", name: "哥布林斥候", rank: "E", hp: 95, xp: 44 },
-      { id: "goblin_raider", name: "哥布林掠袭者", rank: "D", levelBonus: 1, hp: 110, xp: 50 },
+      { id: "goblin_scout", name: "哥布林斥候", rank: "E", hp: 96, xp: 44 },
+      { id: "goblin_raider", name: "哥布林掠袭者", rank: "D", levelBonus: 1, hp: 110, xp: 52 },
     ],
-    boss: { id: "goblin_pack", name: "评级副本·哥布林群", rank: "C", hp: 240, xp: 150 },
+    boss: { id: "goblin_pack", name: "评级副本·哥布林群", rank: "C", hp: 210, xp: 260 },
   },
   4: {
     mobs: [
-      { id: "raid_wolf", name: "突袭魔狼", rank: "D", hp: 130, xp: 64 },
-      { id: "dungeon_wolf", name: "地下城狼王", rank: "C", levelBonus: 1, hp: 145, xp: 70 },
+      { id: "raid_wolf", name: "突袭魔狼", rank: "D", hp: 120, xp: 60 },
+      { id: "dungeon_wolf", name: "地下城狼王", rank: "C", levelBonus: 1, hp: 135, xp: 70 },
     ],
-    boss: { id: "venom_serpent", name: "蓝色毒蛇王", rank: "B", hp: 320, xp: 200 },
+    boss: { id: "venom_serpent", name: "蓝色毒蛇王", rank: "B", hp: 225, xp: 340 },
   },
   5: {
     mobs: [
-      { id: "trial_wraith", name: "试炼亡魂", rank: "C", hp: 160, xp: 84 },
-      { id: "trial_phantom", name: "试炼幻影", rank: "C", levelBonus: 1, hp: 175, xp: 92 },
+      { id: "trial_wraith", name: "试炼亡魂", rank: "C", hp: 148, xp: 80 },
+      { id: "trial_phantom", name: "试炼幻影", rank: "C", levelBonus: 1, hp: 165, xp: 92 },
     ],
-    boss: { id: "trial_guardian", name: "试炼守护者", rank: "B", hp: 420, xp: 260 },
+    boss: { id: "trial_guardian", name: "试炼守护者", rank: "B", hp: 310, xp: 460 },
   },
   6: {
     mobs: [
-      { id: "frost_sprite", name: "冰精灵", rank: "C", hp: 200, xp: 108 },
-      { id: "frost_wolf", name: "冰原魔狼", rank: "B", levelBonus: 1, hp: 220, xp: 118 },
+      { id: "frost_sprite", name: "冰精灵", rank: "C", hp: 168, xp: 105 },
+      { id: "frost_wolf", name: "冰原魔狼", rank: "B", levelBonus: 1, hp: 185, xp: 120 },
     ],
-    boss: { id: "frost_sprite", name: "冰精灵女王", rank: "A", hp: 540, xp: 340 },
+    boss: { id: "frost_sprite", name: "冰精灵女王", rank: "A", hp: 330, xp: 600 },
   },
   7: {
     mobs: [
-      { id: "hellhound", name: "地狱之犬", rank: "B", hp: 250, xp: 140 },
-      { id: "demon_castle_knight", name: "恶魔城骑士", rank: "B", levelBonus: 1, hp: 270, xp: 152 },
+      { id: "hellhound", name: "地狱之犬", rank: "B", hp: 185, xp: 135 },
+      { id: "demon_castle_knight", name: "恶魔城骑士", rank: "B", levelBonus: 1, hp: 205, xp: 152 },
     ],
-    boss: { id: "demon_castle_knight", name: "恶魔城城主", rank: "A", hp: 680, xp: 440 },
+    boss: { id: "demon_castle_knight", name: "恶魔城城主", rank: "A", hp: 380, xp: 780 },
   },
   8: {
     mobs: [
-      { id: "ant_soldier", name: "魔蚁兵", rank: "A", hp: 320, xp: 190 },
-      { id: "ant_elite", name: "魔蚁近卫", rank: "A", levelBonus: 1, hp: 350, xp: 208 },
+      { id: "ant_soldier", name: "魔蚁兵", rank: "A", hp: 218, xp: 170 },
+      { id: "ant_elite", name: "魔蚁近卫", rank: "A", levelBonus: 1, hp: 240, xp: 190 },
     ],
-    boss: { id: "ant_king_beru", name: "蚁王 Beru", rank: "S", hp: 900, xp: 600 },
+    boss: { id: "ant_king_beru", name: "蚁王 Beru", rank: "S", hp: 450, xp: 980 },
   },
 };
 
@@ -181,6 +196,7 @@ module.exports = {
   spawn,
   spawnBoss,
   roll,
+  expectedLevel,
   mobLevel,
   scaledStats,
   makeEnemy,

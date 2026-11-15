@@ -206,14 +206,6 @@ function resolveTurn(state, action, seed, opts) {
         });
         break;
       }
-      case "flee":
-        if (rng.chance(FLEE_CHANCE)) {
-          fled = true;
-          events.push({ type: "flee", side: "player", text: "你抓住机会脱离战斗，成功逃跑！" });
-        } else {
-          events.push({ type: "flee", side: "enemy", text: "你试图逃跑，却被敌人拦了下来。" });
-        }
-        break;
     }
   };
 
@@ -227,13 +219,23 @@ function resolveTurn(state, action, seed, opts) {
   };
 
   // 先手判定：敏捷 + 0.5 × 感知，高者先动；平手时玩家先手（保持旧行为）。
-  const enemyFirst = S.initiative(enemy) > S.initiative(player);
-  if (enemyFirst) {
+  // F095 逃跑先行结算：判定在吃任何反击之前——成功脱身本回合零伤害，
+  // 只有被拦下才挨敌人一击（boss 房逃生阀，交战中「前进」同走此路）。
+  let enemyFirst = false;
+  if (action === "flee") {
+    if (rng.chance(FLEE_CHANCE)) {
+      fled = true;
+      events.push({ type: "flee", side: "player", text: "你抓住机会脱离战斗，成功逃跑！" });
+    } else {
+      events.push({ type: "flee", side: "enemy", text: "你试图逃跑，却被敌人拦了下来。" });
+      if (enemy.hp > 0 && player.hp > 0) enemyActs();
+    }
+  } else if ((enemyFirst = S.initiative(enemy) > S.initiative(player))) {
     enemyActs();
-    if (player.hp > 0 && !fled) playerActs();
+    if (player.hp > 0) playerActs();
   } else {
     playerActs();
-    if (enemy.hp > 0 && player.hp > 0 && !fled) enemyActs();
+    if (enemy.hp > 0 && player.hp > 0) enemyActs();
   }
 
   next.turn = S.num(src.turn) + 1;
