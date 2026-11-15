@@ -568,13 +568,14 @@ export default function App() {
       if (n >= 1 && n <= ACTION_BUTTONS.length) {
         const b = ACTION_BUTTONS[n - 1];
         // 终章态快捷键 1 与按钮同义：不再发「前进」，直接开结算。
-        if (b.input === "前进" && cleared) openTab("ending");
+        // 交战态除外——此时「前进」是撤离掷逃，必须照常发出。
+        if (b.input === "前进" && cleared && !liveCombat) openTab("ending");
         else dispatch(b.input);
       } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat]);
 
   const onCreate = useCallback(
     async (e: FormEvent) => {
@@ -758,8 +759,9 @@ export default function App() {
                 const blocked = Boolean(b.combatBlock && save.combat);
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
-                // 不再发这条必拒指令。
-                if (b.input === "前进" && save.at_epilogue) {
+                // 不再发这条必拒指令。交战态除外：此时「前进」是撤离掷逃，
+                // 主按钮改标「前进（撤离）」照常发出。
+                if (b.input === "前进" && save.at_epilogue && !save.combat) {
                   return (
                     <button
                       key={b.label}
@@ -780,7 +782,7 @@ export default function App() {
                     onClick={() => dispatch(b.input)}
                     title={blocked ? "交战中无法使用" : `快捷键 ${i + 1}`}
                   >
-                    {b.label}
+                    {b.input === "前进" && save.at_epilogue && save.combat ? "前进（撤离）" : b.label}
                     <kbd>{i + 1}</kbd>
                   </button>
                 );

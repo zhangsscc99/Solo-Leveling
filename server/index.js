@@ -578,6 +578,9 @@ function tryEncounter(save, sceneId, opts) {
   const scene = chaptersEngine.getScene(sceneId);
   const chapter = chaptersEngine.getChapter(save.chapter);
   if (!scene || !chapter) return null;
+  // F089 终章守卫：结局场景（ch8_epilogue）永不掷遭遇——落点不再被怪
+  // 缠住，只有既存交战态（旧档）还能经「前进」撤离掷逃收尾。
+  if (scene.id === endingEngine.EPILOGUE_SCENE_ID) return null;
   const sceneChapter = chaptersEngine.getChapterOfScene(scene.id);
   const effective =
     scene.kind === "boss" && sceneChapter && bossCleared(save, sceneChapter.id)
@@ -918,6 +921,16 @@ function combatTurn(save, cbt, action, input, skill, opts) {
 // defend/item/flee 在非战斗场景同样只给诚实提示。
 function peacefulCombatIntent(save, input, action) {
   if (action === "attack" || action === "skill") {
+    // F089 终章守卫：已抵结局场景（endingEngine.hasCleared，与
+    // save.cleared / at_epilogue 同口径）——此地无可战之敌，叫阵
+    // 不开战、不占回合、不消耗任何资源。
+    if (endingEngine.hasCleared(save)) {
+      return {
+        patch: null,
+        content: "【系统】此处已无可战之敌——硝烟散尽，只余归途的安静。",
+        events: [],
+      };
+    }
     if (action === "skill") {
       const gate = skillGate(save, input);
       if (!gate.ok) return { patch: null, content: gate.content, events: [] };
@@ -1796,7 +1809,14 @@ api.post("/action", (req, res) => {
   // save.cleared / at_epilogue 同一判定）时「前进」整体拒绝——用户输入
   // 与播报都不进日志、不结算 HP/MP、不掷遭遇；回包只带一次性指引与同
   // 一份 save，连点多少次都是同一句话、日志零增长。
-  if (intentRules.resolveIntent(input) === "advance" && endingEngine.hasCleared(save)) {
+  // 例外：交战态（store.getCombat 非空）下「前进」的语义是撤离掷逃
+  // （advanceWithEncounter → combatTurn flee），不走本短路——终章被怪
+  // 缠住时玩家永远可以打或逃，不会被一句拒绝锁死。
+  if (
+    intentRules.resolveIntent(input) === "advance" &&
+    endingEngine.hasCleared(save) &&
+    !store.getCombat(save.id)
+  ) {
     return res.json({
       reply: { id: --epilogueReplySeq, role: "system", content: EPILOGUE_REFUSAL },
       save: saveView(save),
@@ -1861,8 +1881,13 @@ api.post("/ai-action", async (req, res) => {
     }
 
     // 与 /action 同一短路（F089）：终章态「前进」拒绝——不写日志不扣体力，
-    // AI 网关也不必为一次必拒的指令白跑一趟。
-    if (intentRules.resolveIntent(input) === "advance" && endingEngine.hasCleared(save)) {
+    // AI 网关也不必为一次必拒的指令白跑一趟。交战态除外：那时「前进」
+    // 是撤离掷逃，必须落到正常结算管线。
+    if (
+      intentRules.resolveIntent(input) === "advance" &&
+      endingEngine.hasCleared(save) &&
+      !store.getCombat(save.id)
+    ) {
       return res.json({
         reply: { id: --epilogueReplySeq, role: "system", content: EPILOGUE_REFUSAL },
         intent: "advance",
