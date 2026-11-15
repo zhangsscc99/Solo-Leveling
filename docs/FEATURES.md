@@ -185,7 +185,7 @@
   risk: high
 
 ## 第 5 轮试玩新增（2026-11-15 21:0x，A/B 双档实测）
-- [ ] F096 （阻断）章节门必须校验守关者击杀：当前 8 章守关者全部可被「前进」逃跑绕过——交战中「前进」=撤离骰，逃跑成功同一次点击即推进主线（实测 Lv.1/0 击杀/8 次死亡/63 次前进直达终章 `cleared:true`）。要求：`chapter` 推进 join 结算事件（`boss_cleared[chapter]` 为真才通章），交战中「前进」改文案为「撤离」且禁止同响应推进场景/主线，未击杀守关者时「前进」最多退回本景
+- [x] F096 （阻断）章节门必须校验守关者击杀：当前 8 章守关者全部可被「前进」逃跑绕过——交战中「前进」=撤离骰，逃跑成功同一次点击即推进主线（实测 Lv.1/0 击杀/8 次死亡/63 次前进直达终章 `cleared:true`）。要求：`chapter` 推进 join 结算事件（`boss_cleared[chapter]` 为真才通章），交战中「前进」改文案为「撤离」且禁止同响应推进场景/主线，未击杀守关者时「前进」最多退回本景 ✅ (2026-11-15 devin; 章节门在 `unlockedFor` 之后追加 `bossRequirementMet` 硬门槛，未击杀时正文点名守关者（「必须击败「石像守卫」才能通过（当前进度 7/7）」）；交战「前进」改为 `retreatOnFlee` 撤离结算、**不再调用 advanceOutcome**，成功只脱离交战（守关战撤回上一主线场景 + F095 冷却），前端交战态按钮改标「撤离」并写「撤离不会推进主线」；收尾补丁：两条门拒绝分支零消耗零日志（`refused` 短路），否则章尾连点会原地耗死（实测 HP 100→33→死亡回溯）；新断言 `chapter-boss-gate.mjs` 覆盖纯前进不通章/交战不推进/击杀后放行 + 变异敏感，`chapter-gate.mjs` 终章段改为 DB 落点（真打需 ~1.2 万动作，已在文件头写明预算约束）；`encounter-combat.mjs` 道具段 setup 去竞态，连跑 6 次稳定)
   verify: node scripts/assert/chapter-boss-gate.mjs
   risk: high
 - [ ] F097 （阻断）遭遇/守关者等级按玩家等级带宽缩放：ch2 守关者 200HP / 18 伤害、ch7「地狱之犬 Lv.19 HP185」对 Lv.3 玩家每回合打 4 点挨 44 点 → 必死循环。要求：遭遇与守关者等级钳制到 `player.level ± 2`（或与章节 `expected_level` 取小），`expected_level` 写入 `chapters.json` 并做 CI 断言；ch2 守关者应让 Lv.1–2 在 ≤12 回合内可赢
@@ -199,4 +199,18 @@
   risk: med
 - [ ] F100 quest-settlement 断言补强：「无敌人时释放技能 猛虎猛击」不得推进每日「力量校准」（现有 (c) 只覆盖不存在的技能名，变异测试可通过 → 假绿）
   verify: node scripts/assert/quest-settlement.mjs
+  risk: low
+
+## 第 6 轮试玩新增（2026-11-15 22:1x，独立审查；F096 已修）
+- [ ] F101 断言口径反向锁定缺陷：`chapter-gate.mjs` 的 `observeFree()` 断言「观察回复必须包含场景正文前 12 字」——等于把 F092 的「整幕复读」写成绿线；同理原「第 8 推过门进第 2 章」把软门+可绕过写成期望值（本轮已随 F096 改口径）。要求：观察断言改为「两次观察文本互不相同且 < 120 字、标题取 scene_title 而非敌人名」，并补一条负向断言（复读整幕时 FAIL）
+  verify: node scripts/assert/observe-short.mjs
+  risk: med
+- [ ] F102 章节解锁口径三处不一致：地图 Ch.8 写死「需 Lv.70」、`chapter_unlock.level` 回包是 40、`chapters.json` 的 `unlock.level` 又是第三个值；玩家看到「锁定 · 需 Lv.70」却能直接走进去（F093 软门）。要求：地图/回包/数据单一事实源（`/api/chapters` 下发 `unlock.level` 与 `unlocked/blocked_reason`），前端不再写死数字；软门期间锁定态与「已开启」播报不得并存
+  verify: node scripts/assert/chapter-unlock-single-source.mjs
+  risk: med
+- [ ] F103 死亡回包自相矛盾：`你倒下了，战斗结束。` 紧跟 `【战斗】撤离失败，X 仍堵在面前——你寸步未移。`（交战中「前进」致死分支仍拼撤离失败文案）。要求：死亡即收束，不得再拼回合/撤离失败句；五条死亡日志统一形态
+  verify: node scripts/assert/death.mjs
+  risk: low
+- [ ] F104 通关页残留开发备注：结算面板写「注：战斗统计未接入，总击杀暂记「—」。」，而 `stats.kills` 有真实值。要求：删除该备注，`总击杀` 与存档 kills 同源渲染
+  verify: node scripts/assert/ending-stats.mjs
   risk: low
