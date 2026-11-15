@@ -30,6 +30,10 @@ function gateIndexes(log: LogEntry[]): { engage: number; end: number } {
   let engage = -1;
   let end = -1;
   for (let i = 0; i < tail.length; i++) {
+    // 玩家输入行（role "user"）不参与交战/结束判定：自由文本写什么都进
+    // 日志，不能由玩家自己骗开面板。/action 的占位回显是 system 角色且
+    // 内嵌原输入，真实战斗信号仍由服务端行触发，不受影响。
+    if (tail[i].role === "user") continue;
     const c = tail[i].content;
     if (ENEMY_RE.test(c) || TURN_RE.test(c)) engage = i;
     if (END_RE.test(c)) end = i;
@@ -180,9 +184,11 @@ export default function CombatPanel({
   const ctx = useMemo(() => inferContext(log), [log]);
   const floaters = useMemo(() => inferFloaters(log, ctx.enemyName), [log, ctx.enemyName]);
 
-  const hasEnemy = ctx.enemyName !== null;
-  const actDisabled = busy || !hasEnemy;
-  const actTitle = hasEnemy ? undefined : "当前没有敌人";
+  // 「是否交战」是唯一事实源：gate=engage 时五键可用（仅 busy 才锁），
+  // 敌人名缺失只是显示「未知目标」，不再单独禁用按键；
+  // null / ended 态才显示空态提示并禁用全部按键。
+  const actDisabled = busy || !ctx.inCombat;
+  const actTitle = ctx.inCombat ? undefined : "当前没有交战目标";
   const learned = useMemo(
     () => skills.filter((s) => s.learn_level <= save.level),
     [skills, save.level]
@@ -239,10 +245,10 @@ export default function CombatPanel({
         </div>
 
         <div className="combatant combatant-enemy">
-          {hasEnemy ? (
+          {ctx.inCombat ? (
             <>
               <div className="combatant-head">
-                <span className="combatant-name">{ctx.enemyName}</span>
+                <span className="combatant-name">{ctx.enemyName ?? "未知目标"}</span>
                 <span className="combatant-lv">
                   {ctx.enemyLevel !== null ? `Lv.${ctx.enemyLevel}` : "Lv.—"}
                 </span>

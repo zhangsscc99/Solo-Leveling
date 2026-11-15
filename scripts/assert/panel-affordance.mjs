@@ -56,9 +56,10 @@ run("panel-affordance", async ({ page }) => {
         which = el.className && typeof el.className === "string" ? el.className : el.tagName;
       }
     }
-    return { gap: scR.bottom - bottom, which };
+    return { gap: scR.bottom - bottom, which, scrollHeight: sc.scrollHeight, clientHeight: sc.clientHeight };
   });
   assert(measure !== null, ".side-scroll not found");
+  assert(measure.scrollHeight > measure.clientHeight + 1, "内容未溢出，测量无效");
   assert(
     measure.gap >= 12,
     `last card (.${measure.which}) is only ${measure.gap.toFixed(1)}px above the side-scroll bottom edge (need ≥12)`

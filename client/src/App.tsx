@@ -317,6 +317,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [combatOpen, setCombatOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
 
   useEffect(() => {
     getItems()
@@ -352,12 +353,15 @@ export default function App() {
   }, [log]);
 
   // 战斗态没有服务端字段：日志里出现明确交战信号（遭遇X / 第N回合）时
-  // 自动展开面板；最近一条结束语命中即收束关闭，之后不会因窗口内残留
-  // 旧战斗文本而闪回重开。null 态不干预手动开关。
+  // 自动展开面板；gate 由 engage 跳变到 ended 的那一次收束关闭。
+  // 边沿触发而非电平触发：ended 残留期内手动打开的面板不会被后续日志
+  // 强行关掉，engage 持续期内手动收起的面板也不会被下一条日志重新顶开。
   useEffect(() => {
     const gate = detectCombatGate(log);
-    if (gate === "engage") setCombatOpen(true);
-    else if (gate === "ended") setCombatOpen(false);
+    const prev = gateRef.current;
+    gateRef.current = gate;
+    if (gate === "engage" && prev !== "engage") setCombatOpen(true);
+    else if (gate === "ended" && prev === "engage") setCombatOpen(false);
   }, [log]);
 
   const dispatch = useCallback(
