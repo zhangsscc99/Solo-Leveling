@@ -6,6 +6,8 @@ dist/
 !/server/data/items.json
 !/server/data/drops.json
 !/server/data/levels.json
+!/server/data/skills.json
+!/server/data/chapters.json
 *.db
 *.db-journal
 *.db-wal
