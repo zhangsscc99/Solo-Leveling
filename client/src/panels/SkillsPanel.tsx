@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ItemRarity, Save, Skill } from "../api";
 
 const RARITY_LABEL: Record<ItemRarity, string> = {
@@ -28,39 +28,25 @@ export default function SkillsPanel({
   busy: boolean;
   onRelease: (skill: Skill) => void;
 }) {
-  // 冷却只存在于本地：点击瞬间起表，MP 扣减等结算交给服务端回灌。
-  const [cooling, setCooling] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCooling((prev) => {
-        const next: Record<string, number> = {};
-        for (const [id, left] of Object.entries(prev)) {
-          if (left > 1) next[id] = left - 1;
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // 已学在前（learn_level 升序），未解锁殿后（同为 learn_level 升序）。
-  const ordered = useMemo(
+  // F081：可释放性（unlocked/cooldown_remaining/mp_enough/engaged/can_cast/
+  // reason）由服务端随 save.skills 下发，本面板只渲染不再本地推导；
+  // 无服务端字段时（纯目录回包）退回 learn_level/MP 静态口径做兜底排序。
+  const rows = useMemo(
     () =>
       [...skills].sort((a, b) => {
-        const la = a.learn_level <= save.level ? 0 : 1;
-        const lb = b.learn_level <= save.level ? 0 : 1;
+        const ua = a.unlocked ?? a.learn_level <= save.level;
+        const ub = b.unlocked ?? b.learn_level <= save.level;
         return (
-          la - lb ||
-          a.learn_level - b.learn_level ||
-          RARITY_ORDER[a.rarity] - RARITY_ORDER[b.rarity]
+          Number(ua) - Number(ub) === 0
+            ? a.learn_level - b.learn_level || RARITY_ORDER[a.rarity] - RARITY_ORDER[b.rarity]
+            : Number(ub) - Number(ua)
         );
       }),
     [skills, save.level]
   );
 
   const learnedCount = useMemo(
-    () => skills.filter((s) => s.learn_level <= save.level).length,
+    () => skills.filter((s) => s.unlocked ?? s.learn_level <= save.level).length,
     [skills, save.level]
   );
 
@@ -71,13 +57,6 @@ export default function SkillsPanel({
   if (skills.length === 0) {
     return <p className="side-empty">尚未习得技能。系统的馈赠尚未到来。</p>;
   }
-
-  const release = (skill: Skill) => {
-    if (skill.cooldown > 0) {
-      setCooling((prev) => ({ ...prev, [skill.id]: skill.cooldown }));
-    }
-    onRelease(skill);
-  };
 
   const lockedCount = skills.length - learnedCount;
 
@@ -103,24 +82,33 @@ export default function SkillsPanel({
       </div>
 
       <ul className="skill-rows">
-        {ordered.map((skill) => {
-          const unlocked = skill.learn_level <= save.level;
-          const remain = cooling[skill.id] ?? 0;
+        {rows.map((skill) => {
+          const unlocked = skill.unlocked ?? skill.learn_level <= save.level;
+          const remain = skill.cooldown_remaining ?? 0;
           const coolingNow = remain > 0;
-          const enoughMp = save.mp >= skill.mp_cost;
-          const canCast = unlocked && enoughMp && !coolingNow && !busy;
+          const enoughMp = skill.mp_enough ?? save.mp >= skill.mp_cost;
+          const canCast = (skill.can_cast ?? (unlocked && enoughMp && !coolingNow)) && !busy;
+          const reason =
+            skill.reason ??
+            (!unlocked ? "等级不足" : coolingNow ? "冷却中" : !enoughMp ? "MP 不足" : null);
           const stateText = !unlocked
             ? `Lv.${skill.learn_level} 解锁`
-            : !coolingNow && !enoughMp
-              ? "MP 不足"
-              : null;
+            : coolingNow
+              ? `冷却中 · 剩 ${remain} 回合`
+              : !enoughMp
+                ? "MP 不足"
+                : reason === "无交锋目标"
+                  ? "需交战目标"
+                  : null;
           const ariaLabel = !unlocked
             ? `${skill.name}，Lv.${skill.learn_level} 解锁`
             : coolingNow
-              ? `${skill.name}，冷却中，剩余 ${remain} 秒`
+              ? `${skill.name}，冷却中，还需 ${remain} 回合`
               : !enoughMp
                 ? `${skill.name}，MP 不足`
-                : `释放 ${skill.name}`;
+                : reason === "无交锋目标"
+                  ? `${skill.name}，当前没有交锋目标`
+                  : `释放 ${skill.name}`;
           const classes = [
             "skill-row",
             `r-${skill.rarity}`,
@@ -139,7 +127,7 @@ export default function SkillsPanel({
               </div>
               <div className="skill-meta">
                 <span className="skill-cost">MP {skill.mp_cost}</span>
-                <span className="skill-cd">冷却 {skill.cooldown}s</span>
+                <span className="skill-cd">冷却 {skill.cooldown} 回合</span>
                 <span className="skill-power">威力 {skill.power}</span>
               </div>
               <p className="skill-desc">{skill.desc}</p>
@@ -154,14 +142,16 @@ export default function SkillsPanel({
                     !unlocked
                       ? `等级不足：需 Lv.${skill.learn_level}`
                       : coolingNow
-                        ? `冷却中：剩余 ${remain} 秒`
+                        ? `冷却中：还需 ${remain} 回合`
                         : !enoughMp
-                          ? "MP 不足"
-                          : undefined
+                          ? `MP 不足：需 ${skill.mp_cost}（当前 ${save.mp}）`
+                          : reason === "无交锋目标"
+                            ? "当前没有交锋目标"
+                            : undefined
                   }
-                  onClick={() => release(skill)}
+                  onClick={() => onRelease(skill)}
                 >
-                  {coolingNow ? `冷却 ${remain}s` : "释放"}
+                  {coolingNow ? `冷却 ${remain} 回合` : "释放"}
                 </button>
                 {stateText && (
                   <span className="skill-state" aria-live="polite">
@@ -173,7 +163,7 @@ export default function SkillsPanel({
                 <div className="skill-cd-track" aria-hidden="true">
                   <div
                     className="skill-cd-fill"
-                    style={{ width: `${(remain / skill.cooldown) * 100}%` }}
+                    style={{ width: `${(remain / Math.max(1, skill.cooldown)) * 100}%` }}
                   />
                 </div>
               )}

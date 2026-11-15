@@ -70,6 +70,9 @@ export interface Save {
   chapter_completed: boolean;
   chapter_unlock: ChapterUnlockView | null;
   next_choices: SceneChoice[];
+  // F081：技能可释放性视图（目录字段 + unlocked/cooldown_remaining/
+  // mp_enough/engaged/can_cast/reason），服务端随存档下发，前端只渲染。
+  skills: Skill[];
 }
 
 export interface LogEntry {
@@ -131,6 +134,13 @@ export interface Skill {
   power: number;
   rarity: ItemRarity;
   learn_level: number;
+  // F081 服务端随 save.skills 下发的可释放性（旧 /skills 目录响应不带）。
+  unlocked?: boolean;
+  cooldown_remaining?: number;
+  mp_enough?: boolean;
+  engaged?: boolean;
+  can_cast?: boolean;
+  reason?: "等级不足" | "冷却中" | "MP 不足" | "无交锋目标" | null;
 }
 
 export type MainQuestStatus = "active" | "done" | "locked";

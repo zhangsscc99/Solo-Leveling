@@ -110,13 +110,17 @@ function combatView(combat) {
 // 前端「结算」tab 与 /saves/:id/ending 门禁共用同一结论，不各自推导。
 function saveView(save) {
   if (!save) return save;
+  const cbt = store.getCombat(save.id);
   return {
     ...save,
     ...sceneView(save),
     free_points: Number(save.free_points) || 0,
     kills: Number(save.kills) || 0,
     deaths: Number(save.deaths) || 0,
-    combat: combatView(store.getCombat(save.id)),
+    combat: combatView(cbt),
+    // F081：技能可释放性由服务端随存档下发（mp_cost/冷却剩余/解锁/交战
+    // 前提），前端只渲染不自行推导——按钮 disabled 与 /action 门禁同一口径。
+    skills: skillViews(save, cbt),
     cleared: endingEngine.hasCleared(save),
     xp_to_next: progression.xpToNext(save.level),
   };
@@ -696,10 +700,66 @@ function advanceWithEncounter(save) {
   return res;
 }
 
-// 「释放技能 X」前置校验：名字解析、已习得、MP 足够（按 skills.json 的
-// mp_cost 口径，与技能面板按钮的 disabled 判定一致）。校验不过时返回
-// 一条诚实文案——不扣 MP、不占回合、不产生 skill 结算事件。
-function skillGate(save, input) {
+// ── F081 技能冷却：{ skill_id: 剩余回合数 } 存在存档上，只随已结算的
+// 战斗回合衰减（任何真实推进的回合 -1，归零除名）；门禁拒绝不耗回合，
+// 因此冷却也不会被「连点」刷掉。
+function skillCdLeft(save, skillId) {
+  const raw = save && save.skill_cds && typeof save.skill_cds === "object" ? save.skill_cds : {};
+  const n = Math.trunc(Number(raw[skillId]) || 0);
+  return n > 0 ? n : 0;
+}
+
+function decaySkillCds(save) {
+  const raw = save && save.skill_cds && typeof save.skill_cds === "object" ? save.skill_cds : {};
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const n = Math.trunc(Number(v) || 0) - 1;
+    if (n > 0) out[k] = n;
+  }
+  return out;
+}
+
+function engagedTarget(cbt) {
+  return Boolean(cbt && cbt.enemy && Math.max(0, Number(cbt.enemy.hp) || 0) > 0);
+}
+
+// 单个技能的可释放视图：unlocked/cooldown_remaining/mp_enough/engaged/
+// can_cast/reason 全部服务端结算，与 skillGate 的判定顺序严格一致——
+// 前端按钮 disabled + 提示文案只读这些字段，不再本地复刻规则。
+function skillCastView(save, skill, engaged) {
+  const unlocked = skill.learn_level <= save.level;
+  const cooldown_remaining = skillCdLeft(save, skill.id);
+  const mp_enough = Number(save.mp) >= skill.mp_cost;
+  const reason = !unlocked
+    ? "等级不足"
+    : cooldown_remaining > 0
+      ? "冷却中"
+      : !mp_enough
+        ? "MP 不足"
+        : !engaged
+          ? "无交锋目标"
+          : null;
+  return {
+    ...skill,
+    unlocked,
+    cooldown_remaining,
+    mp_enough,
+    engaged,
+    can_cast: reason === null,
+    reason,
+  };
+}
+
+function skillViews(save, cbt) {
+  const engaged = engagedTarget(cbt);
+  return SKILLS.map((s) => skillCastView(save, s, engaged));
+}
+
+// 「释放技能 X」前置校验：名字解析、已习得、冷却走完、MP 足够（按
+// skills.json 的 mp_cost 口径，与技能面板按钮的 disabled 判定一致）。
+// 校验不过时返回一条诚实文案——不扣 MP、不占回合、不产生 skill 结算事件。
+// 判定顺序与 skillCastView 相同：未知技能 → 等级不足 → 冷却 → MP → 目标。
+function skillGate(save, input, engaged) {
   const m = String(input || "").match(
     /释放技能\s*[:：]?\s*(.+)$|施放技能\s*[:：]?\s*(.+)$|使用技能\s*[:：]?\s*(.+)$|施放\s*[:：]?\s*(.+)$|释放\s*[:：]?\s*(.+)$/
   );
@@ -712,12 +772,19 @@ function skillGate(save, input) {
     };
   }
   const skill = SKILLS.find((s) => s.name === name || s.id === name);
-  if (!skill) return { ok: false, content: `【系统】不存在名为「${name}」的技能。` };
+  if (!skill) return { ok: false, content: `【系统】未知技能「${name}」。` };
   if (skill.learn_level > save.level) {
     return { ok: false, content: `【系统】等级不足——「${skill.name}」需要 Lv.${skill.learn_level}。` };
   }
+  const cdLeft = skillCdLeft(save, skill.id);
+  if (cdLeft > 0) {
+    return { ok: false, content: `【系统】「${skill.name}」冷却中，还需 ${cdLeft} 回合。` };
+  }
   if (save.mp < skill.mp_cost) {
-    return { ok: false, content: `【系统】魔力不足——「${skill.name}」需要 ${skill.mp_cost} MP（当前 ${save.mp}）。` };
+    return { ok: false, content: `【系统】MP 不足——「${skill.name}」需要 ${skill.mp_cost} MP（当前 ${save.mp}）。` };
+  }
+  if (!engaged) {
+    return { ok: false, content: `【系统】当前没有交锋目标——「${skill.name}」只能对交战中的敌人释放。` };
   }
   return { ok: true, skill };
 }
@@ -821,6 +888,15 @@ function combatTurn(save, cbt, action, input, skill, opts) {
     mp: clamp(p.mp, 0, save.max_mp),
   };
 
+  // F081 冷却记账：本回合已结算 → 全表 -1；本回合新放出的技能按
+  // skills.json cooldown 重新挂表。只有 MP 真被扣掉才算放出——引擎内
+  // 魔力不足的错误路径不挂冷却，与 skillGate 口径一致。
+  const cdsNext = decaySkillCds(save);
+  if (action === "skill" && skill && patch.mp < save.mp) {
+    cdsNext[skill.id] = Math.max(1, Math.trunc(Number(skill.cooldown) || 1));
+  }
+  patch.skill_cds = cdsNext;
+
   const enemyHpBefore = Math.max(0, Math.trunc(Number(cbt.enemy.hp) || 0));
   const vitals = [];
   const enemyHpAfter = Math.max(0, Math.trunc(Number(e.hp) || 0));
@@ -906,7 +982,9 @@ function combatTurn(save, cbt, action, input, skill, opts) {
 function peacefulCombatIntent(save, input, action) {
   if (action === "attack" || action === "skill") {
     if (action === "skill") {
-      const gate = skillGate(save, input);
+      // 技能必须有真实交战目标：无交战时一律诚实拒绝（含冷却/MP/等级
+      // 门禁顺序），不再用技能掷遭遇——不扣 MP、不占回合、不开战。
+      const gate = skillGate(save, input, false);
       if (!gate.ok) return { patch: null, content: gate.content, events: [] };
     }
     const scene = chaptersEngine.currentScene(save);
@@ -958,7 +1036,7 @@ function combatIntent(save, input, action) {
   if (!cbt) return peacefulCombatIntent(save, input, action);
   let skill = null;
   if (action === "skill") {
-    const gate = skillGate(save, input);
+    const gate = skillGate(save, input, engagedTarget(cbt));
     if (!gate.ok) return { patch: null, content: gate.content, events: [] };
     skill = gate.skill;
   }
