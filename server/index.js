@@ -10,6 +10,7 @@ const endingEngine = require("./engine/ending");
 const combatEngine = require("./engine/combat");
 const encounterEngine = require("./engine/encounter");
 const lootEngine = require("./engine/loot");
+const proseEngine = require("./engine/prose");
 const statsEngine = require("./engine/stats");
 const aiGateway = require("./ai/gateway");
 const aiValidate = require("./ai/validate");
@@ -261,6 +262,18 @@ const invStmts = {
   remove: db.prepare("DELETE FROM inventory WHERE save_id = ? AND item_id = ?"),
   isEmpty: db.prepare("SELECT 1 FROM inventory WHERE save_id = ? LIMIT 1"),
   seeded: db.prepare("SELECT 1 FROM log WHERE save_id = ? AND content LIKE '%配发基础装备%' LIMIT 1"),
+};
+
+// F092 动作文案计数：同一句式的重复动作（观察/潜行）按已产出的叙述行数
+// 轮转到池内下一条——确定性可复现（同一日志序列必得同一文本），且同场景
+// 连续两次「观察」绝不重文。
+const proseStmts = {
+  observeCount: db.prepare(
+    "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE '你放慢呼吸，重新审视%'"
+  ),
+  sneakCount: db.prepare(
+    "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'user' AND content = '潜行'"
+  ),
 };
 
 const STARTER_KIT = [
@@ -1159,14 +1172,15 @@ function peacefulCombatIntent(save, input, action) {
       patch: {
         encounter_clock: rawClock < 0 ? rawClock : rawClock + 1,
       },
-      content: "【系统】你摆出战斗架势，四周却空无一物——周围没有可攻击的目标。",
+      content: `【系统】${proseEngine.poolFor(save.chapter).attack}`,
       events: [],
     };
   }
+  const pool = proseEngine.poolFor(save.chapter);
   const lines = {
-    defend: "【系统】你架起防御姿态，四周却空无一人——周围没有可攻击的目标。",
-    item: "【系统】周围没有可攻击的目标——补给留到真正的战斗时再用。",
-    flee: "【系统】四周并没有需要逃离的敌人。",
+    defend: `【系统】${pool.defend}`,
+    item: `【系统】${pool.item}`,
+    flee: `【系统】${pool.flee}`,
   };
   return { patch: null, content: lines[action], events: [] };
 }
@@ -1415,11 +1429,15 @@ const INTENTS = [
       if (!scene) {
         return { patch: null, content: "你环顾四周，只有浓得化不开的黑暗。" };
       }
-      // 「观察」是免费环顾：只重读当前场景输出观察叙述，不写 save.scene、
-      // 不扣 HP/MP。分支推进留给显式 choice_id 指令，绝不按 label 猜测。
+      // 「观察」是免费环顾：不写 save.scene、不扣 HP/MP。分支推进留给
+      // 显式 choice_id 指令，绝不按 label 猜测。
+      // F092/F101 新口径：不再整段复读场景正文——短句观察取本章 prose 池，
+      // 按本档已产出的观察行数轮转，同场景连点两次必然不同文。
+      const n = (proseStmts.observeCount.get(save.id) || {}).n || 0;
+      const line = proseEngine.pick(proseEngine.poolFor(chapter.index).observe, n);
       return {
         patch: null,
-        content: `你放慢呼吸，重新审视「${scene.title}」。\n${scene.text}`,
+        content: `你放慢呼吸，重新审视「${scene.title}」。${line}`,
       };
     },
   },
@@ -1433,10 +1451,15 @@ const INTENTS = [
     role: "narrator",
     build: (save) => {
       const mp = clamp(save.mp - 5, 0, save.max_mp);
+      const n = (proseStmts.sneakCount.get(save.id) || {}).n || 0;
+      const line = proseEngine.pick(
+        proseEngine.poolFor(save.chapter).stealth,
+        n
+      );
       return {
         patch: { mp },
         content:
-          `你把魔力压进四肢，脚步轻得几乎没有声音。石像的目光扫过你所立之处，停顿了一瞬——又缓缓移开。\n` +
+          `${line}\n` +
           (mp !== save.mp ? `（魔力消耗 MP ${save.mp}→${mp}）` : "（魔力已见底）"),
       };
     },
@@ -1469,8 +1492,8 @@ const INTENTS = [
         rest_used: Math.max(0, Math.trunc(Number(save.rest_used) || 0)) + 1,
       };
       let content =
-        `你背靠石柱坐下，闭上眼调整呼吸。体力与魔力一点点回流，但休憩并非免费——` +
-        `时间在流逝，黑暗里有什么东西正循声靠近。\n` +
+        `${proseEngine.pick(proseEngine.poolFor(save.chapter).rest, save.rest_used)}` +
+        `体力与魔力一点点回流，但休憩并非免费——时间在流逝，黑暗里有什么东西正循声靠近。\n` +
         `（恢复 ${deltas.join(" · ")} · 本章剩余休息 ${status.remaining - 1}/${REST_LIMIT} 次）`;
 
       // 休息推进时间：击杀冷却随之衰减一格，保底计数照常推进，并按当前
