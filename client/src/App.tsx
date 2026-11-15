@@ -15,6 +15,7 @@ import {
   Skill,
   useItem,
 } from "./api";
+import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
 import InventoryPanel from "./panels/InventoryPanel";
 import SkillsPanel from "./panels/SkillsPanel";
 
@@ -288,6 +289,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("inventory");
   const [drawer, setDrawer] = useState(false);
+  const [combatOpen, setCombatOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -321,6 +323,11 @@ export default function App() {
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+  }, [log]);
+
+  // 战斗态没有服务端字段：日志里出现遭遇/回合/伤害等措辞时自动展开面板。
+  useEffect(() => {
+    if (detectCombatSignal(log)) setCombatOpen(true);
   }, [log]);
 
   const dispatch = useCallback(
@@ -397,6 +404,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setDrawer(false);
+        setCombatOpen(false);
         return;
       }
       const t = e.target as HTMLElement | null;
@@ -492,6 +500,19 @@ export default function App() {
 
       <main className="stage" ref={logRef}>
         <div className="stage-col">
+          {combatOpen && (
+            <CombatPanel
+              save={save}
+              log={log}
+              skills={skills}
+              inventory={inventory}
+              items={items}
+              busy={busy}
+              onAction={dispatch}
+              onUseItem={(itemId) => onItemOp(itemId, "use")}
+              onClose={() => setCombatOpen(false)}
+            />
+          )}
           {log.map((entry) => (
             <StageEntry key={entry.id} entry={entry} />
           ))}
@@ -566,6 +587,13 @@ export default function App() {
                   <kbd>{i + 5}</kbd>
                 </button>
               ))}
+              <button
+                className="btn"
+                onClick={() => setCombatOpen((v) => !v)}
+                title="战斗面板开关"
+              >
+                战斗
+              </button>
               <button className="btn" disabled={busy} onClick={() => dispatch("存档")}>
                 存档
               </button>
