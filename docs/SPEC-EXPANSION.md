@@ -21,3 +21,5 @@
 - [ ] 统一 pm2 `solo-leveling` 的 node 运行时（better-sqlite3 是 ABI 137 / node 24 产物），把 `scripts/ci-deploy.sh` 里的 node-runtime 探测抽成 `scripts/lib/node-runtime.sh` 复用，彻底消除「从 node20 PATH 重启 → ERR_DLOPEN_FAILED → 重启循环」的风险
 - [ ] 短视口兜底：视口高度 < 480px 时 `.stage` 会被压到 48px 高（叙述几乎不可读），给主舞台设 `min-height` 并让操作区可折叠
 
+- [ ] 把 `server/engine/` 接进主流程：`POST /game/api/saves/:id/item` 与 `/action` 目前仍是内置 INTENTS，需要一条 `/game/api/battle/turn` 端点把 `resolveTurn()` + `rollLoot()` + `applyXp()` 串成「战斗一轮 → 掉落 → 升级」闭环，并写回 saves/inventory
+- [ ] 物品目录与掉落表对账：`server/data/items.json` 与 `drops.json` 的 `item_id` 尚无交叉校验，加一个 `npm run check:data` 脚本断言掉落表里每个 item_id 都能在物品目录找到、分类/稀有度字段合法
