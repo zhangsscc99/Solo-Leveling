@@ -1,61 +1,45 @@
 // Pure-function turn-based combat engine.
 // resolveTurn(state, action, seed) -> { state, events, narration }
 // Deterministic: identical inputs always produce identical outputs.
+//
+// 属性公式全部集中在 ./stats.js（F031），本文件只负责流程与事件文案。
 
 const { createRng } = require("./rng");
+const S = require("./stats");
 
 const VALID_ACTIONS = new Set(["attack", "skill", "defend", "item", "flee"]);
 
-const SKILL_COST = 8;
+const SKILL_COST = 8; // 基础技能消耗，实际消耗按智力折扣（stats.skillCost）
 const ITEM_HEAL = 30;
 const DEFEND_MULT = 0.5;
 const FLEE_CHANCE = 0.5;
-const BASE_CRIT_CHANCE = 0.05;
-const BASE_CRIT_MULT = 1.5;
 
 function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
+  return S.clamp(v, lo, hi);
 }
 
-function statOf(entity, key) {
-  const s = entity.stats || {};
-  const n = Number(s[key]);
-  return Number.isFinite(n) ? n : 0;
+// 实体消毒：属性/HP/MP 全部夹进合法区间，NaN 与负值安全降级。
+function sanitizeEntity(entity) {
+  const src = entity && typeof entity === "object" ? entity : {};
+  const out = { ...src, stats: S.sanitizeStats(src) };
+  const level = S.num(src.level);
+  const has = (v) => v !== undefined && v !== null && Number.isFinite(Number(v));
+
+  const maxHpRaw = S.num(src.maxHp);
+  out.maxHp = maxHpRaw > 0 ? maxHpRaw : S.maxHpFor(level, out.stats);
+  out.hp = has(src.hp) ? clamp(src.hp, 0, out.maxHp) : out.maxHp;
+
+  const maxMpRaw = S.num(src.maxMp);
+  out.maxMp = maxMpRaw > 0 ? maxMpRaw : S.maxMpFor(level, out.stats);
+  out.mp = has(src.mp) ? clamp(src.mp, 0, out.maxMp) : out.maxMp;
+
+  return out;
 }
 
-function clone(entity) {
-  return { ...entity, stats: { ...(entity.stats || {}) } };
-}
-
-// Hit chance derived from attacker's agility+perception vs defender's agility.
-function hitChance(attacker, defender) {
-  const acc = statOf(attacker, "agility") * 0.6 + statOf(attacker, "perception") * 0.4;
-  const eva = statOf(defender, "agility");
-  return clamp(0.85 + (acc - eva) * 0.02, 0.2, 0.98);
-}
-
-// Crit chance driven by perception.
-function critChance(attacker) {
-  return clamp(BASE_CRIT_CHANCE + statOf(attacker, "perception") * 0.005, 0.01, 0.5);
-}
-
-function rawDamage(attacker, defenderDef, mult) {
-  const base = statOf(attacker, "strength") * 1.6 + statOf(attacker, "agility") * 0.2;
-  return Math.max(1, Math.round((base - defenderDef * 0.8) * mult));
-}
-
-function playerDef(player) {
-  return Math.round(statOf(player, "vitality") * 0.8);
-}
-
-function enemyDef(enemy) {
-  const n = Number(enemy.def);
-  return Number.isFinite(n) ? n : Math.round(statOf(enemy, "vitality") * 0.8);
-}
-
-// Resolve one side striking another. Mutates `defender` copy and `events`.
+// 解析一次攻击/技能：命中 → 暴击 → 伤害。修改 defender 并追加事件。
 function strike({ attacker, defender, attackerSide, defenderSide, defenderName, def, rng, events, mult = 1, label }) {
-  if (!rng.chance(hitChance(attacker, defender))) {
+  const hit = S.hitChance(attacker, defender);
+  if (!rng.chance(hit)) {
     const dodge = rng.chance(0.6);
     events.push({
       type: dodge ? "dodge" : "miss",
@@ -66,8 +50,9 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
     });
     return;
   }
-  const crit = rng.chance(critChance(attacker));
-  const dmg = rawDamage(attacker, def, mult * (crit ? BASE_CRIT_MULT : 1));
+  const crit = rng.chance(S.critChance(attacker));
+  const multTotal = crit ? mult * S.critMultiplier(attacker) : mult;
+  const dmg = S.physicalDamage(attacker, def, multTotal);
   defender.hp = clamp(defender.hp - dmg, 0, defender.maxHp);
   events.push({
     type: crit ? "crit" : "hit",
@@ -88,10 +73,11 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
 
 function resolveTurn(state, action, seed) {
   const events = [];
+  const src = state && typeof state === "object" ? state : {};
   const next = {
-    turn: state.turn,
-    player: clone(state.player),
-    enemy: clone(state.enemy),
+    turn: S.num(src.turn),
+    player: sanitizeEntity(src.player),
+    enemy: sanitizeEntity(src.enemy),
   };
   const { player, enemy } = next;
   const enemyName = enemy.name || "敌人";
@@ -110,34 +96,43 @@ function resolveTurn(state, action, seed) {
     return { state: next, events, narration: "你失去了意识。" };
   }
 
-  let defending = false;
+  if (!enemyAlive) {
+    events.push({ type: "defeat", side: "enemy", text: `${enemyName}已经倒下，没有可攻击的目标。` });
+    return { state: next, events, narration: "战斗早已结束。" };
+  }
+
+  // 防御姿态在本回合内始终生效（即使敌人抢先出手，也能及时架住）。
+  const defending = action === "defend";
+  const defendMult = defending ? DEFEND_MULT : 1;
+  const skillCost = S.skillCost(player, SKILL_COST);
   let fled = false;
 
-  if (enemyAlive) {
+  // 玩家行动：与旧版行为一致，但技能伤害系数与 MP 消耗由智力决定。
+  const playerActs = () => {
     switch (action) {
       case "attack":
         strike({
           attacker: player, defender: enemy,
           attackerSide: "player", defenderSide: "enemy",
-          defenderName: enemyName, def: enemyDef(enemy),
+          defenderName: enemyName, def: S.defenseFor(enemy),
           rng, events, label: "你的攻击",
         });
         break;
       case "skill":
-        if (player.mp < SKILL_COST) {
-          events.push({ type: "error", side: "system", text: `魔力不足（需要 ${SKILL_COST} MP），技能释放失败。` });
+        if (player.mp < skillCost) {
+          events.push({ type: "error", side: "system", text: `魔力不足（需要 ${skillCost} MP），技能释放失败。` });
         } else {
-          player.mp = clamp(player.mp - SKILL_COST, 0, player.maxMp);
+          player.mp = clamp(player.mp - skillCost, 0, player.maxMp);
           strike({
             attacker: player, defender: enemy,
             attackerSide: "player", defenderSide: "enemy",
-            defenderName: enemyName, def: enemyDef(enemy),
-            rng, events, mult: 1.8, label: "你的技能",
+            defenderName: enemyName, def: S.defenseFor(enemy),
+            rng, events, mult: S.skillMultiplier(player), label: "你的技能",
           });
         }
         break;
       case "defend":
-        defending = true;
+        // 姿态已在 `defending` 中生效，无需额外事件。
         break;
       case "item": {
         const before = player.hp;
@@ -158,28 +153,32 @@ function resolveTurn(state, action, seed) {
         }
         break;
     }
-  } else {
-    events.push({ type: "defeat", side: "enemy", text: `${enemyName}已经倒下，没有可攻击的目标。` });
-    return { state: next, events, narration: "战斗早已结束。" };
-  }
+  };
 
-  // Enemy counterattack in the same turn, if still alive and player hasn't fled.
-  if (enemy.hp > 0 && player.hp > 0 && !fled) {
-    const mult = defending ? DEFEND_MULT : 1;
+  const enemyActs = () => {
     strike({
       attacker: enemy, defender: player,
       attackerSide: "enemy", defenderSide: "player",
-      defenderName: "你", def: playerDef(player),
-      rng, events, mult, label: `${enemyName}的反击`,
+      defenderName: "你", def: S.defenseOf(player),
+      rng, events, mult: defendMult, label: `${enemyName}的反击`,
     });
+  };
+
+  // 先手判定：敏捷 + 0.5 × 感知，高者先动；平手时玩家先手（保持旧行为）。
+  const enemyFirst = S.initiative(enemy) > S.initiative(player);
+  if (enemyFirst) {
+    enemyActs();
+    if (player.hp > 0 && !fled) playerActs();
+  } else {
+    playerActs();
+    if (enemy.hp > 0 && player.hp > 0 && !fled) enemyActs();
   }
 
-  if (playerAlive || fled) {
-    next.turn = state.turn + 1;
-  }
+  next.turn = S.num(src.turn) + 1;
 
   const narration =
-    `第 ${state.turn} 回合：` +
+    `第 ${S.num(src.turn)} 回合：` +
+    (enemyFirst ? `${enemyName}敏捷更高，抢先出手。` : "") +
     (defending ? "你摆出防御姿态。" : "") +
     events.map((e) => e.text).join(" ");
 
