@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS saves (
   cleared_at TEXT,
   encounter_seq INTEGER NOT NULL DEFAULT 0,
   encounter_cd INTEGER NOT NULL DEFAULT 0,
+  main_steps INTEGER NOT NULL DEFAULT 0,
   boss_cleared_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -143,6 +144,11 @@ if (!saveCols.includes("boss_cleared_json")) {
 // F081 技能冷却：{ skill_id: 剩余回合数 }，只随已结算的战斗回合衰减。
 if (!saveCols.includes("skill_cd_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN skill_cd_json TEXT NOT NULL DEFAULT '{}'");
+}
+// F098 主线高水位：本章已到达的最远主线步序（1 基）。死亡回溯只退回
+// 位置（scene），不清水位——chapter_progress 取两者较大值，不倒退。
+if (!saveCols.includes("main_steps")) {
+  db.exec("ALTER TABLE saves ADD COLUMN main_steps INTEGER NOT NULL DEFAULT 0");
 }
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
@@ -277,7 +283,7 @@ function getSave(id) {
 const MUTABLE_COLUMNS = [
   "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
-  "encounter_seq", "encounter_cd", "rest_used",
+  "encounter_seq", "encounter_cd", "rest_used", "main_steps",
 ];
 
 function updateSave(id, patch) {
