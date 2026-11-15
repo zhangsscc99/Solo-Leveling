@@ -6,6 +6,10 @@ const store = require("./db");
 const progression = require("./engine/progression");
 const chaptersEngine = require("./engine/chapters");
 const questEngine = require("./engine/quests");
+const aiGateway = require("./ai/gateway");
+const aiValidate = require("./ai/validate");
+const aiContext = require("./ai/context");
+const aiFallback = require("./ai/fallback");
 
 const VERSION = "0.1.0";
 const HOST = "127.0.0.1";
@@ -266,11 +270,19 @@ const PLACEHOLDER = {
   content: null, // filled per-request with the raw input
 };
 
+// 引擎执行：intent id → 服务端结算出参。/action 与 /ai-action 共用，
+// AI/客户端给的任何数值都不会走到这里，patch 只由白名单模板产出。
+function executeIntent(save, intentId) {
+  const intent = INTENTS.find((it) => it.id === intentId);
+  if (!intent) return null;
+  const built = intent.build(save);
+  return { intent: intent.id, role: intent.role, patch: built.patch, content: built.content };
+}
+
 function resolveAction(save, input) {
   for (const intent of INTENTS) {
     if (intent.match.test(input)) {
-      const built = intent.build(save);
-      return { intent: intent.id, role: intent.role, patch: built.patch, content: built.content };
+      return executeIntent(save, intent.id);
     }
   }
   return {
@@ -548,6 +560,115 @@ api.post("/action", (req, res) => {
     questNote ? `${outcome.content}\n${questNote}` : outcome.content
   );
   res.json({ reply, save: saveView(store.getSave(save.id)) });
+});
+
+// F021 自由输入 → AI JSON → 白名单校验 → 引擎执行 → 叙述返回。
+// AI 只负责挑选 intent；一切数值由 executeIntent 的服务端模板结算。
+// 网关失败/超时/无 key/非法 JSON 一律降级到规则解析器，永远 200。
+const AI_SYSTEM_PROMPT =
+  "你是文字冒险游戏的意图解析器。根据玩家输入与状态摘要，只输出一行 JSON：" +
+  '{"intent":"<intent>","args":{}}。' +
+  `intent 只能是：${aiValidate.INTENTS.join(", ")}。` +
+  "不要输出任何其他文字、解释或数值（hp/mp/xp/gold 由服务端计算）。";
+
+api.post("/ai-action", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+
+    const rawId = body.save_id;
+    const saveId =
+      typeof rawId === "number"
+        ? rawId
+        : typeof rawId === "string" && rawId.trim() !== ""
+          ? Number(rawId)
+          : NaN;
+    if (!Number.isInteger(saveId) || saveId <= 0) {
+      return res.status(400).json({ error: "save_id must be a positive integer" });
+    }
+
+    const rawInput = body.input;
+    if (typeof rawInput !== "string") {
+      return res.status(400).json({ error: "input is required" });
+    }
+    const input = rawInput.trim().slice(0, MAX_INPUT_LEN);
+    if (!input) {
+      return res.status(400).json({ error: "input is required" });
+    }
+
+    const save = store.getSave(saveId);
+    if (!save) {
+      return res.status(404).json({ error: "save not found" });
+    }
+
+    store.appendLog(save.id, "user", input);
+
+    let intentId = null;
+    let degraded = false;
+    try {
+      const ctx = aiContext.buildContext({
+        save: saveView(save),
+        logs: store.getLog(save.id, 8),
+        playerInput: input,
+      });
+      const historyText = ctx.history.map((h) => `${h.role}: ${h.content}`).join("\n");
+      const gen = await aiGateway.generate({
+        messages: [
+          { role: "system", content: AI_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `${ctx.summary}\n${historyText ? `${historyText}\n` : ""}玩家输入：${ctx.input}`,
+          },
+        ],
+        temperature: 0.2,
+        maxTokens: 200,
+      });
+      if (gen.ok) {
+        const decision = aiValidate.normalizeDecision(gen.text);
+        if (decision.ok) {
+          intentId = decision.intent;
+        } else {
+          degraded = true;
+        }
+      } else {
+        degraded = true;
+      }
+    } catch {
+      degraded = true;
+    }
+
+    if (!intentId) {
+      const rule = aiFallback.parse(input);
+      intentId = rule && aiValidate.INTENT_IDS.has(rule.intent) ? rule.intent : "observe";
+      degraded = true;
+    }
+
+    const outcome = executeIntent(save, intentId) || executeIntent(save, "observe");
+    if (outcome.patch) {
+      store.updateSave(save.id, outcome.patch);
+    }
+    const questNote = settleDailyQuests(save.id, input);
+    const reply = store.appendLog(
+      save.id,
+      outcome.role,
+      questNote ? `${outcome.content}\n${questNote}` : outcome.content
+    );
+    const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
+    if (degraded) payload.degraded = true;
+    res.json(payload);
+  } catch (err) {
+    // 兜底中的兜底：任何意外都不能让请求 5xx 或挂起。
+    try {
+      if (!res.headersSent) {
+        res.json({
+          reply: { role: "system", content: "【系统】叙事链路暂时紊乱，请先「观察」四周。" },
+          intent: "observe",
+          degraded: true,
+        });
+      }
+    } catch {
+      /* nothing left to do */
+    }
+  }
 });
 
 api.use((req, res) => res.status(404).json({ error: "not found" }));
