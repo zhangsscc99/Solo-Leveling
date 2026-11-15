@@ -1493,3 +1493,271 @@ button {
     scroll-behavior: auto;
   }
 }
+
+/* ── 技能面板 ──────────────────────────────
+   与背包同构：左侧 2px 稀有度轨 + 发丝线分区；
+   冷却用底部 2px 剩余条回应释放动作，无常驻动画。
+*/
+.skill {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+}
+
+/* 面板头部仪表：MP 余量与习得数，发丝线分隔 */
+.skill-meters {
+  border-top: 1px solid var(--line);
+}
+
+.skill-meter {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.skill-meter-label {
+  flex: none;
+  width: 34px;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.skill-meter-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--dim);
+}
+
+.skill-meter-num {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+
+.skill-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.skill-row {
+  position: relative;
+  padding: 10px var(--sp-3);
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  border-radius: 0;
+}
+
+.skill-row.r-common {
+  border-left-color: var(--faint);
+}
+
+.skill-row.r-rare {
+  border-left-color: var(--system-dim);
+  background: rgba(79, 200, 255, 0.03);
+}
+
+.skill-row.r-epic {
+  border-left-color: rgba(154, 123, 255, 0.55);
+  background: rgba(154, 123, 255, 0.05);
+}
+
+.skill-row.r-legendary {
+  border-left-color: var(--gate);
+  background: rgba(154, 123, 255, 0.08);
+  box-shadow: inset 0 0 18px rgba(154, 123, 255, 0.12);
+}
+
+.skill-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.skill-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.skill-row.r-common .skill-name {
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.skill-row.r-rare .skill-name {
+  color: #b9d9f2;
+}
+
+.skill-row.r-epic .skill-name {
+  color: #d8ccff;
+}
+
+.skill-row.r-legendary .skill-name {
+  color: #fff;
+  text-shadow: 0 0 12px rgba(154, 123, 255, 0.5);
+}
+
+.skill-rarity {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--faint);
+}
+
+.r-rare .skill-rarity {
+  color: var(--system-dim);
+}
+
+.r-epic .skill-rarity {
+  color: rgba(154, 123, 255, 0.65);
+}
+
+.r-legendary .skill-rarity {
+  color: var(--gate);
+}
+
+/* 数值行：MP / 冷却 / 威力全部由等宽字体承载 */
+.skill-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--tick);
+}
+
+.skill-desc {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.75;
+  color: var(--faint);
+}
+
+.skill-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.skill-btn {
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+  color: var(--dim);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.skill-btn:hover:not(:disabled) {
+  border-color: var(--system-dim);
+  color: var(--system);
+}
+
+.skill-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.skill-btn:focus-visible {
+  outline: 2px solid var(--system);
+  outline-offset: 1px;
+}
+
+/* 状态文案（Lv.N 解锁 / MP 不足）：可读原因，不只靠灰显 */
+.skill-state {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+
+.skill-nomp .skill-state {
+  color: var(--blood-dim);
+}
+
+.skill-locked .skill-state {
+  color: var(--gate);
+  opacity: 0.7;
+}
+
+/* 冷却剩余条：行底 2px，宽 = 剩余比例，随秒数步进收窄 */
+.skill-cd-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.skill-cd-fill {
+  height: 100%;
+  background: var(--system-dim);
+  transition: width 1s linear;
+}
+
+/* 三种灰显：锁定全灭色、冷却压暗、MP 不足标出缺口 */
+.skill-row.skill-locked {
+  border-left-color: var(--line);
+  box-shadow: none;
+}
+
+.skill-row.skill-locked .skill-name,
+.skill-row.skill-locked .skill-rarity,
+.skill-row.skill-locked .skill-meta {
+  color: var(--faint);
+  text-shadow: none;
+}
+
+.skill-row.skill-cooling .skill-name {
+  color: var(--dim);
+  text-shadow: none;
+}
+
+.skill-row.skill-nomp .skill-name {
+  color: var(--dim);
+  text-shadow: none;
+}
+
+.skill-row.skill-nomp .skill-cost {
+  color: var(--blood-dim);
+}
+
+/* ── 技能面板移动端：可点区域 ≥44px ───────── */
+@media (max-width: 880px) {
+  .skill-btn {
+    min-height: 44px;
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-sm);
+  }
+}
+
+/* ── reduced motion：冷却条瞬时收窄 ────────── */
+@media (prefers-reduced-motion: reduce) {
+  .skill-cd-fill {
+    transition: none;
+  }
+}
