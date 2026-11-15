@@ -355,7 +355,8 @@ function getChapterOfScene(sceneId) {
 }
 
 // Entry scene for a save. Uses save.scene when it still belongs to save.chapter,
-// otherwise falls back to the chapter's first scene (null = ending of the run).
+// otherwise falls back to the first scene of the chapter's main chain — the
+// same landing spot the 「前进」self-heal writes (chapterPath(chapter)[0]).
 function currentScene(save) {
   if (!isPlainObject(save)) return null;
 
@@ -367,7 +368,88 @@ function currentScene(save) {
     if (scene && chapter.scenes.some((s) => s.id === scene.id)) return scene;
   }
 
-  return chapter.scenes[0];
+  return firstSceneOf(chapter);
+}
+
+// ---------------------------------------------------------------------------
+// 场景运行时（F074/F075）
+// ---------------------------------------------------------------------------
+
+// 本章首个场景：主线链首（currentScene 兜底 / 首推自愈 / 章节门落点同源）。
+function firstSceneOf(chapter) {
+  const path = chapterPath(chapter);
+  return path[0] || null;
+}
+
+// scene.id 在本章 scenes[] 的下标（0 基；-1 = 不属于本章）。
+function sceneIndexIn(chapter, sceneId) {
+  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
+  return scenes.findIndex((s) => s && s.id === sceneId);
+}
+
+// 场景的默认下一步：next_scene，缺失时取首个带目标的选择项的 next。
+// 返回值可能为 null（终点场景）或跨界/悬空 id，调用方自行兜底。
+function nextSceneOf(scene) {
+  if (!scene || typeof scene !== "object") return null;
+  if (typeof scene.next_scene === "string" && scene.next_scene) return scene.next_scene;
+  const choices = Array.isArray(scene.choices) ? scene.choices : [];
+  const pick = choices.find((c) => c && typeof c.next === "string" && c.next);
+  return pick ? pick.next : null;
+}
+
+// 本章主线链：从首场景出发，只沿 next_scene（缺失时取首个指向本章内
+// 未到访场景的 choices[].next，如 ch8_beru.final -> ch8_aftermath）前进，
+// 到链尾即止。绝不用数组顺序补位：支线场景（如 ch1_watch / ch1_death）
+// 只能通过对应 choice 进入，不计入主线进度；链长度即 chapter_total
+// （ch1 = 7，不是 scenes.length = 9）。
+function chapterPath(chapter) {
+  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
+  const byId = new Map(scenes.map((s) => [s && s.id, s]));
+  const path = [];
+  const seen = new Set();
+  let cur = scenes[0] || null;
+  while (cur && !seen.has(cur.id)) {
+    path.push(cur);
+    seen.add(cur.id);
+    let nextId =
+      typeof cur.next_scene === "string" && cur.next_scene && !seen.has(cur.next_scene) && byId.has(cur.next_scene)
+        ? cur.next_scene
+        : null;
+    if (!nextId) {
+      const pick = (Array.isArray(cur.choices) ? cur.choices : []).find(
+        (c) => c && typeof c.next === "string" && c.next && !seen.has(c.next) && byId.has(c.next)
+      );
+      nextId = pick ? pick.next : null;
+    }
+    cur = nextId ? byId.get(nextId) : null;
+  }
+  return path;
+}
+
+// scene.id 在主线链中的位置（0 基；-1 = 不在链上：支线场景/错章/悬空）。
+function pathIndexOf(chapter, sceneId) {
+  return chapterPath(chapter).findIndex((s) => s && s.id === sceneId);
+}
+
+// 下一章准入（章节门）：当前是软门——unlock.chapter（已抵达前置章节）与
+// unlock.level（推荐等级）满足其一即可进入。返回 { ok, level, chapter,
+// level_ok, chapter_ok }：ok 是放行结论，level_ok / chapter_ok 分别暴露
+// 两条腿的判定，供结算播报与 saveView.chapter_unlock 显性化（等级不足也
+// 放行，但必须写明压制提示，不得静默）。
+// TODO(F088): F082 升级闭环落地后，此处改回 AND 语义（等级是硬门）；现在 AND 会让 Lv1 存档永久卡在 1 章，因为服务端尚无升级路径。
+function unlockedFor(save, chapter) {
+  const req = chapter && chapter.unlock;
+  const levelReq = req && Number.isInteger(req.level) ? req.level : null;
+  const chapterReq = req && Number.isInteger(req.chapter) ? req.chapter : null;
+  const level = Math.trunc(Number(save && save.level) || 0);
+  const ch = Math.trunc(Number(save && save.chapter) || 0);
+  const levelOk = levelReq === null ? true : level >= levelReq;
+  const chapterOk = chapterReq === null ? true : ch >= chapterReq;
+  const ok =
+    (levelReq !== null && level >= levelReq) ||
+    (chapterReq !== null && ch >= chapterReq) ||
+    (levelReq === null && chapterReq === null);
+  return { ok, level: levelReq, chapter: chapterReq, level_ok: levelOk, chapter_ok: chapterOk };
 }
 
 module.exports = {
@@ -384,4 +466,10 @@ module.exports = {
   getScene,
   getChapterOfScene,
   currentScene,
+  firstSceneOf,
+  sceneIndexIn,
+  nextSceneOf,
+  chapterPath,
+  pathIndexOf,
+  unlockedFor,
 };

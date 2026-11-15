@@ -150,6 +150,45 @@ test("currentScene：按 save.chapter 取首个场景，场景不匹配时回退
   assert.equal(chapters.currentScene(null), null);
 });
 
+test("chapterPath：主线链只沿 next_scene/主线 choice 走，支线不入链", () => {
+  const ch1 = chapters.getChapter(1);
+  assert.deepEqual(
+    chapters.chapterPath(ch1).map((s) => s.id),
+    [
+      "ch1_double_gate",
+      "ch1_law",
+      "ch1_worship",
+      "ch1_statues",
+      "ch1_system",
+      "ch1_awaken",
+      "ch1_surface",
+    ]
+  );
+  // 支线场景不占主线步序
+  assert.equal(chapters.pathIndexOf(ch1, "ch1_watch"), -1);
+  assert.equal(chapters.pathIndexOf(ch1, "ch1_death"), -1);
+  // ch8_beru.next_scene 为空，主线靠 choice final -> ch8_aftermath 续链到 epilogue
+  assert.deepEqual(
+    chapters.chapterPath(chapters.getChapter(8)).map((s) => s.id),
+    ["ch8_jeju", "ch8_nest", "ch8_beru", "ch8_aftermath", "ch8_epilogue"]
+  );
+});
+
+test("unlockedFor：软门放行但 level_ok 单独暴露", () => {
+  const ch2 = chapters.getChapter(2); // unlock { level: 5, chapter: 1 }
+  const low = chapters.unlockedFor({ level: 1, chapter: 1 }, ch2);
+  assert.equal(low.ok, true); // 前置章节腿满足 → 软门放行
+  assert.equal(low.level_ok, false);
+  assert.equal(low.chapter_ok, true);
+  assert.equal(low.level, 5);
+  const high = chapters.unlockedFor({ level: 5, chapter: 1 }, ch2);
+  assert.equal(high.ok, true);
+  assert.equal(high.level_ok, true);
+  // 无任何门槛的章节直接放行
+  const open = chapters.unlockedFor({ level: 0, chapter: 0 }, { index: 1 });
+  assert.equal(open.ok, true);
+});
+
 test("listChapters 返回副本，改动不影响缓存", () => {
   const list = chapters.listChapters();
   list.pop();
