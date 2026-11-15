@@ -17,3 +17,4 @@ dist/
 .env.*
 .agent-run.lock
 .deploy.lock
+!/server/data/quests.json
