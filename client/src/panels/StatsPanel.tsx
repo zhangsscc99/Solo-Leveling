@@ -1,4 +1,4 @@
-import { Save, StatKey } from "../api";
+import { baseAttack, baseDefense, Equipment, Save, StatKey } from "../api";
 
 /* ────────────────────────────────────────────────
    属性面板：五项属性仪表行 + 自由属性点分配 + 经验条。
@@ -16,11 +16,13 @@ const STATS: { key: StatKey; label: string }[] = [
 
 export default function StatsPanel({
   save,
+  equipment,
   busy,
   notice,
   onSpend,
 }: {
   save: Save;
+  equipment: Equipment | null;
   busy: boolean;
   notice: string | null;
   onSpend: (stat: StatKey) => void;
@@ -66,6 +68,40 @@ export default function StatsPanel({
           </div>
         ))}
       </div>
+
+      {/* 战斗数值：攻击 = floor(1.6×力量)+装备 atk，防御 = floor(0.8×体力)+装备 def。
+          折算系数与 server/engine/stats.js 保持一致，改动需两边同步。 */}
+      <section className="combat-nums" aria-label="战斗数值">
+        <div className="combat-nums-head">战斗数值</div>
+        <div className="combat-nums-cols" aria-hidden="true">
+          <span />
+          <span>基础</span>
+          <span>装备</span>
+          <span>合计</span>
+        </div>
+        {[
+          { label: "攻击", base: baseAttack(save.stats), eq: equipment?.atk ?? 0 },
+          { label: "防御", base: baseDefense(save.stats), eq: equipment?.def ?? 0 },
+        ].map(({ label, base, eq }) => {
+          const noGear = !equipment || (!equipment.weapon && !equipment.armor);
+          return (
+            <div
+              className="combat-nums-row"
+              key={label}
+              aria-label={`${label} 合计 ${base + eq}，基础 ${base}，装备加成 ${eq}`}
+            >
+              <span className="cn-label">{label}</span>
+              <span className="cn-num">{base}</span>
+              {noGear ? (
+                <span className="cn-eq cn-none">无配发装备</span>
+              ) : (
+                <span className="cn-num cn-eq">{eq > 0 ? `+${eq}` : "0"}</span>
+              )}
+              <span className="cn-num cn-total">{base + eq}</span>
+            </div>
+          );
+        })}
+      </section>
 
       <div className="stat-xp">
         <div className="stat-line">
