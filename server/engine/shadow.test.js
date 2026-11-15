@@ -356,3 +356,104 @@ test("配置可注入：自定义 ranks / limits 生效", () => {
   const configMax = { ranks: { E: { baseChance: 0.9, gapScale: 0 } }, limits: { minChance: 0.01, maxChance: 0.5 } };
   assert.equal(shadow.extractionChance({ enemy, player }, configMax), 0.5, "不得超过 maxChance");
 });
+
+// ---------------------------------------------------------------------------
+// F052 影子成长：xpForLevel / grantXp / inheritSkills
+// ---------------------------------------------------------------------------
+
+const GROWTH_CFG = {
+  growth: {
+    maxLevel: 10,
+    xp: { base: 100, exponent: 1 },
+    perLevel: { atk: 2, def: 1, hp: 10 },
+    inherit: { slots: 2, chance: 1, levelDiscount: 0.5 },
+  },
+};
+
+test("xpForLevel: 曲线单调递增且最小为 1", () => {
+  let prev = 0;
+  for (let lv = 1; lv <= 20; lv += 1) {
+    const need = shadow.xpForLevel(lv);
+    assert.ok(need >= 1);
+    assert.ok(need > prev, `level=${lv} need=${need} 应 > ${prev}`);
+    prev = need;
+  }
+  assert.equal(shadow.xpForLevel(1, GROWTH_CFG), 100, "base=100 exponent=1 → lv1 需 100");
+});
+
+test("grantXp: 经验累积升级并加属性，不可变返回新对象", () => {
+  const s = { name: "狼影", level: 1, xp: 0, stats: { atk: 5, def: 3, hp: 50 } };
+  const res = shadow.grantXp(s, 550, GROWTH_CFG); // lv1→2 花 100，lv2→3 花 200，余 250 不够 lv3(300)
+  assert.equal(res.leveledTo, 3);
+  assert.equal(res.gained, 2);
+  assert.equal(res.shadow.level, 3);
+  assert.equal(res.shadow.xp, 250);
+  assert.equal(res.shadow.stats.atk, 9, "每级 +2，升 2 级 → +4");
+  assert.equal(res.shadow.stats.def, 5);
+  assert.equal(res.shadow.stats.hp, 70);
+  assert.equal(s.level, 1, "原对象不被修改");
+  assert.equal(s.stats.atk, 5);
+});
+
+test("grantXp: 到 maxLevel 封顶不越级，剩余经验清零", () => {
+  const s = { name: "封顶影", level: 9, xp: 0, stats: { atk: 0, def: 0, hp: 0 } };
+  const res = shadow.grantXp(s, 999999, GROWTH_CFG);
+  assert.equal(res.leveledTo, 10);
+  assert.equal(res.gained, 1);
+  assert.equal(res.shadow.level, 10);
+  assert.equal(res.shadow.xp, 0, "到顶后经验清零");
+
+  const maxed = shadow.grantXp(res.shadow, 500, GROWTH_CFG);
+  assert.equal(maxed.leveledTo, 10);
+  assert.equal(maxed.gained, 0);
+});
+
+test("grantXp: 缺省/坏输入安全降级，不抛异常", () => {
+  const res = shadow.grantXp(null, "abc");
+  assert.equal(res.shadow.level, 1);
+  assert.equal(res.gained, 0);
+  assert.doesNotThrow(() => shadow.grantXp(undefined, 10, { growth: null }));
+});
+
+test("inheritSkills: 继承数量受 slots 限制，技能等级按折扣折算", () => {
+  const s = { name: "空影", level: 1, skills: [] };
+  const enemy = {
+    skills: [
+      { name: "爪击", level: 8 },
+      { name: "咆哮", level: 4 },
+      { name: "疾奔", level: 6 },
+      "蛮力",
+    ],
+  };
+  // chance=1 → 全部掷中，但 slots=2 只取前两个
+  const out = shadow.inheritSkills(s, enemy, 42, GROWTH_CFG);
+  assert.equal(out.skills.length, 2);
+  assert.equal(out.skills[0].name, "爪击");
+  assert.equal(out.skills[0].level, 4, "level 8 * 0.5 折扣 → 4");
+  assert.equal(out.skills[1].name, "咆哮");
+  assert.equal(out.skills[1].level, 2);
+  assert.equal(s.skills.length, 0, "原对象不被修改");
+});
+
+test("inheritSkills: 已有技能跳过不占槽，chance=0 时不继承", () => {
+  const s = { name: "影", skills: [{ name: "爪击", level: 1 }] };
+  const enemy = { skills: [{ name: "爪击", level: 9 }, { name: "新招", level: 2 }] };
+  const out = shadow.inheritSkills(s, enemy, "seed-x", GROWTH_CFG);
+  assert.equal(out.skills.length, 2, "爪击跳过不占槽，新招继承进来");
+  assert.equal(out.skills[1].name, "新招");
+
+  const none = shadow.inheritSkills(s, enemy, "seed-x", {
+    growth: { inherit: { slots: 3, chance: 0, levelDiscount: 1 } },
+  });
+  assert.equal(none.skills.length, 1, "chance=0 → 不继承任何技能");
+});
+
+test("inheritSkills: 同 seed 同结果（确定性随机）", () => {
+  const s = { name: "影", skills: [] };
+  const enemy = { skills: ["a", "b", "c", "d", "e", "f"] };
+  const cfg = { growth: { inherit: { slots: 3, chance: 0.5, levelDiscount: 1 } } };
+  const a = shadow.inheritSkills(s, enemy, "fixed-seed", cfg);
+  const b = shadow.inheritSkills(s, enemy, "fixed-seed", cfg);
+  assert.deepEqual(a, b);
+  assert.ok(a.skills.length <= 3);
+});

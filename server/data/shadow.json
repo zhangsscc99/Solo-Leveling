@@ -40,5 +40,11 @@
   "caps": {
     "perLevels": 10,
     "max": 10
+  },
+  "growth": {
+    "maxLevel": 50,
+    "xp": { "base": 100, "exponent": 1.5 },
+    "perLevel": { "atk": 2, "def": 1, "hp": 10 },
+    "inherit": { "slots": 2, "chance": 0.6, "levelDiscount": 0.5 }
   }
 }

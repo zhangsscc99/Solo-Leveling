@@ -10,6 +10,14 @@
 //   extractionChance({ enemy, player })  → 0..0.95           成功率（纯公式）
 //   rollExtraction({ enemy, player, seed }) → { success, chance, roll, shadow|null }
 //   shadowCap(playerLevel)               → 影子数量上限
+//   xpForLevel(level)                    → 升到下一级所需经验（growth.xp 曲线）
+//   grantXp(shadow, xp)                  → { shadow, leveledTo, gained }（升级+属性成长）
+//   inheritSkills(shadow, enemy, rng)    → 新影子对象（按 growth.inherit 继承技能）
+//
+// F052 成长设计理由：影子是玩家军团的长期投资，数值取保守曲线 ——
+// xp 需求 base*level^1.5（前期几十经验一级、后期明显放缓），每级 atk+2/def+1/hp+10
+// 与 rank 基础值同量级，50 级封顶防止单个影子碾压主线；技能继承限制 2 槽 + 60% 概率
+// + 技能等级减半，保证「提取强怪仍有收益但不如原生」。
 //
 // 本模块不写库；持久化由 server/db.js 的 shadows 表负责（F051 接线）。
 
@@ -57,6 +65,12 @@ const DEFAULT_CONFIG = {
   },
   limits: { minChance: 0.01, maxChance: 0.95 },
   caps: { perLevels: 10, max: 10 },
+  growth: {
+    maxLevel: 50,
+    xp: { base: 100, exponent: 1.5 },
+    perLevel: { atk: 2, def: 1, hp: 10 },
+    inherit: { slots: 2, chance: 0.6, levelDiscount: 0.5 },
+  },
 };
 
 let cached = null;
@@ -211,6 +225,33 @@ function normalizeConfig(raw) {
   const maxCap = Math.max(1, Math.floor(num(capsSrc.max, DEFAULT_CONFIG.caps.max)));
   const caps = { perLevels, max: maxCap };
 
+  const growthSrc = isPlainObject(src.growth) ? src.growth : {};
+  const growthDefaults = DEFAULT_CONFIG.growth;
+  const xpSrc = isPlainObject(growthSrc.xp) ? growthSrc.xp : {};
+  const perLevelSrc = isPlainObject(growthSrc.perLevel) ? growthSrc.perLevel : {};
+  const inheritSrc = isPlainObject(growthSrc.inherit) ? growthSrc.inherit : {};
+  const growth = {
+    maxLevel: Math.max(1, Math.floor(num(growthSrc.maxLevel, growthDefaults.maxLevel))),
+    xp: {
+      base: positive(xpSrc.base, growthDefaults.xp.base),
+      exponent: positive(xpSrc.exponent, growthDefaults.xp.exponent),
+    },
+    perLevel: {
+      atk: nonNegative(perLevelSrc.atk, growthDefaults.perLevel.atk),
+      def: nonNegative(perLevelSrc.def, growthDefaults.perLevel.def),
+      hp: nonNegative(perLevelSrc.hp, growthDefaults.perLevel.hp),
+    },
+    inherit: {
+      slots: Math.max(0, Math.floor(num(inheritSrc.slots, growthDefaults.inherit.slots))),
+      chance: clamp(num(inheritSrc.chance, growthDefaults.inherit.chance), 0, 1),
+      levelDiscount: clamp(
+        num(inheritSrc.levelDiscount, growthDefaults.inherit.levelDiscount),
+        0,
+        1,
+      ),
+    },
+  };
+
   return {
     version: Math.floor(num(src.version, DEFAULT_CONFIG.version)),
     rankOrder,
@@ -222,12 +263,18 @@ function normalizeConfig(raw) {
     boss,
     limits,
     caps,
+    growth,
   };
 }
 
 function nonNegative(v, fallback) {
   const n = num(v, NaN);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function positive(v, fallback) {
+  const n = num(v, NaN);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function configOr(config) {
@@ -412,7 +459,7 @@ function rollExtraction(input, config) {
     rank,
     level: 1,
     source: sourceName,
-    skills: inheritSkills(enemy.skills),
+    skills: copySkills(enemy.skills),
     createdAt: new Date(nowMs).toISOString(),
   };
 
@@ -420,11 +467,106 @@ function rollExtraction(input, config) {
 }
 
 // 技能按敌人原样带入（浅拷贝，不做成长/重算）。非法值一律空数组。
-function inheritSkills(skills) {
+function copySkills(skills) {
   if (!Array.isArray(skills)) return [];
   return skills
     .filter((s) => s !== null && s !== undefined)
     .map((s) => (isPlainObject(s) ? { ...s } : s));
+}
+
+// ---------------------------------------------------------------------------
+// F052 影子成长：经验曲线 / 升级 / 技能继承
+// ---------------------------------------------------------------------------
+
+// 影子当前等级：显式正整数 level 优先，兜底 1。
+function shadowLevel(shadow) {
+  const lv = num(shadow && shadow.level, NaN);
+  return Number.isFinite(lv) && lv >= 1 ? Math.floor(lv) : 1;
+}
+
+// 从 level 升到 level+1 所需经验：floor(base * level^exponent)，最小 1。
+function xpForLevel(level, config) {
+  const cfg = configOr(config);
+  const lv = Math.max(1, Math.floor(num(level, 1)));
+  const need = Math.floor(cfg.growth.xp.base * Math.pow(lv, cfg.growth.xp.exponent));
+  return Math.max(1, need);
+}
+
+// 喂经验升级。返回 { shadow: 新对象, leveledTo: 新等级, gained: 升了几级 }。
+// 封顶 maxLevel：到顶后剩余经验清零（shadow.xp = 0）。输入不可变。
+function grantXp(shadow, xp, config) {
+  const cfg = configOr(config);
+  const src = isPlainObject(shadow) ? shadow : {};
+  const amount = Math.max(0, Math.floor(num(xp, 0)));
+
+  let level = Math.min(shadowLevel(src), cfg.growth.maxLevel);
+  let pool = Math.max(0, Math.floor(num(src.xp, 0))) + amount;
+  const stats = { ...(isPlainObject(src.stats) ? src.stats : {}) };
+
+  while (level < cfg.growth.maxLevel) {
+    const need = xpForLevel(level, cfg);
+    if (pool < need) break;
+    pool -= need;
+    level += 1;
+    stats.atk = num(stats.atk, 0) + cfg.growth.perLevel.atk;
+    stats.def = num(stats.def, 0) + cfg.growth.perLevel.def;
+    stats.hp = num(stats.hp, 0) + cfg.growth.perLevel.hp;
+  }
+  if (level >= cfg.growth.maxLevel) pool = 0;
+
+  const gained = level - Math.min(shadowLevel(src), cfg.growth.maxLevel);
+  return {
+    shadow: { ...src, level, xp: pool, stats },
+    leveledTo: level,
+    gained,
+  };
+}
+
+// rng 参数：可以是 seed（number/string）、createRng 返回的对象，或缺省（新随机源）。
+function rngOr(rng) {
+  if (rng && typeof rng.next === "function") return rng;
+  return createRng(rng === undefined || rng === null ? Date.now() : rng);
+}
+
+// 从被击败敌人身上按 growth.inherit 继承技能，返回新影子对象。
+// 规则：逐个技能掷 chance，成功则继承（对象技能带数值 level 时按 levelDiscount 折算、
+// 最少 1），最多继承 inherit.slots 个；已重名技能跳过不占槽。
+function inheritSkills(shadow, defeatedEnemy, rng, config) {
+  const cfg = configOr(config);
+  const src = isPlainObject(shadow) ? shadow : {};
+  const enemy = isPlainObject(defeatedEnemy) ? defeatedEnemy : {};
+  const rand = rngOr(rng);
+
+  const owned = new Set(
+    (Array.isArray(src.skills) ? src.skills : []).map((s) =>
+      isPlainObject(s) ? s.name : s,
+    ),
+  );
+
+  const inherited = [];
+  const candidates = Array.isArray(enemy.skills) ? enemy.skills : [];
+  for (const raw of candidates) {
+    if (inherited.length >= cfg.growth.inherit.slots) break;
+    if (raw === null || raw === undefined) continue;
+    const key = isPlainObject(raw) ? raw.name : raw;
+    if (owned.has(key)) continue;
+    if (!rand.chance(cfg.growth.inherit.chance)) continue;
+    owned.add(key);
+    inherited.push(discountSkill(raw, cfg.growth.inherit.levelDiscount));
+  }
+
+  return {
+    ...src,
+    skills: [...(Array.isArray(src.skills) ? src.skills : []), ...inherited],
+  };
+}
+
+// 对象技能带正整数 level 时按折扣折算（≥1）；其余原样浅拷贝。
+function discountSkill(skill, discount) {
+  if (!isPlainObject(skill)) return skill;
+  const lv = num(skill.level, NaN);
+  if (!Number.isFinite(lv) || lv <= 1) return { ...skill };
+  return { ...skill, level: Math.max(1, Math.floor(lv * discount)) };
 }
 
 module.exports = {
@@ -432,6 +574,9 @@ module.exports = {
   extractionChance,
   rollExtraction,
   shadowCap,
+  xpForLevel,
+  grantXp,
+  inheritSkills,
   loadConfig,
   normalizeConfig,
   clearCache,
