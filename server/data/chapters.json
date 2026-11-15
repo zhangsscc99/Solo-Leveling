@@ -489,6 +489,8 @@
           "choices": [],
           "next_scene": null,
           "stats": {
+            "sample": true,
+            "note": "结算面板占位示例：fields 中的数值仅为示意，正式值由存档在结算时填充。",
             "title": "通关统计",
             "lines": [
               "通关统计：等级 {level} · 总击杀 {kills} · 影子数量 {shadows} · 通关耗时 {clear_time}",
