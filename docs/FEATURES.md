@@ -62,7 +62,7 @@
 ## M5 影子系统
 
 - [x] F050 影子提取（Arise）：击败敌人后可提取，按等级决定成功率 ✅ (2026-11-15 opencode)
-- [ ] F051 影子编队与出战（最多 N 个）
+- [x] F051 影子编队与出战（最多 N 个） ✅ (2026-11-15 devin)
   verify: node scripts/assert/shadow-formation.mjs
   risk: med
 - [x] F052 影子成长（等级、技能继承） ✅ (2026-11-15 cron)
@@ -101,12 +101,30 @@
 
 ## 后续（本轮审查产出，待实现）
 
-- [ ] F072 影子成长接入五项属性：growth 的 perLevel 现用 atk/def/hp，而引擎 STAT_KEYS 是 strength/agility/vitality/intelligence/perception，sanitizeStats 会全部丢弃；改为五项属性并给出 stats→combat 映射，附 `npm run sim` 对比数据
+- [x] F072 影子成长接入五项属性：growth 的 perLevel 现用 atk/def/hp，而引擎 STAT_KEYS 是 strength/agility/vitality/intelligence/perception，sanitizeStats 会全部丢弃；改为五项属性并给出 stats→combat 映射，附 `npm run sim` 对比数据 ✅ (2026-11-15 devin)
   verify: node scripts/assert/shadow-attr.mjs
   risk: med
-- [ ] F073 真实通关结算：ch8 的 stats 目前是 sample 占位，改为结算时由存档填充（等级/击杀/影子数/耗时）+ 前端结算面板渲染，并让 ending.mjs 断言 sample 标记被移除
+- [x] F073 真实通关结算：ch8 的 stats 目前是 sample 占位，改为结算时由存档填充（等级/击杀/影子数/耗时）+ 前端结算面板渲染，并让 ending.mjs 断言 sample 标记被移除 ✅ (2026-11-15 devin)
   verify: node scripts/assert/ending-stats.mjs
   risk: med
-- [ ] F025 `/ai-action` 加固：剥离 AI 返回的 ```json 围栏、AI 返回后重读存档避免陈旧快照覆盖 HP/MP、补 `server/ai/fallback.test.js` 与端点单测
+- [x] F025 `/ai-action` 加固：剥离 AI 返回的 ```json 围栏、AI 返回后重读存档避免陈旧快照覆盖 HP/MP、补 `server/ai/fallback.test.js` 与端点单测 ✅ (2026-11-15 cron)
   verify: node --test server/ai/fallback.test.js
+  risk: low
+- [ ] F074 场景节点运行时：把 `server/data/chapters.json` 的 `scenes[]`/`choices{next}` 接进 action 端点，`advance` 推进并落盘 `sceneIndex`，删掉 `server/index.js` 里写死的「踩着碎石向那扇石门挪去」模板
+  verify: node scripts/assert/scene-advance.mjs
+  risk: high
+- [ ] F075 第1章 9 步章节门：主线进度改由实际到达场景数驱动，满 9 步 `chapter+1` 解锁第 2 章，任务/地图面板展示「需完成第1章主线 9/9」等解锁条件
+  verify: node scripts/assert/chapter-gate.mjs
+  risk: high
+- [ ] F076 战斗面板按战斗态挂载：非战斗不渲染 `section.combat`，攻击/技能/防御/道具/逃跑 在无敌人时 disabled + 明确提示，消除「未知的敌人 Lv.?? HP ??/??」占位
+  verify: node scripts/assert/combat-gate.mjs
+  risk: med
+- [ ] F077 死亡与复活闭环：去掉 `clamp(save.hp - 3, 1, max_hp)` 的 1 下限，HP≤0 进入死亡/复活（或第1章濒死觉醒）分支并写日志，HP 已到底时不再输出「HP 1→1」这类虚构消耗文案
+  verify: node scripts/assert/death.mjs
+  risk: high
+- [ ] F078 AI 降级显性化与意图修正：`degraded:true` 时改走完整规则分支（攻击→combat、观察→observe、前进→advance）而非占位句，前端常驻「叙事引擎降级」横幅，禁止把含「走/进入」的攻击描述判成 advance
+  verify: curl -sf -X POST https://openfolio.uk/game/api/ai-action -H 'content-type: application/json' -d '{"save_id":1,"input":"我挥刀砍向石像"}' | jq -e '.intent == "attack"'
+  risk: high
+- [ ] F079 面板收尾细节：锁定技能的「释放」按钮 disabled + `aria-disabled` 并提示「需 Lv.N」，`.side-scroll` 滚到底时最后一张卡片与容器底边留白 ≥12px，移动端抽屉 ≥95% 宽且底部提示不再是「ESC 关闭」
+  verify: node scripts/assert/panel-affordance.mjs
   risk: low
