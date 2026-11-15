@@ -29,3 +29,5 @@
 
 - [ ] 战斗面板接真实战斗态：`CombatPanel` 目前靠最近日志推断敌我（敌人血槽显示 `??/??`）。需要 `POST /game/api/battle/turn` 返回结构化 `{ turn, player:{hp,maxHp,mp,maxMp}, enemy:{name,rank,level,hp,maxHp}, events:[{type,side,value,text}] }`，由 `resolveTurn()` 产出，前端直接消费，删除日志启发式解析
 - [ ] 影子提取接线（F051 前置）：`server/engine/shadow.js` 已就绪但无人调用。在 `/action` 战斗胜利分支按 `canExtract → rollExtraction → shadowCap+countShadows → addShadow` 落库并写系统播报，前端战斗面板出现「ARISE」按钮与成功率预览
+- [ ] 加点即时反馈：`POST /game/api/saves/:id/spend` 成功后除刷新面板外，要往日志写一条系统播报（如「力量 +1 → 12」并附带 max_hp 变化），属性行数值做 200ms 高亮过渡（遵循 reduced-motion）；顺带给加点按钮接键盘快捷键与移动端操作栏
+- [ ] 压制系数可见化：战斗面板显示双方猎人等级与当前 `rankFactor`（如「E vs C · 伤害 ×0.80」），并把 E..S 系数表补进 `docs/DESIGN.md` 的战斗说明，方便后续平衡调整
