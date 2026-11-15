@@ -137,4 +137,49 @@ function baseState(over = {}) {
   assert.ok(/Lv\.10/.test(msgs) && /属性点/.test(msgs), "升级播报应含等级与属性点");
 }
 
+// F006 spend 端点边界：存档行是 snake_case，free_points=0 时不得减属性/扣点
+{
+  const row = {
+    level: 5,
+    xp: 0,
+    free_points: 0,
+    max_hp: 160,
+    max_mp: 50,
+    stats: { strength: 10, agility: 12, vitality: 8, intelligence: 10, perception: 14 },
+  };
+  const snapshot = JSON.parse(JSON.stringify(row));
+  const { state, events } = spendPoint(row, "agility");
+  assert.equal(events[0].type, "error");
+  assert.equal(state.stats.agility, 12, "free_points=0 不得加属性");
+  assert.equal(state.free_points, 0);
+  assert.deepEqual(state, snapshot, "失败时所有字段保持原样");
+}
+{
+  // snake_case 行正常扣点：free_points 键不变名，stats 自增，体力联动写 max_hp
+  const row = {
+    level: 5,
+    free_points: 1,
+    max_hp: 999,
+    max_mp: 50,
+    stats: { strength: 10, agility: 12, vitality: 8, intelligence: 10, perception: 14 },
+  };
+  const { state, events } = spendPoint(row, "strength");
+  assert.equal(events[0].type, "spend");
+  assert.equal(state.stats.strength, 11);
+  assert.equal(state.free_points, 0);
+  assert.equal(state.max_hp, 999, "非体力/智力加点不动上限");
+  const { state: s2 } = spendPoint(row, "vitality");
+  assert.equal(s2.stats.vitality, 9);
+  assert.equal(s2.max_hp, 80 + 5 * 4 + 9 * 10, "体力加点按公式重算 max_hp");
+  assert.equal(s2.maxHp, undefined, "不得长出 camelCase 键");
+}
+{
+  // freePoints 缺省（老存档无此字段）等价 0：报错且不写键
+  const { state, events } = spendPoint({ level: 3, stats: { strength: 1 } }, "strength");
+  assert.equal(events[0].type, "error");
+  assert.equal(state.stats.strength, 1);
+  assert.equal(state.free_points, undefined);
+  assert.equal(state.freePoints, undefined);
+}
+
 console.log("OK");

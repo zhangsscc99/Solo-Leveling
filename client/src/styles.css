@@ -817,7 +817,8 @@ button {
   color: var(--system);
 }
 
-.inv-notice {
+.inv-notice,
+.stat-notice {
   margin: 0;
   padding: 2px 0 2px var(--sp-2);
   border-left: 2px solid var(--blood);
@@ -1041,6 +1042,108 @@ button {
 
 .stat-line-meta {
   border-top: 1px solid var(--line);
+}
+
+/* ── 属性面板 ──────────────────────────────
+   仪表行复用 .stat-line*；属性点是「可分配的激活态」，
+   数字亮 system 青，+1 键走硬件方角，禁用退成虚线空槽。
+*/
+.stat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.stat-points {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.stat-points-label {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+}
+
+.stat-points-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  color: var(--faint);
+}
+
+.stat-points-num.on {
+  color: var(--system);
+}
+
+.stat-points-hint {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.stat-add {
+  flex: none;
+  min-width: 36px;
+  min-height: 24px;
+  padding: 0 var(--sp-1);
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.stat-add:hover:not(:disabled) {
+  border-color: var(--system-dim);
+  color: var(--system);
+}
+
+.stat-add:disabled {
+  border-style: dashed;
+  opacity: 0.35;
+  cursor: default;
+}
+
+.stat-add:focus-visible {
+  outline: 2px solid var(--system);
+  outline-offset: 1px;
+}
+
+.stat-xp {
+  border-top: 1px solid var(--line);
+}
+
+/* 数值/提示对齐到计量条起点（label 64px + 行距），读作仪表脚注 */
+.stat-xp-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: 0 0 var(--sp-2) calc(64px + var(--sp-3));
+}
+
+.stat-xp-nums {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.stat-xp-nums i {
+  font-style: normal;
+  color: var(--faint);
+}
+
+.stat-xp-hint {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--faint);
 }
 
 .map-list {
@@ -1476,6 +1579,12 @@ button {
   .inv-btn {
     min-height: 44px;
     padding: 0 var(--sp-3);
+    font-size: var(--fs-sm);
+  }
+
+  .stat-add {
+    min-height: 44px;
+    min-width: 44px;
     font-size: var(--fs-sm);
   }
 }
