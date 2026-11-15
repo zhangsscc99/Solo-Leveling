@@ -8,6 +8,10 @@ const chaptersEngine = require("./engine/chapters");
 const questEngine = require("./engine/quests");
 const shadowEngine = require("./engine/shadow");
 const endingEngine = require("./engine/ending");
+const combatEngine = require("./engine/combat");
+const encounterEngine = require("./engine/encounter");
+const lootEngine = require("./engine/loot");
+const statsEngine = require("./engine/stats");
 const aiGateway = require("./ai/gateway");
 const aiValidate = require("./ai/validate");
 const aiContext = require("./ai/context");
@@ -78,6 +82,27 @@ function sceneView(save) {
   };
 }
 
+// F088 交战视图：无交战返回 null；有交战暴露敌人完整面板数据
+// （名/等级/HP/攻/防）与回合数，战斗面板据此挂载真实数值。
+function combatView(combat) {
+  if (!combat || !combat.enemy || typeof combat.enemy !== "object") return null;
+  const e = combat.enemy;
+  return {
+    enemy: {
+      id: e.id ?? null,
+      name: e.name || "敌人",
+      rank: e.rank || "E",
+      level: Math.max(1, Math.trunc(Number(e.level) || 1)),
+      hp: Math.max(0, Math.trunc(Number(e.hp) || 0)),
+      max_hp: Math.max(1, Math.trunc(Number(e.maxHp ?? e.max_hp) || 1)),
+      atk: Math.max(0, Math.trunc(Number(e.atk) || 0)),
+      def: Math.max(0, Math.trunc(Number(e.def) || 0)),
+    },
+    turn: Math.max(1, Math.trunc(Number(combat.turn) || 1)),
+    started_at: combat.started_at || null,
+  };
+}
+
 // 出参统一带派生字段：xp_to_next 由等级曲线算出，free_points 兜底 0。
 // cleared 是通关唯一判定（endingEngine.hasCleared：当前场景为 ch8_epilogue），
 // 前端「结算」tab 与 /saves/:id/ending 门禁共用同一结论，不各自推导。
@@ -88,6 +113,8 @@ function saveView(save) {
     ...sceneView(save),
     free_points: Number(save.free_points) || 0,
     kills: Number(save.kills) || 0,
+    deaths: Number(save.deaths) || 0,
+    combat: combatView(store.getCombat(save.id)),
     cleared: endingEngine.hasCleared(save),
     xp_to_next: progression.xpToNext(save.level),
   };
@@ -101,6 +128,45 @@ function saveView(save) {
 ──────────────────────────────────────────────────────────────── */
 const CATALOG = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "items.json"), "utf8"));
 const ITEMS = new Map(CATALOG.map((item) => [item.id, item]));
+
+// 掉落素材的展示名：drops.json 的掉落物是「素材」，不在装备/道具目录
+// （items.json）里，播报与背包展示都需要中文名兜底。
+const LOOT_NAMES = {
+  rune_shard: "符文碎片",
+  stone_core: "石核",
+  guardian_plate: "守卫铠片",
+  smiling_idol_eye: "笑脸神像之眼",
+  wolf_pelt: "狼皮",
+  cracked_fang: "裂齿",
+  beast_core: "兽核",
+  moonlit_hide: "月光兽皮",
+  venom_sac: "毒囊",
+  serpent_scale: "蛇鳞",
+  antidote_herb: "解毒草",
+  toxic_gland: "毒腺",
+  basilisk_venom: "蛇王毒液",
+  frost_dust: "霜尘",
+  ice_shard: "冰晶碎块",
+  ice_crystal: "冰晶",
+  eternal_frost_core: "永冻之核",
+  winter_queen_tear: "冬之女王之泪",
+  demon_iron: "恶魔铁",
+  knight_crest: "骑士徽记",
+  castle_key: "城堡钥匙",
+  demon_blade: "恶魔之刃",
+  baran_sigil: "巴兰印记",
+  beru_carapace: "蚁王甲壳",
+  ant_queen_essence: "蚁后精华",
+  shadow_essence: "暗影精粹",
+  monarch_fragment: "君主碎片",
+  kings_jaw: "王者之颚",
+  torn_scrap: "破损布片",
+  dim_crystal: "微光晶石",
+};
+
+function lootName(itemId) {
+  return (ITEMS.get(itemId) || {}).name || LOOT_NAMES[itemId] || itemId;
+}
 const OPS = ["use", "equip", "discard"];
 const SLOT_OF = { weapon: "weapon", armor: "armor" };
 const SLOT_LABEL = { weapon: "武器", armor: "防具" };
@@ -127,7 +193,12 @@ function shadowLine(s) {
 // 任务数据走引擎加载器：quests.json 校验不过会在启动时直接抛错。
 const QUESTS = questEngine.loadQuests();
 
-const db = new Database(path.join(__dirname, "..", "data", "game.db"));
+// 与 db.js 同一个库文件：DB_PATH 覆盖时两边必须指向同一处，否则背包
+// 写入与存档读写会落进两个库。
+const INV_DB = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(__dirname, "..", "data", "game.db");
+const db = new Database(INV_DB);
 
 const invStmts = {
   get: db.prepare("SELECT qty FROM inventory WHERE save_id = ? AND item_id = ?"),
@@ -236,18 +307,16 @@ function itemLine(item) {
 }
 
 
-// 推进体力消耗（沿用原数值）：HP-3 下限 1、MP-2 下限 0。
-// 数值没动过的一律不进文案——HP 已 1 时不得输出「HP 1→1」这种虚构消耗，
-// 只写「体力已见底」。
+// 推进体力消耗（沿用原数值）：HP-3、MP-2，下限一律 0——F077 起不再夹
+// 在 1，耗尽可能触发死亡回溯。数值没动过的一律不进文案——HP 已 0 时
+// 不得输出「HP 0→0」这种虚构消耗，只写「体力已见底」。
 function vitalsCost(save) {
-  const hp = save.hp <= 1 ? save.hp : clamp(save.hp - 3, 1, save.max_hp);
+  const hp = clamp(save.hp - 3, 0, save.max_hp);
   const mp = clamp(save.mp - 2, 0, save.max_mp);
   const parts = [];
   if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
   if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
-  const note = parts.length
-    ? `（体力消耗 ${parts.join(" · ")}${save.hp <= 1 ? " · 体力已见底" : ""}）`
-    : "（体力已见底）";
+  const note = parts.length ? `（体力消耗 ${parts.join(" · ")}）` : "（体力已见底）";
   return { patch: { hp, mp }, note };
 }
 
@@ -325,6 +394,339 @@ function advanceOutcome(save) {
     patch: { ...vit.patch, scene: next.id },
     content: `${next.text}${completeNote}\n${vit.note}`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// F077/F082/F088 结算辅助：遭遇判定、死亡回溯、统一奖励、战斗回合
+// ---------------------------------------------------------------------------
+
+// F082 统一奖励入口：所有 XP 来源（每日任务/主线奖励/战斗击杀）都走这里，
+// 经 progression.applyXp 结算（跨多级循环、60 封顶）后落库 level/xp/
+// free_points/max_hp/max_mp（升级时 HP/MP 自动回满，与 applyXp 语义一致）。
+// 返回播报行数组；没有可入账内容时返回空数组。
+function grantRewards(saveId, reward) {
+  const r = reward && typeof reward === "object" ? reward : {};
+  const xp = Math.max(0, Math.trunc(Number(r.xp) || 0));
+  const gold = Math.max(0, Math.trunc(Number(r.gold) || 0));
+  const items = Array.isArray(r.items) ? r.items : [];
+  const save = store.getSave(saveId);
+  if (!save) return [];
+
+  const patch = {};
+  const lines = [];
+  if (xp > 0) {
+    const { state, events } = progression.applyXp(save, xp);
+    patch.xp = state.xp;
+    patch.level = state.level;
+    patch.free_points = state.free_points;
+    patch.max_hp = state.max_hp;
+    patch.max_mp = state.max_mp;
+    patch.hp = state.hp;
+    patch.mp = state.mp;
+    if (state.rank && state.rank !== save.rank) patch.rank = state.rank;
+    for (const e of events) {
+      if (e.type === "levelup") {
+        lines.push(
+          `【升级】Lv.${e.level - 1} → Lv.${e.level} · 自由属性点 +${e.freePoints} · HP/MP 上限提升`
+        );
+      } else if (e.type === "rankup") {
+        lines.push(`【晋升】猎人等级提升——你已突破界限，晋升为 ${e.rank} 级猎人。`);
+      }
+    }
+  }
+  if (gold > 0) patch.gold = (Number(save.gold) || 0) + gold;
+  if (Object.keys(patch).length) store.updateSave(saveId, patch);
+  for (const item of items) {
+    if (item && item.id && Math.trunc(Number(item.qty)) > 0) {
+      invStmts.add.run(saveId, item.id, Math.trunc(Number(item.qty)));
+    }
+  }
+  return lines;
+}
+
+// 主线奖励（quests.json main_rewards）：抵达本章主线链尾时入账，一次且仅
+// 一次——save.rewards 记已领章节 id，重复通关同一章不重复发。
+function claimMainReward(saveId, chapterId) {
+  const save = store.getSave(saveId);
+  if (!save) return [];
+  const claimed = Array.isArray(save.rewards) ? save.rewards : [];
+  if (claimed.includes(chapterId)) return [];
+  const chapter = chaptersEngine.getChapter(chapterId);
+  if (!chapter) return [];
+  const reward = (QUESTS.main_rewards && QUESTS.main_rewards[chapterId]) || {
+    xp: 100 * chapter.index,
+    gold: 50 * chapter.index,
+  };
+  const lines = grantRewards(saveId, reward);
+  store.updateSave(saveId, { rewards: [...claimed, chapterId] });
+  const parts = [`XP +${reward.xp || 0}`, `金币 +${reward.gold || 0}`];
+  if (Array.isArray(reward.items) && reward.items.length) {
+    parts.push(reward.items.map((i) => `${i.name} ×${i.qty}`).join("、"));
+  }
+  return [`【主线】第${chapter.index}章主线达成，奖励入账 ${parts.join(" · ")}。`, ...lines];
+}
+
+// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章起点、
+// HP/MP 恢复至上限一半、deaths+1。返回播报行，未死返回 null。
+function settleDeath(saveId) {
+  const save = store.getSave(saveId);
+  if (!save || save.hp > 0) return null;
+  const chapter = chaptersEngine.getChapter(save.chapter) || chaptersEngine.getChapter(1);
+  const first = chapter ? chaptersEngine.firstSceneOf(chapter) : null;
+  store.updateSave(saveId, {
+    hp: Math.max(1, Math.round(save.max_hp * 0.5)),
+    mp: Math.max(0, Math.round(save.max_mp * 0.5)),
+    chapter: chapter ? chapter.index : 1,
+    scene: first ? first.id : null,
+    deaths: (Number(save.deaths) || 0) + 1,
+    encounter_clock: 0,
+  });
+  store.clearCombat(saveId);
+  const title = chapter ? `「${chapter.title}」` : "";
+  return [
+    "【系统】你倒下了……视野在尖锐的警报声里碎成一片黑雪。",
+    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章${title}的起点，伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`,
+  ];
+}
+
+// F088 遭遇判定：boss 场景必遇本章 boss；否则按保底计数/章节遭遇率掷点
+// （种子 = 存档 + 场景 + 落空计数，确定性可复现）。
+function tryEncounter(save, sceneId) {
+  const scene = chaptersEngine.getScene(sceneId);
+  const chapter = chaptersEngine.getChapter(save.chapter);
+  if (!scene || !chapter) return null;
+  const clock = Math.max(0, Math.trunc(Number(save.encounter_clock) || 0));
+  const seed = `${save.id}:${scene.id}:${clock}`;
+  return encounterEngine.roll({ chapterIndex: chapter.index, scene, clock, seed });
+}
+
+// 「前进」结算 + 交战态收敛 + 遭遇判定（F074/F077/F088 交汇点）：
+//   1) 交战中前进 = 强行脱离：先甩开敌人再正常推进，撤离中不再掷遭遇；
+//   2) 正常推进落到新场景 → boss 场景必遇本章 boss，否则按保底/遭遇率掷点；
+//   3) 落到主线链尾 → grantMain，由调用方统一发章节奖励；
+//   4) 场景真正移动才产出 advance 事件喂每日任务，原地踏步不计。
+function advanceWithEncounter(save) {
+  const cbt = store.getCombat(save.id);
+  const out = advanceOutcome(save);
+  const patch = out.patch ? { ...out.patch } : null;
+  const moved = Boolean(patch && typeof patch.scene === "string");
+  const res = {
+    patch,
+    content: out.content,
+    events: moved ? ["advance"] : [],
+    combat: null,
+    rewards: null,
+    grantMain: null,
+  };
+  if (!moved) return res;
+
+  // 主线链尾 = 本章主线完成：无论是否带着敌人逃进来，奖励都照常入账。
+  const chapter = chaptersEngine.getChapter(patch.chapter || save.chapter);
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  if (chapter && path.length && patch.scene === path[path.length - 1].id) {
+    res.grantMain = chapter.id;
+  }
+
+  if (cbt) {
+    // 撤离推进：清掉旧交战态，落点不再掷遭遇（否则永远走不出战斗）。
+    res.combat = { op: "clear" };
+    res.content = `你且战且退，甩开了${cbt.enemy.name}的纠缠。\n${out.content}`;
+    return res;
+  }
+
+  const enemy = tryEncounter({ ...save, chapter: patch.chapter || save.chapter }, patch.scene);
+  if (enemy) {
+    res.combat = { op: "set", enemy, turn: 1 };
+    res.patch.encounter_clock = 0;
+    res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+  } else {
+    res.patch.encounter_clock = (Math.max(0, Math.trunc(Number(save.encounter_clock) || 0))) + 1;
+  }
+  return res;
+}
+
+// 「释放技能 X」前置校验：名字解析、已习得、MP 足够（按 skills.json 的
+// mp_cost 口径，与技能面板按钮的 disabled 判定一致）。校验不过时返回
+// 一条诚实文案——不扣 MP、不占回合、不产生 skill 结算事件。
+function skillGate(save, input) {
+  const m = String(input || "").match(
+    /释放技能\s*[:：]?\s*(.+)$|施放技能\s*[:：]?\s*(.+)$|使用技能\s*[:：]?\s*(.+)$|施放\s*[:：]?\s*(.+)$|释放\s*[:：]?\s*(.+)$/
+  );
+  const name = m ? (m.slice(1).find((g) => g) || "").trim() : "";
+  if (!name) {
+    const learned = SKILLS.filter((s) => s.learn_level <= save.level).map((s) => `「${s.name}」`).join("、");
+    return {
+      ok: false,
+      content: `【系统】要释放哪个技能？${learned ? `已习得：${learned}。` : "你还没有习得任何技能。"}`,
+    };
+  }
+  const skill = SKILLS.find((s) => s.name === name || s.id === name);
+  if (!skill) return { ok: false, content: `【系统】不存在名为「${name}」的技能。` };
+  if (skill.learn_level > save.level) {
+    return { ok: false, content: `【系统】等级不足——「${skill.name}」需要 Lv.${skill.learn_level}。` };
+  }
+  if (save.mp < skill.mp_cost) {
+    return { ok: false, content: `【系统】魔力不足——「${skill.name}」需要 ${skill.mp_cost} MP（当前 ${save.mp}）。` };
+  }
+  return { ok: true, skill };
+}
+
+// 交战中统一走 engine/combat.js resolveTurn 结算一回合。种子由存档 +
+// 开战时间 + 回合数构成，确定性可复现；事件文案全部由引擎产出，本函数
+// 只做落库参数与播报拼装（HP/MP 变化如实写出，不变不写）。
+function combatTurn(save, cbt, action, input) {
+  let itemNote = "";
+  if (action === "item") {
+    if (save.hp >= save.max_hp) {
+      return { patch: null, content: "【系统】生命值已满，无需使用补给。", events: [] };
+    }
+    // 道具必须真实消耗：玩家点名（「使用道具 低级治疗药水」）优先，
+    // 否则挑背包里回复量最低的一瓶可用补给先喝。
+    const usable = store
+      .getInventory(save.id)
+      .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
+      .filter((x) => x.item && x.item.category === "consumable" && x.row.qty > 0);
+    if (!usable.length) {
+      return { patch: null, content: "【系统】背包里已没有可用的补给。", events: [] };
+    }
+    const named = String(input || "").match(/使用道具\s*[:：]?\s*(.+)$|道具\s*[:：]?\s*(.+)$/);
+    const want = named ? (named.slice(1).find((g) => g) || "").trim() : "";
+    let picked = want
+      ? usable.find((x) => x.item.name === want || x.item.id === want)
+      : null;
+    if (want && !picked) {
+      return { patch: null, content: `【系统】背包里没有名为「${want}」的可用补给。`, events: [] };
+    }
+    if (!picked) {
+      picked = usable.sort(
+        (a, b) => (a.item.heal || 0) + (a.item.mp || 0) - ((b.item.heal || 0) + (b.item.mp || 0))
+      )[0];
+    }
+    if (picked.row.qty <= 1) invStmts.remove.run(save.id, picked.item.id);
+    else invStmts.setQty.run(picked.row.qty - 1, save.id, picked.item.id);
+    itemNote = `你喝下「${picked.item.name}」。`;
+  }
+
+  const equip = equipView(save.id);
+  // 装备加成折算进五项属性，与 stats.js 公式严格互逆：+攻按 1.6/点 折
+  // 力量，+防按 0.8/点 折体力——不新造一套属性算法。
+  const stats = statsEngine.sanitizeStats({ stats: save.stats });
+  stats.strength += (equip.atk || 0) / 1.6;
+  stats.vitality += (equip.def || 0) / 0.8;
+
+  const seed = `combat:${save.id}:${cbt.started_at || "?"}:${cbt.turn}`;
+  const { state, events } = combatEngine.resolveTurn(
+    {
+      turn: cbt.turn,
+      player: {
+        name: save.player_name,
+        level: save.level,
+        rank: save.rank,
+        hp: save.hp,
+        maxHp: save.max_hp,
+        mp: save.mp,
+        maxMp: save.max_mp,
+        stats,
+      },
+      enemy: cbt.enemy,
+    },
+    action,
+    seed
+  );
+
+  const p = state.player;
+  const e = state.enemy;
+  const patch = {
+    hp: clamp(p.hp, 0, save.max_hp),
+    mp: clamp(p.mp, 0, save.max_mp),
+  };
+
+  const enemyHpBefore = Math.max(0, Math.trunc(Number(cbt.enemy.hp) || 0));
+  const vitals = [];
+  const enemyHpAfter = Math.max(0, Math.trunc(Number(e.hp) || 0));
+  if (enemyHpAfter !== enemyHpBefore) vitals.push(`${e.name} HP ${enemyHpBefore}→${enemyHpAfter}`);
+  if (patch.hp !== save.hp) vitals.push(`你 HP ${save.hp}→${patch.hp}`);
+  if (patch.mp !== save.mp) vitals.push(`MP ${save.mp}→${patch.mp}`);
+
+  let content =
+    `【战斗】第${cbt.turn}回合 · ` +
+    (itemNote ? `${itemNote} ` : "") +
+    events.map((ev) => ev.text).join(" · ");
+  if (vitals.length) content += `\n【战斗】${vitals.join(" · ")}`;
+
+  const res = { patch, content, events: [], combat: null, rewards: null, grantMain: null };
+  if (action === "skill" && patch.mp < save.mp) res.events.push("skill");
+
+  const fled = events.some((ev) => ev.type === "flee" && ev.side === "player");
+  if (e.hp <= 0) {
+    // 击杀：kills+1、掉落（loot 引擎同种子掷点）与 XP 入账，交战态收敛。
+    res.events.push("kill");
+    patch.kills = (Number(save.kills) || 0) + 1;
+    res.combat = { op: "clear" };
+    const loot = lootEngine.rollLoot(cbt.enemy.id, cbt.enemy.rank, `${seed}:loot`);
+    const xp = Math.max(0, Math.trunc(Number(cbt.enemy.xp) || 0));
+    res.rewards = {
+      xp,
+      gold: loot.gold,
+      items: loot.items.map((i) => ({ id: i.item_id, qty: i.qty })),
+    };
+    const parts = [`XP +${xp}`, `金币 +${loot.gold}`];
+    if (loot.items.length) {
+      parts.push(loot.items.map((i) => `${lootName(i.item_id)} ×${i.qty}`).join("、"));
+    }
+    res.content += `\n【战斗】击败 ${e.name}，获得 ${parts.join(" · ")}。`;
+  } else if (fled || patch.hp <= 0) {
+    // 逃跑成功 / 玩家倒下：交战态都必须收敛。死亡由 settleDeath 统一结算。
+    res.combat = { op: "clear" };
+  } else {
+    res.combat = { op: "turn", enemy: e, turn: state.turn };
+  }
+  return res;
+}
+
+// 无交战时的战斗意图：attack/skill 先过遭遇表（命中即开战），miss 则
+// 诚实播报「周围没有可攻击的目标」——不扣血、不加击杀、不占资源。
+// defend/item/flee 在非战斗场景同样只给诚实提示。
+function peacefulCombatIntent(save, input, action) {
+  if (action === "attack" || action === "skill") {
+    if (action === "skill") {
+      const gate = skillGate(save, input);
+      if (!gate.ok) return { patch: null, content: gate.content, events: [] };
+    }
+    const scene = chaptersEngine.currentScene(save);
+    const enemy = tryEncounter(save, scene ? scene.id : null);
+    if (enemy) {
+      return {
+        patch: { encounter_clock: 0 },
+        content: `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`,
+        events: [],
+        combat: { op: "set", enemy, turn: 1 },
+      };
+    }
+    return {
+      patch: {
+        encounter_clock: Math.max(0, Math.trunc(Number(save.encounter_clock) || 0)) + 1,
+      },
+      content: "【系统】你摆出战斗架势，四周却空无一物——周围没有可攻击的目标。",
+      events: [],
+    };
+  }
+  const lines = {
+    defend: "【系统】你架起防御姿态，四周却空无一人——周围没有可攻击的目标。",
+    item: "【系统】周围没有可攻击的目标——补给留到真正的战斗时再用。",
+    flee: "【系统】四周并没有需要逃离的敌人。",
+  };
+  return { patch: null, content: lines[action], events: [] };
+}
+
+function combatIntent(save, input, action) {
+  const cbt = store.getCombat(save.id);
+  if (!cbt) return peacefulCombatIntent(save, input, action);
+  if (action === "skill") {
+    const gate = skillGate(save, input);
+    if (!gate.ok) return { patch: null, content: gate.content, events: [] };
+  }
+  return combatTurn(save, cbt, action, input);
 }
 
 // Whitelisted intents. Each entry owns its log role, the
@@ -475,6 +877,31 @@ const INTENTS = [
     },
   },
   {
+    id: "attack",
+    role: "system",
+    build: (save, input) => combatIntent(save, input, "attack"),
+  },
+  {
+    id: "skill",
+    role: "system",
+    build: (save, input) => combatIntent(save, input, "skill"),
+  },
+  {
+    id: "defend",
+    role: "system",
+    build: (save, input) => combatIntent(save, input, "defend"),
+  },
+  {
+    id: "item",
+    role: "system",
+    build: (save, input) => combatIntent(save, input, "item"),
+  },
+  {
+    id: "flee",
+    role: "system",
+    build: (save, input) => combatIntent(save, input, "flee"),
+  },
+  {
     id: "shadow_formation",
     role: "system",
     build: (save) => {
@@ -521,6 +948,7 @@ const INTENTS = [
         "「前进」推进剧情（消耗少量体力） · 「潜行」压低气息（消耗 5 MP）\n" +
         "「休息」恢复体力与魔力 · 「存档」写入当前进度\n" +
         "「影子」查看编队 · 「影子出战 <名字>」遣影入阵 · 「影子撤回 <名字>」令其归队\n" +
+        "遭遇战中：「攻击」「释放技能 <名字>」「防御」「使用道具」「逃跑」或「前进」强行撤离\n" +
         "其余自由输入将交由叙事层判定，未识别的动作不会改变状态。",
     }),
   },
@@ -544,7 +972,7 @@ const INTENTS = [
   {
     id: "advance",
     role: "narrator",
-    build: (save) => advanceOutcome(save),
+    build: (save) => advanceWithEncounter(save),
   },
   {
     id: "sneak",
@@ -555,7 +983,7 @@ const INTENTS = [
         patch: { mp },
         content:
           `你把魔力压进四肢，脚步轻得几乎没有声音。石像的目光扫过你所立之处，停顿了一瞬——又缓缓移开。\n` +
-          `（魔力消耗 MP ${save.mp}→${mp}）`,
+          (mp !== save.mp ? `（魔力消耗 MP ${save.mp}→${mp}）` : "（魔力已见底）"),
       };
     },
   },
@@ -565,11 +993,14 @@ const INTENTS = [
     build: (save) => {
       const hp = clamp(save.hp + 15, 0, save.max_hp);
       const mp = clamp(save.mp + 8, 0, save.max_mp);
+      const deltas = [];
+      if (hp !== save.hp) deltas.push(`HP ${save.hp}→${hp}`);
+      if (mp !== save.mp) deltas.push(`MP ${save.mp}→${mp}`);
       return {
         patch: { hp, mp },
         content:
           `你背靠石柱坐下，闭上眼调整呼吸。系统在视野边缘安静地跳动着，体力与魔力一点点回流。\n` +
-          `（恢复 HP ${save.hp}→${hp} · MP ${save.mp}→${mp}）`,
+          (deltas.length ? `（恢复 ${deltas.join(" · ")}）` : "（状态已是满值）"),
       };
     },
   },
@@ -590,6 +1021,9 @@ const PLACEHOLDER = {
 
 // 引擎执行：intent id → 服务端结算出参。/action 与 /ai-action 共用，
 // AI/客户端给的任何数值都不会走到这里，patch 只由白名单模板产出。
+// build 出参的 events/combat/rewards/grantMain 是真实结算事件与副作用
+// 描述，由 applyOutcome 统一落库（战斗态写删、奖励入账、死亡回溯、
+// 每日任务推进）。
 function executeIntent(save, intentId, input) {
   const intent = INTENTS.find((it) => it.id === intentId);
   if (!intent) return null;
@@ -600,7 +1034,35 @@ function executeIntent(save, intentId, input) {
     patch: built.patch,
     content: built.content,
     shadows: built.shadows,
+    events: built.events || [],
+    combat: built.combat || null,
+    rewards: built.rewards || null,
+    grantMain: built.grantMain || null,
   };
+}
+
+// 结算副作用统一管线（/action 与 /ai-action 共用）：
+//   patch → 战斗态写/删 → 死亡回溯 → 击杀/杂项奖励 → 主线奖励 → 每日任务。
+// 死亡优先于发奖：HP 归零先复活再走 XP 结算，「倒下」播报不被升级覆盖。
+function applyOutcome(saveId, outcome) {
+  if (outcome.patch) store.updateSave(saveId, outcome.patch);
+  if (outcome.combat) {
+    if (outcome.combat.op === "set") {
+      store.setCombat(saveId, outcome.combat.enemy, outcome.combat.turn || 1);
+    } else if (outcome.combat.op === "turn") {
+      store.setCombatTurn(saveId, outcome.combat.enemy, outcome.combat.turn);
+    } else if (outcome.combat.op === "clear") {
+      store.clearCombat(saveId);
+    }
+  }
+  const lines = [];
+  const death = settleDeath(saveId);
+  if (death) lines.push(...death);
+  if (outcome.rewards) lines.push(...grantRewards(saveId, outcome.rewards));
+  if (outcome.grantMain) lines.push(...claimMainReward(saveId, outcome.grantMain));
+  const questNote = settleDailyQuests(saveId, outcome.events);
+  if (questNote) lines.push(questNote);
+  return lines;
 }
 
 function resolveAction(save, input) {
@@ -608,11 +1070,16 @@ function resolveAction(save, input) {
   if (intentId) {
     return executeIntent(save, intentId, input);
   }
+  // 交战中收到无法解析的输入：给战斗指令提示而不是通用占位句。
+  const cbt = store.getCombat(save.id);
   return {
     intent: "unknown",
     role: PLACEHOLDER.role,
     patch: null,
-    content: `【系统】指令已接收：「${input}」。命运之线仍在编织中……（叙事引擎尚未接入，此处为占位回应。输入「帮助」查看当前可用指令。）`,
+    events: [],
+    content: cbt
+      ? `【系统】你正与${cbt.enemy.name}交战——「攻击」「释放技能 X」「防御」「使用道具」「逃跑」，或「前进」强行撤离。`
+      : `【系统】指令已接收：「${input}」。命运之线仍在编织中……（叙事引擎尚未接入，此处为占位回应。输入「帮助」查看当前可用指令。）`,
   };
 }
 
@@ -753,6 +1220,11 @@ api.post("/saves/:id/item", (req, res) => {
   if (body.op === "use") {
     if (item.category !== "consumable") {
       return res.status(400).json({ error: "该物品无法使用" });
+    }
+    // F088：交战中补给必须占一回合（敌人会反击），走 /action 的
+    // 「使用道具」战斗指令，不走这条免回合的直接补给通道。
+    if (store.getCombat(save.id)) {
+      return res.status(400).json({ error: "交战中请用「使用道具」战斗指令" });
     }
     // 数值只取目录 + 当前存档，客户端不可覆盖；HP/MP 一律夹紧到 0..max。
     const hp = item.heal ? clamp(save.hp + item.heal, 0, save.max_hp) : save.hp;
@@ -918,32 +1390,32 @@ api.post("/saves/:id/shadow", (req, res) => {
   });
 });
 
-// 每日任务结算：输入 → 事件（前进/技能/击败）→ 当天进度累加；
-// 完成的任务当场发奖励（XP/金币/物品），并返回一行播报并入本条回复。
-function settleDailyQuests(saveId, input) {
-  const events = questEngine.detectEvents(input);
-  if (!events.length) return null;
+// 每日任务结算（F080/F088）：只消费真实结算事件——advance/kill/skill
+// 由白名单意图与战斗结算产出，不再对玩家输入文本跑正则，空挥攻击、
+// 占位技能一律不计数。完成的任务当场经 grantRewards 入账（XP 达标
+// 即触发升级），完成播报与升级播报一起并进本条回复。
+function settleDailyQuests(saveId, events) {
+  const list = Array.isArray(events)
+    ? events.filter((e) => questEngine.VALID_EVENTS.includes(e))
+    : [];
+  if (!list.length) return null;
   const key = questEngine.dayKey(new Date());
   const { updates, completed } = questEngine.applyDailyEvents(
     QUESTS.daily,
     store.getDailyQuests(saveId, key),
-    events
+    list
   );
   for (const u of updates) {
     store.setDailyQuest(saveId, key, u.quest_id, u.progress, u.done);
   }
   if (!completed.length) return null;
 
-  const fresh = store.getSave(saveId);
   const total = questEngine.mergeRewards(completed);
-  store.updateSave(saveId, { xp: fresh.xp + total.xp, gold: fresh.gold + total.gold });
-  for (const item of total.items) {
-    invStmts.add.run(saveId, item.id, item.qty);
-  }
+  const rewardLines = grantRewards(saveId, total);
   const names = completed.map((q) => `「${q.title}」`).join("、");
   const parts = [`XP +${total.xp}`, `金币 +${total.gold}`];
   if (total.items.length) parts.push(total.items.map((i) => `${i.name} ×${i.qty}`).join("、"));
-  return `【任务】每日任务完成：${names}。奖励已入账 ${parts.join(" · ")}。`;
+  return [`【任务】每日任务完成：${names}。奖励已入账 ${parts.join(" · ")}。`, ...rewardLines].join("\n");
 }
 
 api.post("/action", (req, res) => {
@@ -980,15 +1452,13 @@ api.post("/action", (req, res) => {
   // Server-side authority: the resolved intent's own delta is applied and the
   // result is clamped, so any numbers in the client payload are ignored.
   const outcome = resolveAction(save, input);
-  if (outcome.patch) {
-    store.updateSave(save.id, outcome.patch);
-  }
-  // 每日任务进度随真实动作推进；完成播报并进本条回复，不重开日志行。
-  const questNote = settleDailyQuests(save.id, input);
+  // 真实结算事件随动作入账：战斗态/奖励/死亡回溯/每日任务都在
+  // applyOutcome 里收敛，播报并进本条回复，不重开日志行。
+  const extra = applyOutcome(save.id, outcome);
   const reply = store.appendLog(
     save.id,
     outcome.role,
-    questNote ? `${outcome.content}\n${questNote}` : outcome.content
+    extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
   );
   const payload = { reply, save: saveView(store.getSave(save.id)) };
   if (outcome.shadows) payload.shadows = outcome.shadows;
@@ -1075,23 +1545,15 @@ api.post("/ai-action", async (req, res) => {
       degraded = true;
     }
 
-    const outcome = executeIntent(save, intentId, input) || executeIntent(save, "observe", input);
-    if (outcome.patch) {
-      // F025：await AI 期间存档可能已被其它写入改动，outcome.patch 是相对旧
-      // 快照的绝对值。重读存档，把 patch 隐含的增量套到新快照上再夹紧写回。
-      const fresh = store.getSave(save.id) || save;
-      const merged = aiValidate.applyVitalsDelta(save, fresh, outcome.patch);
-      // applyVitalsDelta 只回算 hp/mp；scene/chapter 等剧情进度字段原样透传。
-      for (const [key, value] of Object.entries(outcome.patch)) {
-        if (key !== "hp" && key !== "mp") merged[key] = value;
-      }
-      store.updateSave(save.id, merged);
-    }
-    const questNote = settleDailyQuests(save.id, input);
+    // F025：await AI 期间存档可能已被其它写入改动——先重读最新存档再结算，
+    // outcome.patch 基于新快照产出，不再做旧快照增量回算。
+    const fresh = store.getSave(save.id) || save;
+    const outcome = executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
+    const extra = applyOutcome(save.id, outcome);
     const reply = store.appendLog(
       save.id,
       outcome.role,
-      questNote ? `${outcome.content}\n${questNote}` : outcome.content
+      extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
     );
     const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
     if (outcome.shadows) payload.shadows = outcome.shadows;
@@ -1127,7 +1589,14 @@ app.use(BASE, (req, res, next) => {
 
 app.use((req, res) => res.status(404).json({ error: "not found" }));
 
-app.listen(PORT, HOST, () => {
-  // eslint-disable-next-line no-console
-  console.log(`solo-leveling listening on http://${HOST}:${PORT}${BASE}`);
-});
+// 集成测试需要 in-process 拉起 app（临时端口），因此只在作为入口直接
+// 运行时才监听端口。node --test server/ 会把包 main（本文件）当测试子
+// 进程拉起——此时 NODE_TEST_CONTEXT 存在，也不许占端口。
+if (require.main === module && !process.env.NODE_TEST_CONTEXT) {
+  app.listen(PORT, HOST, () => {
+    // eslint-disable-next-line no-console
+    console.log(`solo-leveling listening on http://${HOST}:${PORT}${BASE}`);
+  });
+}
+
+module.exports = { app, saveView, grantRewards };

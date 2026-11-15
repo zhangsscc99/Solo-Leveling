@@ -10,6 +10,24 @@ export interface Stats {
 
 export type StatKey = keyof Stats;
 
+export interface CombatEnemy {
+  id: string | null;
+  name: string;
+  rank: string;
+  level: number;
+  hp: number;
+  max_hp: number;
+  atk: number;
+  def: number;
+}
+
+// F088 服务端交战态：save.combat 非空即真实交战，敌人 HP/回合全部可信。
+export interface CombatState {
+  enemy: CombatEnemy;
+  turn: number;
+  started_at: string | null;
+}
+
 export interface Save {
   id: number;
   player_name: string;
@@ -25,7 +43,9 @@ export interface Save {
   free_points: number;
   gold: number;
   kills: number;
+  deaths: number;
   chapter: number;
+  combat: CombatState | null;
   cleared: boolean;
 }
 

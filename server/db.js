@@ -5,7 +5,13 @@ const Database = require("better-sqlite3");
 const dataDir = path.join(__dirname, "..", "data");
 fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, "game.db"));
+// DB_PATH 环境变量可覆盖存档库位置（断言脚本/单测用独立库，避免污染线上库）。
+const DB_FILE = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(dataDir, "game.db");
+fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+
+const db = new Database(DB_FILE);
 db.pragma("journal_mode = WAL");
 
 db.exec(`
@@ -74,6 +80,16 @@ CREATE TABLE IF NOT EXISTS quest_daily (
   done INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (save_id, day_key, quest_id)
 );
+
+-- F088 当前交战态：一存档至多一条，敌人完整模板（id/名/rank/level/
+-- hp/max_hp/stats/atk/def/xp）序列化进 enemy_json，回合数与起始时间
+-- 单独成列便于查询。击杀/逃跑/倒下时整行删除，不留半死不活的战斗。
+CREATE TABLE IF NOT EXISTS combat (
+  save_id INTEGER PRIMARY KEY REFERENCES saves(id) ON DELETE CASCADE,
+  enemy_json TEXT NOT NULL,
+  turn INTEGER NOT NULL DEFAULT 1,
+  started_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 // CREATE TABLE IF NOT EXISTS 不会给已有表补列，老库走 ALTER 迁移。
@@ -91,6 +107,17 @@ if (!saveCols.includes("scene")) {
 }
 if (!saveCols.includes("cleared_at")) {
   db.exec("ALTER TABLE saves ADD COLUMN cleared_at TEXT");
+}
+// F077 死亡计数；F088 遭遇保底计数（连续落空必触发）与主线奖励去重清单
+// （rewards_json 存已入账章节 id 数组，重复通关同一章不重复发奖）。
+if (!saveCols.includes("deaths")) {
+  db.exec("ALTER TABLE saves ADD COLUMN deaths INTEGER NOT NULL DEFAULT 0");
+}
+if (!saveCols.includes("encounter_clock")) {
+  db.exec("ALTER TABLE saves ADD COLUMN encounter_clock INTEGER NOT NULL DEFAULT 0");
+}
+if (!saveCols.includes("rewards_json")) {
+  db.exec("ALTER TABLE saves ADD COLUMN rewards_json TEXT NOT NULL DEFAULT '[]'");
 }
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
@@ -147,18 +174,38 @@ const stmts = {
     ON CONFLICT(save_id, day_key, quest_id)
     DO UPDATE SET progress = excluded.progress, done = excluded.done
   `),
+  getCombat: db.prepare(`SELECT save_id, enemy_json, turn, started_at FROM combat WHERE save_id = ?`),
+  setCombat: db.prepare(`
+    INSERT INTO combat (save_id, enemy_json, turn, started_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(save_id) DO UPDATE SET
+      enemy_json = excluded.enemy_json,
+      turn = excluded.turn,
+      started_at = excluded.started_at
+  `),
+  setCombatTurn: db.prepare(`
+    UPDATE combat SET enemy_json = ?, turn = ? WHERE save_id = ?
+  `),
+  clearCombat: db.prepare(`DELETE FROM combat WHERE save_id = ?`),
 };
 
 function toSave(row) {
   if (!row) return null;
-  const { stats_json, ...rest } = row;
+  const { stats_json, rewards_json, ...rest } = row;
   let stats = {};
   try {
     stats = JSON.parse(stats_json || "{}");
   } catch {
     stats = {};
   }
-  return { ...rest, stats };
+  let rewards = [];
+  try {
+    const parsed = JSON.parse(rewards_json || "[]");
+    if (Array.isArray(parsed)) rewards = parsed;
+  } catch {
+    rewards = [];
+  }
+  return { ...rest, stats, rewards };
 }
 
 function createSave(playerName) {
@@ -180,9 +227,13 @@ function getSave(id) {
 
 // Whitelisted column writes for state mutation (the narrative engine only ever
 // changes these through the action endpoint, which clamps values first).
-// scene 目前无人写入，是给 F074 场景运行时预留的推进落点；cleared_at 不走
-// updateSave，由 markCleared 的专用语句首达结局时一次性冻结。
-const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level", "chapter", "scene", "rank", "free_points"];
+// scene 由 F074 场景运行时推进写入；cleared_at 不走 updateSave，由
+// markCleared 的专用语句首达结局时一次性冻结。deaths / encounter_clock
+// / rewards 是 F077/F082/F088 新列，同样走白名单写入。
+const MUTABLE_COLUMNS = [
+  "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
+  "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
+];
 
 function updateSave(id, patch) {
   if (!patch) return getSave(id);
@@ -192,6 +243,10 @@ function updateSave(id, patch) {
   if (patch.stats !== undefined) {
     sets.push("stats_json = ?");
     values.push(JSON.stringify(patch.stats || {}));
+  }
+  if (patch.rewards !== undefined) {
+    sets.push("rewards_json = ?");
+    values.push(JSON.stringify(Array.isArray(patch.rewards) ? patch.rewards : []));
   }
   if (!sets.length) return getSave(id);
   db.prepare(`UPDATE saves SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
@@ -254,6 +309,45 @@ function setDailyQuest(saveId, dayKey, questId, progress, done) {
   stmts.touchSave.run(saveId);
 }
 
+// ---------------------------------------------------------------------------
+// combat（当前交战态，F088：一存档至多一行，战斗结束即删）
+// ---------------------------------------------------------------------------
+
+function toCombat(row) {
+  if (!row) return null;
+  let enemy = null;
+  try {
+    enemy = JSON.parse(row.enemy_json || "null");
+  } catch {
+    enemy = null;
+  }
+  if (!enemy || typeof enemy !== "object") return null;
+  return {
+    save_id: row.save_id,
+    enemy,
+    turn: Math.max(1, Math.trunc(Number(row.turn) || 1)),
+    started_at: row.started_at,
+  };
+}
+
+function getCombat(saveId) {
+  return toCombat(stmts.getCombat.get(saveId));
+}
+
+// 开战/换敌用 setCombat（turn=1 且重记 started_at），回合推进用
+// setCombatTurn——只改敌人与回合计数，冻结本场战斗的起始时间。
+function setCombat(saveId, enemy, turn) {
+  stmts.setCombat.run(saveId, JSON.stringify(enemy || {}), Math.max(1, Math.trunc(Number(turn) || 1)));
+}
+
+function setCombatTurn(saveId, enemy, turn) {
+  stmts.setCombatTurn.run(JSON.stringify(enemy || {}), Math.max(1, Math.trunc(Number(turn) || 1)), saveId);
+}
+
+function clearCombat(saveId) {
+  stmts.clearCombat.run(saveId);
+}
+
 module.exports = {
   createSave,
   getSave,
@@ -271,4 +365,8 @@ module.exports = {
   markCleared,
   getDailyQuests,
   setDailyQuest,
+  getCombat,
+  setCombat,
+  setCombatTurn,
+  clearCombat,
 };

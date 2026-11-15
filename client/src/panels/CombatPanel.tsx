@@ -55,6 +55,8 @@ export interface CombatContext {
   ended: boolean;
   enemyName: string | null;
   enemyLevel: number | null;
+  enemyHp: number | null;
+  enemyMaxHp: number | null;
   turn: number | null;
 }
 
@@ -82,7 +84,15 @@ function inferContext(log: LogEntry[]): CombatContext {
     if (t) turn = Number(t[1]);
   }
   const inCombat = engage > end && engage >= 0;
-  return { inCombat, ended: !inCombat && end >= 0, enemyName, enemyLevel, turn };
+  return {
+    inCombat,
+    ended: !inCombat && end >= 0,
+    enemyName,
+    enemyLevel,
+    enemyHp: null,
+    enemyMaxHp: null,
+    turn,
+  };
 }
 
 // 飘字归属：含「反击 / 受到」等受击措辞的行记到玩家侧，其余伤害记到敌人侧。
@@ -150,7 +160,7 @@ function CombatGauge({
           </>
         ) : (
           <>
-            ??<i>/</i>??
+            —<i>/</i>—
           </>
         )}
       </span>
@@ -181,7 +191,24 @@ export default function CombatPanel({
 }) {
   const [mode, setMode] = useState<"skill" | "item" | null>(null);
 
-  const ctx = useMemo(() => inferContext(log), [log]);
+  const inferred = useMemo(() => inferContext(log), [log]);
+  // F088 单一事实源：save.combat（服务端交战态）优先；日志推断只做
+  // 兼容兜底（面板开合信号与无真实敌人数据时的「未知目标」槽位）。
+  const ctx = useMemo<CombatContext>(() => {
+    const live = save.combat;
+    if (live) {
+      return {
+        inCombat: true,
+        ended: false,
+        enemyName: live.enemy.name,
+        enemyLevel: live.enemy.level,
+        enemyHp: live.enemy.hp,
+        enemyMaxHp: live.enemy.max_hp,
+        turn: live.turn,
+      };
+    }
+    return inferred;
+  }, [save.combat, inferred]);
   const floaters = useMemo(() => inferFloaters(log, ctx.enemyName), [log, ctx.enemyName]);
 
   // 「是否交战」是唯一事实源：gate=engage 时五键可用（仅 busy 才锁），
@@ -254,7 +281,7 @@ export default function CombatPanel({
                 </span>
               </div>
               <div className="combatant-gauge">
-                <CombatGauge label="HP" hp={null} maxHp={null} kind="hp" />
+                <CombatGauge label="HP" hp={ctx.enemyHp} maxHp={ctx.enemyMaxHp} kind="hp" />
                 <div className="combat-floats" aria-hidden="true">
                   {floatsFor("enemy").map((f) => (
                     <span key={f.id} className={`combat-float cf-${f.kind}`}>
@@ -356,7 +383,10 @@ export default function CombatPanel({
                   disabled={busy}
                   onClick={() => {
                     setMode(null);
-                    onUseItem(item.id);
+                    // 交战中补给占一回合（引擎结算 + 敌方反击），走战斗指令；
+                    // 非交战直接走物品接口即时生效。
+                    if (save.combat) act(`使用道具 ${item.name}`);
+                    else onUseItem(item.id);
                   }}
                 >
                   使用
