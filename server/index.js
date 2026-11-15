@@ -33,12 +33,15 @@ function vitalsLine(save) {
 }
 
 // 出参统一带派生字段：xp_to_next 由等级曲线算出，free_points 兜底 0。
+// cleared 是通关唯一判定（endingEngine.hasCleared：当前场景为 ch8_epilogue），
+// 前端「结算」tab 与 /saves/:id/ending 门禁共用同一结论，不各自推导。
 function saveView(save) {
   if (!save) return save;
   return {
     ...save,
     free_points: Number(save.free_points) || 0,
     kills: Number(save.kills) || 0,
+    cleared: endingEngine.hasCleared(save),
     xp_to_next: progression.xpToNext(save.level),
   };
 }
@@ -332,21 +335,34 @@ api.get("/saves/:id", (req, res) => {
   });
 });
 
-// 通关结算：全部数值实时取自存档行 + shadows 表 + 当前时间，
-// chapters_cleared 按章节推导（到第 8 章视为全通，否则当前章 -1）。
+// 通关结算：数值取自存档行 + shadows 表 + cleared_at 冻结时间戳。
+// 门禁：只有存档真到结局场景（save.scene 解析为 ch8_epilogue，即
+// endingEngine.hasCleared，与前端 save.cleared 同一判定）才返回结算，
+// 否则 409 —— chapter>=8 只代表「在最后一章」，剧透结局全文不允许。
+// save.scene 目前无写入路径，待 F074 场景运行时落地后本门禁自动生效。
 api.get("/saves/:id/ending", (req, res) => {
-  const save = store.getSave(Number(req.params.id));
-  if (!save) {
-    return res.status(404).json({ error: "save not found" });
+  try {
+    const save = store.getSave(Number(req.params.id));
+    if (!save) {
+      return res.status(404).json({ error: "save not found" });
+    }
+    if (!endingEngine.hasCleared(save)) {
+      return res.status(409).json({ error: "尚未通关：抵达终局场景后才可进行结算" });
+    }
+    // 首次抵达结局场景时冻结通关时间戳；耗时按 cleared_at - created_at 结算，
+    // 已冻结的存档不再改写，clear_time 跨请求稳定。
+    if (!save.cleared_at) store.markCleared(save.id);
+    const fresh = store.getSave(save.id);
+    const chapter = chaptersEngine.getChapter(8);
+    const ending = endingEngine.buildEnding({
+      save: fresh,
+      shadows: store.getShadows(save.id),
+      chapter,
+    });
+    res.json({ ending });
+  } catch (err) {
+    res.status(500).json({ error: "结算数据生成失败" });
   }
-  const chapter = chaptersEngine.getChapter(8);
-  const ending = endingEngine.buildEnding({
-    save,
-    shadows: store.countShadows(save.id),
-    chapter,
-    now: Date.now(),
-  });
-  res.json({ ending });
 });
 
 // 自由属性点加点：stat 白名单 + free_points 余量都在服务端校验，

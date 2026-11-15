@@ -43,6 +43,10 @@ export default function EndingPanel({ saveId }: { saveId: number }) {
     return <p className="side-empty">正在结算战绩……</p>;
   }
 
+  // 击杀统计车道未接入：kills 缺失/为 0 是「未统计」而非「零击杀」，
+  // 显示 — 并注明，不把 0 当真实战绩摆出来。
+  const killsTracked = ending.stats.kills > 0;
+
   return (
     <div className="ending">
       <div className="end-head">
@@ -53,11 +57,15 @@ export default function EndingPanel({ saveId }: { saveId: number }) {
       <div className="end-grid">
         {CELLS.map(({ key, label }) => (
           <div className="end-cell" key={key}>
-            <span className="end-cell-num">{ending.stats[key]}</span>
+            <span className="end-cell-num">
+              {key === "kills" && !killsTracked ? "—" : ending.stats[key]}
+            </span>
             <span className="end-cell-label">{label}</span>
           </div>
         ))}
       </div>
+
+      {!killsTracked && <p className="end-note">注：战斗统计未接入，总击杀暂记「—」。</p>}
 
       {ending.lines.length > 0 && (
         <ol className="end-lines">

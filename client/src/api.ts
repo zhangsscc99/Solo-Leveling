@@ -26,6 +26,7 @@ export interface Save {
   gold: number;
   kills: number;
   chapter: number;
+  cleared: boolean;
 }
 
 export interface LogEntry {

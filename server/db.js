@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS saves (
   gold INTEGER NOT NULL DEFAULT 0,
   kills INTEGER NOT NULL DEFAULT 0,
   chapter INTEGER NOT NULL DEFAULT 1,
+  scene TEXT,
+  cleared_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -80,6 +82,14 @@ if (!saveCols.includes("free_points")) {
 if (!saveCols.includes("kills")) {
   db.exec("ALTER TABLE saves ADD COLUMN kills INTEGER NOT NULL DEFAULT 0");
 }
+// scene：当前场景 id（F074 场景运行时的推进落点）；cleared_at：首次抵达
+// ch8_epilogue 的冻结时间戳（F073 结算路由写入），两者默认 NULL。
+if (!saveCols.includes("scene")) {
+  db.exec("ALTER TABLE saves ADD COLUMN scene TEXT");
+}
+if (!saveCols.includes("cleared_at")) {
+  db.exec("ALTER TABLE saves ADD COLUMN cleared_at TEXT");
+}
 
 const DEFAULT_STATS = {
   strength: 10,
@@ -125,6 +135,9 @@ const stmts = {
     SELECT shadow_id, name, rank, level, source, skills, created_at
     FROM shadows WHERE save_id = ? AND shadow_id = ?
   `),
+  markCleared: db.prepare(`
+    UPDATE saves SET cleared_at = datetime('now') WHERE id = ? AND cleared_at IS NULL
+  `),
   getDailyQuests: db.prepare(`
     SELECT quest_id, progress, done FROM quest_daily
     WHERE save_id = ? AND day_key = ?
@@ -168,7 +181,9 @@ function getSave(id) {
 
 // Whitelisted column writes for state mutation (the narrative engine only ever
 // changes these through the action endpoint, which clamps values first).
-const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level", "chapter", "rank", "free_points"];
+// scene 目前无人写入，是给 F074 场景运行时预留的推进落点；cleared_at 不走
+// updateSave，由 markCleared 的专用语句首达结局时一次性冻结。
+const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level", "chapter", "scene", "rank", "free_points"];
 
 function updateSave(id, patch) {
   if (!patch) return getSave(id);
@@ -239,6 +254,12 @@ function countShadows(saveId) {
   return row ? Number(row.n) || 0 : 0;
 }
 
+// 首次抵达结局场景（ch8_epilogue）时冻结通关时间戳；已冻结的存档不再改写，
+// 保证结算耗时跨请求稳定。
+function markCleared(saveId) {
+  stmts.markCleared.run(saveId);
+}
+
 // ---------------------------------------------------------------------------
 // quest_daily（每日任务进度，F008：/action 里按 quest-day 累加）
 // ---------------------------------------------------------------------------
@@ -266,6 +287,7 @@ module.exports = {
   addShadow,
   getShadows,
   countShadows,
+  markCleared,
   getDailyQuests,
   setDailyQuest,
 };

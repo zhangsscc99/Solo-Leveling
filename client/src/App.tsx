@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createSave,
   Equipment,
@@ -54,7 +54,8 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "map", label: "地图" },
   { key: "quests", label: "任务" },
 ];
-// 结算 tab 只在通关（chapter ≥ 8）后出现，不占常驻快捷键位。
+// 结算 tab 只在真通关（save.cleared：当前场景为 ch8_epilogue，与服务端
+// /ending 门禁同一判定）后出现，不占常驻快捷键位。
 const ENDING_TAB: { key: TabKey; label: string } = { key: "ending", label: "结算" };
 
 function RankEmblem({ rank, level }: { rank: string; level: number }) {
@@ -347,8 +348,15 @@ export default function App() {
     [save, busy]
   );
 
-  // 通关后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
-  const tabs = save && save.chapter >= 8 ? [...TABS, ENDING_TAB] : TABS;
+  // 真通关（save.cleared）后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
+  // useMemo 稳定引用，避免 keydown effect 每次渲染都重挂监听。
+  const cleared = Boolean(save && save.cleared);
+  const tabs = useMemo(() => (cleared ? [...TABS, ENDING_TAB] : TABS), [cleared]);
+
+  // save 变化后当前 tab 可能已不在 tabs 内（如结算态被回退），此时回 inventory。
+  useEffect(() => {
+    if (!tabs.some((t) => t.key === tab)) setTab("inventory");
+  }, [tabs, tab]);
 
   const openTab = useCallback((key: TabKey) => {
     setTab(key);

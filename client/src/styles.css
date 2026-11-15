@@ -2511,6 +2511,12 @@ button {
   color: var(--dim);
 }
 
+.end-note {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
 .end-epilogue {
   margin: 0;
   padding: var(--sp-2) var(--sp-3);
