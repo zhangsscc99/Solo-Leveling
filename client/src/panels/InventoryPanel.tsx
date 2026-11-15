@@ -149,6 +149,13 @@ export default function InventoryPanel({
       </div>
 
       {notice && <p className="inv-notice">{notice}</p>}
+      {/* F094 交战门禁（与服务端 /item 同口径）：交战中使用/装备被冻结，
+          补给要走战斗「道具」指令占回合结算；丢弃仍允许（无免费收益）。 */}
+      {save.combat && (
+        <p className="inv-row-hint" role="status">
+          交战中无法使用或更换装备——补给请走战斗「道具」指令（占一回合）。
+        </p>
+      )}
 
       {shown.length === 0 ? (
         <p className="side-empty inv-empty">{EMPTY_TEXT[cat]}</p>
@@ -173,12 +180,22 @@ export default function InventoryPanel({
                 <p className="inv-row-desc">{item.desc}</p>
                 <div className="inv-row-acts">
                   {opsFor(item).map((op) => {
-                    const disabled = busy || (op === "equip" && equipped);
+                    const combatBlocked =
+                      Boolean(save.combat) && (op === "use" || op === "equip");
+                    const disabled = busy || (op === "equip" && equipped) || combatBlocked;
                     return (
                       <button
                         key={op}
                         className={`inv-btn inv-btn-${op}`}
                         disabled={disabled}
+                        aria-disabled={disabled}
+                        title={
+                          combatBlocked
+                            ? op === "equip"
+                              ? "交战中无法更换装备"
+                              : "交战中请用战斗「道具」指令"
+                            : undefined
+                        }
                         onClick={() => onOp(item.id, op)}
                       >
                         {op === "equip" && equipped ? "已装备" : OP_LABEL[op]}
