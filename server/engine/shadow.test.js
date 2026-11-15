@@ -457,3 +457,147 @@ test("inheritSkills: 同 seed 同结果（确定性随机）", () => {
   assert.deepEqual(a, b);
   assert.ok(a.skills.length <= 3);
 });
+
+// ---------------------------------------------------------------------------
+// F051 指令解析与编队判定：shadowTarget / 指令正则 / resolveShadow /
+// canDeploy / canUndeploy / formationSummary
+// ---------------------------------------------------------------------------
+
+function mkShadow(id, name, deployed = false, overrides = {}) {
+  return { id, name, rank: "C", level: 5, deployed, skills: [], ...overrides };
+}
+
+test("shadowTarget: 只剥句首指令，名字原文保留（含「影子」「的」）", () => {
+  assert.equal(shadow.shadowTarget("影子出战 测试影子0"), "测试影子0");
+  assert.equal(shadow.shadowTarget("影子出战 影子刺客"), "影子刺客");
+  assert.equal(shadow.shadowTarget("影子出战 被诅咒的骑士"), "被诅咒的骑士");
+  assert.equal(shadow.shadowTarget("影子出战 影子"), "影子");
+  assert.equal(shadow.shadowTarget("影子撤回 被诅咒的骑士"), "被诅咒的骑士");
+  assert.equal(shadow.shadowTarget("召回 伊格利特"), "伊格利特");
+  assert.equal(shadow.shadowTarget("归队 伊格利特"), "伊格利特");
+  assert.equal(shadow.shadowTarget("请帮我派遣影子 贝尔"), "贝尔");
+  assert.equal(shadow.shadowTarget("影子出战：约翰"), "约翰");
+  assert.equal(shadow.shadowTarget("影子出战「被诅咒的骑士」"), "被诅咒的骑士");
+});
+
+test("shadowTarget: 裸指令 / 语助词尾巴 / 非指令句 → 空目标", () => {
+  assert.equal(shadow.shadowTarget("影子出战"), "");
+  assert.equal(shadow.shadowTarget("影子撤回"), "");
+  assert.equal(shadow.shadowTarget("出战吧"), "");
+  assert.equal(shadow.shadowTarget("我想让影子出战后休息"), "");
+  assert.equal(shadow.shadowTarget("影子编队"), ""); // 编队不是出战/撤回动词
+  assert.equal(shadow.shadowTarget(""), "");
+  assert.equal(shadow.shadowTarget(null), "");
+});
+
+test("指令正则锚定句首：叙述句不触发任何影子指令", () => {
+  const narrative = "我想让影子出战后休息";
+  assert.ok(!shadow.DEPLOY_COMMAND.test(narrative));
+  assert.ok(!shadow.UNDEPLOY_COMMAND.test(narrative));
+  assert.ok(!shadow.FORMATION_COMMAND.test(narrative));
+  assert.ok(!shadow.FORMATION_COMMAND.test("影子在风中飘散"));
+  assert.ok(!shadow.DEPLOY_COMMAND.test("他说影子出战才算赢"));
+
+  assert.ok(shadow.DEPLOY_COMMAND.test("影子出战 伊格利特"));
+  assert.ok(shadow.DEPLOY_COMMAND.test("出战 伊格利特"));
+  assert.ok(shadow.DEPLOY_COMMAND.test("请帮我派遣影子"));
+  assert.ok(shadow.UNDEPLOY_COMMAND.test("影子撤回 伊格利特"));
+  assert.ok(shadow.UNDEPLOY_COMMAND.test("召回 伊格利特"));
+  assert.ok(shadow.UNDEPLOY_COMMAND.test("归队 伊格利特"));
+  assert.ok(shadow.FORMATION_COMMAND.test("影子编队"));
+  assert.ok(shadow.FORMATION_COMMAND.test("影子"));
+  assert.ok(shadow.FORMATION_COMMAND.test("我的影子"));
+  assert.ok(shadow.FORMATION_COMMAND.test("查看影子"));
+  assert.ok(shadow.FORMATION_COMMAND.test("编队"));
+  // 「影子出战 X」不是编队指令（整句锚定，出战不在编队后缀里）
+  assert.ok(!shadow.FORMATION_COMMAND.test("影子出战 伊格利特"));
+});
+
+test("resolveShadow: id 全等优先，其次 name 精确", () => {
+  const list = [mkShadow("sh_a", "伊格利特"), mkShadow("sh_b", "贝尔")];
+  assert.equal(shadow.resolveShadow(list, "sh_a").shadow.name, "伊格利特");
+  assert.equal(shadow.resolveShadow(list, "贝尔").shadow.id, "sh_b");
+  assert.equal(shadow.resolveShadow(list, "不存在").reason, "not_found");
+  assert.equal(shadow.resolveShadow(list, "").reason, "not_found");
+  assert.equal(shadow.resolveShadow(list, null).reason, "not_found");
+});
+
+test("resolveShadow: 名字恰等于另一影子 id → ambiguous，不猜", () => {
+  const list = [mkShadow("sh_x", "影子A"), mkShadow("sh_y", "sh_x")];
+  const r = shadow.resolveShadow(list, "sh_x");
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "ambiguous");
+  assert.equal(r.shadow, null);
+  assert.deepEqual(
+    r.candidates.map((s) => s.id).sort(),
+    ["sh_x", "sh_y"],
+  );
+
+  // 同一对象 id/name 重合不算歧义
+  const self = [mkShadow("sh_z", "sh_z")];
+  assert.equal(shadow.resolveShadow(self, "sh_z").ok, true);
+});
+
+test("resolveShadow: 同名多个 → ambiguous 且列出全部候选", () => {
+  const list = [mkShadow("a1", "骑士"), mkShadow("a2", "骑士"), mkShadow("b1", "弓手")];
+  const r = shadow.resolveShadow(list, "骑士");
+  assert.equal(r.reason, "ambiguous");
+  assert.equal(r.candidates.length, 2);
+});
+
+test("canDeploy: 空目标不命中任何影子（裸指令不得自动出战）", () => {
+  const list = [mkShadow("s1", "唯一的影子")];
+  const r = shadow.canDeploy(list, "");
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "not_found");
+  assert.equal(r.shadow, null);
+});
+
+test("canDeploy: 满员 formation_full / 幂等 already_deployed", () => {
+  const list = [
+    mkShadow("s1", "伊格利特", true),
+    mkShadow("s2", "贝尔", true),
+    mkShadow("s3", "伯利昂", true),
+    mkShadow("s4", "牙"),
+  ];
+  const full = shadow.canDeploy(list, "牙");
+  assert.equal(full.ok, false);
+  assert.equal(full.reason, "formation_full");
+  assert.equal(full.shadow.id, "s4");
+
+  const again = shadow.canDeploy(list, "伊格利特");
+  assert.equal(again.ok, true);
+  assert.equal(again.reason, "already_deployed");
+  assert.equal(again.already, true);
+
+  const amb = shadow.canDeploy([mkShadow("sh_x", "A"), mkShadow("sh_y", "sh_x")], "sh_x");
+  assert.equal(amb.ok, false);
+  assert.equal(amb.reason, "ambiguous");
+});
+
+test("canUndeploy: 未出战 not_deployed / 正常撤回 / 歧义", () => {
+  const list = [mkShadow("s1", "伊格利特", true), mkShadow("s2", "贝尔")];
+  const idle = shadow.canUndeploy(list, "贝尔");
+  assert.equal(idle.ok, false);
+  assert.equal(idle.reason, "not_deployed");
+  assert.equal(idle.shadow.id, "s2");
+
+  const r = shadow.canUndeploy(list, "伊格利特");
+  assert.equal(r.ok, true);
+  assert.equal(r.shadow.id, "s1");
+
+  assert.equal(shadow.canUndeploy(list, "").reason, "not_found");
+  const amb = shadow.canUndeploy([mkShadow("sh_x", "A", true), mkShadow("sh_y", "sh_x", true)], "sh_x");
+  assert.equal(amb.reason, "ambiguous");
+});
+
+test("formationSummary: 出战计数 / 战力合计 / 上限 / deployed 名单", () => {
+  const list = [mkShadow("s1", "A", true), mkShadow("s2", "B"), mkShadow("s3", "C", true)];
+  const f = shadow.formationSummary(list);
+  assert.equal(f.max, shadow.maxDeployed());
+  assert.equal(f.count, 2);
+  assert.deepEqual(f.deployed.sort(), ["s1", "s3"]);
+  assert.ok(f.power > 0);
+  assert.equal(f.shadows.length, 3);
+  assert.ok(f.shadows.every((s) => s.stats && Number.isFinite(s.power)));
+});

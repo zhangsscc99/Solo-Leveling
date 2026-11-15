@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS shadows (
   level INTEGER NOT NULL DEFAULT 1,
   source TEXT,
   skills TEXT,
+  deployed INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -75,6 +76,12 @@ CREATE TABLE IF NOT EXISTS quest_daily (
 const saveCols = db.prepare("PRAGMA table_info(saves)").all().map((c) => c.name);
 if (!saveCols.includes("free_points")) {
   db.exec("ALTER TABLE saves ADD COLUMN free_points INTEGER NOT NULL DEFAULT 0");
+}
+
+// F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
+const shadowCols = db.prepare("PRAGMA table_info(shadows)").all().map((c) => c.name);
+if (!shadowCols.includes("deployed")) {
+  db.exec("ALTER TABLE shadows ADD COLUMN deployed INTEGER NOT NULL DEFAULT 0");
 }
 
 const DEFAULT_STATS = {
@@ -107,19 +114,6 @@ const stmts = {
     SELECT id, role, content, created_at FROM (
       SELECT id, role, content, created_at FROM log WHERE save_id = ? ORDER BY id DESC LIMIT ?
     ) ORDER BY id ASC
-  `),
-  insertShadow: db.prepare(`
-    INSERT INTO shadows (save_id, shadow_id, name, rank, level, source, skills)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `),
-  getShadows: db.prepare(`
-    SELECT shadow_id, name, rank, level, source, skills, created_at
-    FROM shadows WHERE save_id = ? ORDER BY id ASC
-  `),
-  countShadows: db.prepare(`SELECT COUNT(*) AS n FROM shadows WHERE save_id = ?`),
-  getShadow: db.prepare(`
-    SELECT shadow_id, name, rank, level, source, skills, created_at
-    FROM shadows WHERE save_id = ? AND shadow_id = ?
   `),
   getDailyQuests: db.prepare(`
     SELECT quest_id, progress, done FROM quest_daily
@@ -196,44 +190,22 @@ function getLog(saveId, limit) {
 
 // ---------------------------------------------------------------------------
 // shadows（影子提取 / Arise 的持久化，F050 引擎产出、F051 接线写入）
+// 实现抽到 ./shadows-store.js：出战写库按主键行 id 定位（一行一次），
+// 同 shadow_id 多行的历史脏数据不会被一次全部翻转，超上限由
+// releaseExcessDeployed 收回；视图对象同时带 id（shadow_id）与 rowId（主键）。
 // ---------------------------------------------------------------------------
 
-function toShadow(row) {
-  if (!row) return null;
-  const { skills, created_at: createdAt, shadow_id: id, ...rest } = row;
-  let parsed = [];
-  try {
-    const value = JSON.parse(skills || "[]");
-    parsed = Array.isArray(value) ? value : [];
-  } catch {
-    parsed = [];
-  }
-  return { id, ...rest, skills: parsed, createdAt };
-}
+const shadowStore = require("./shadows-store").createShadowStore(db);
 
-function addShadow(saveId, shadow) {
-  if (!saveId || !shadow || !shadow.id) return null;
-  stmts.insertShadow.run(
-    saveId,
-    shadow.id,
-    shadow.name || shadow.source || "未知影子",
-    shadow.rank || "E",
-    Number.isFinite(Number(shadow.level)) ? Math.max(1, Math.floor(Number(shadow.level))) : 1,
-    shadow.source || null,
-    JSON.stringify(Array.isArray(shadow.skills) ? shadow.skills : []),
-  );
-  stmts.touchSave.run(saveId);
-  return toShadow(stmts.getShadow.get(saveId, shadow.id));
-}
-
-function getShadows(saveId) {
-  return stmts.getShadows.all(saveId).map(toShadow);
-}
-
-function countShadows(saveId) {
-  const row = stmts.countShadows.get(saveId);
-  return row ? Number(row.n) || 0 : 0;
-}
+const {
+  addShadow,
+  getShadows,
+  getShadow,
+  getShadowByRow,
+  countShadows,
+  setShadowDeployed,
+  releaseExcessDeployed,
+} = shadowStore;
 
 // ---------------------------------------------------------------------------
 // quest_daily（每日任务进度，F008：/action 里按 quest-day 累加）
@@ -261,7 +233,11 @@ module.exports = {
   updateSave,
   addShadow,
   getShadows,
+  getShadow,
+  getShadowByRow,
   countShadows,
+  setShadowDeployed,
+  releaseExcessDeployed,
   getDailyQuests,
   setDailyQuest,
 };

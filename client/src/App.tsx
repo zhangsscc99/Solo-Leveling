@@ -15,6 +15,10 @@ import {
   LogEntry,
   QuestsView,
   Save,
+  Shadow,
+  ShadowFormation,
+  getShadows,
+  setShadowDeployment,
   Skill,
   StatKey,
   useItem,
@@ -22,6 +26,7 @@ import {
 import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
 import InventoryPanel from "./panels/InventoryPanel";
 import QuestPanel from "./panels/QuestPanel";
+import ShadowsPanel from "./panels/ShadowsPanel";
 import SkillsPanel from "./panels/SkillsPanel";
 import StatsPanel from "./panels/StatsPanel";
 
@@ -45,13 +50,14 @@ const ACTION_BUTTONS = [
   { label: "休息", input: "休息" },
 ];
 
-type TabKey = "inventory" | "skills" | "stats" | "map" | "quests";
+type TabKey = "inventory" | "skills" | "stats" | "map" | "quests" | "shadows";
 const TABS: { key: TabKey; label: string }[] = [
   { key: "inventory", label: "背包" },
   { key: "skills", label: "技能" },
   { key: "stats", label: "属性" },
   { key: "map", label: "地图" },
   { key: "quests", label: "任务" },
+  { key: "shadows", label: "影子" },
 ];
 
 function RankEmblem({ rank, level }: { rank: string; level: number }) {
@@ -193,6 +199,11 @@ function SidePanel({
   onSpendStat,
   quests,
   questsError,
+  shadows,
+  shadowsError,
+  shadowBusy,
+  shadowNotice,
+  onToggleShadow,
 }: {
   tab: TabKey;
   save: Save;
@@ -211,6 +222,11 @@ function SidePanel({
   onSpendStat: (stat: StatKey) => void;
   quests: QuestsView | null;
   questsError: boolean;
+  shadows: ShadowFormation | null;
+  shadowsError: boolean;
+  shadowBusy: boolean;
+  shadowNotice: string | null;
+  onToggleShadow: (shadow: Shadow) => void;
 }) {
   switch (tab) {
     case "inventory":
@@ -255,6 +271,16 @@ function SidePanel({
       );
     case "quests":
       return <QuestPanel data={quests} error={questsError} />;
+    case "shadows":
+      return (
+        <ShadowsPanel
+          data={shadows}
+          error={shadowsError}
+          busy={shadowBusy}
+          notice={shadowNotice}
+          onToggle={onToggleShadow}
+        />
+      );
   }
 }
 
@@ -272,6 +298,10 @@ export default function App() {
   const [skillsError, setSkillsError] = useState(false);
   const [quests, setQuests] = useState<QuestsView | null>(null);
   const [questsError, setQuestsError] = useState(false);
+  const [shadows, setShadows] = useState<ShadowFormation | null>(null);
+  const [shadowsError, setShadowsError] = useState(false);
+  const [shadowBusy, setShadowBusy] = useState(false);
+  const [shadowNotice, setShadowNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -422,6 +452,38 @@ export default function App() {
       .catch(() => setQuestsError(true));
   }, [tab, save]);
 
+  // 影子面板打开时拉取编队视图；出战态持久化在服务端，重开面板自动回灌。
+  useEffect(() => {
+    if (tab !== "shadows" || !save) return;
+    getShadows(save.id)
+      .then((r) => {
+        setShadows({ ...r.formation, shadows: r.shadows });
+        setShadowsError(false);
+      })
+      .catch(() => setShadowsError(true));
+  }, [tab, save]);
+
+  // 出战/撤回：只上报 shadow_id + op，满员判定与文案由服务端结算后回灌。
+  const onToggleShadow = useCallback(
+    async (shadow: Shadow) => {
+      if (!save || shadowBusy) return;
+      setShadowBusy(true);
+      setShadowNotice(null);
+      try {
+        const r = await setShadowDeployment(save.id, shadow.id, shadow.deployed ? "undeploy" : "deploy");
+        setShadows({ ...r.formation, shadows: r.shadows });
+        setSave(r.save);
+        setLog((l) => [...l, r.reply]);
+      } catch (e) {
+        const msg = e instanceof Error && !/^API \d+$/.test(e.message) ? e.message : null;
+        setShadowNotice(msg ?? "影子编队操作失败。");
+      } finally {
+        setShadowBusy(false);
+      }
+    },
+    [save, shadowBusy]
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -433,7 +495,8 @@ export default function App() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const n = Number(e.key);
       if (n >= 1 && n <= ACTION_BUTTONS.length) dispatch(ACTION_BUTTONS[n - 1].input);
-      else if (n >= 5 && n < 5 + TABS.length) openTab(TABS[n - 5].key);
+      else if (n >= 5 && n <= 9 && n - 5 < TABS.length) openTab(TABS[n - 5].key);
+      else if (e.key === "0" && TABS.length > 5) openTab(TABS[5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -579,10 +642,15 @@ export default function App() {
               onSpendStat={onSpendStat}
               quests={quests}
               questsError={questsError}
+              shadows={shadows}
+              shadowsError={shadowsError}
+              shadowBusy={shadowBusy}
+              shadowNotice={shadowNotice}
+              onToggleShadow={onToggleShadow}
             />
           </div>
           <div className="side-foot">
-            <span>面板 5–9</span>
+            <span>面板 5–0</span>
             <span className="foot-esc">ESC 关闭</span>
           </div>
         </div>
@@ -609,9 +677,14 @@ export default function App() {
             <div className="btn-group btn-group-sys">
               <span className="group-label">系统</span>
               {TABS.map((t, i) => (
-                <button key={t.key} className="btn" onClick={() => openTab(t.key)} title={`快捷键 ${i + 5}`}>
+                <button
+                  key={t.key}
+                  className="btn"
+                  onClick={() => openTab(t.key)}
+                  title={`快捷键 ${i + 5 <= 9 ? i + 5 : 0}`}
+                >
                   {t.label}
-                  <kbd>{i + 5}</kbd>
+                  <kbd>{i + 5 <= 9 ? i + 5 : 0}</kbd>
                 </button>
               ))}
               <button

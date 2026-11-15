@@ -6,10 +6,12 @@ const store = require("./db");
 const progression = require("./engine/progression");
 const chaptersEngine = require("./engine/chapters");
 const questEngine = require("./engine/quests");
+const shadowEngine = require("./engine/shadow");
 const aiGateway = require("./ai/gateway");
 const aiValidate = require("./ai/validate");
 const aiContext = require("./ai/context");
 const aiFallback = require("./ai/fallback");
+const intentRules = require("./ai/keywords");
 
 const VERSION = "0.1.0";
 const HOST = "127.0.0.1";
@@ -54,6 +56,23 @@ const SLOT_OF = { weapon: "weapon", armor: "armor" };
 const SLOT_LABEL = { weapon: "武器", armor: "防具" };
 
 const SKILLS = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "skills.json"), "utf8"));
+
+// F051 影子编队：列表/摘要统一走引擎纯函数，db 行 → 视图（含 stats/power/deployed）。
+// 读视图前先自愈：旧版按 (save_id, shadow_id) 广播 deployed=1，同 shadow_id
+// 多行曾被一次全部置出战、计数冲破上限。写库已改按主键行定位（不再新增），
+// 这里把仍超出上限的出战行自动收回，只保留前 max 个。
+function formationView(saveId) {
+  const f = shadowEngine.formationSummary(store.getShadows(saveId));
+  if (f.count > f.max) {
+    store.releaseExcessDeployed(saveId, f.max);
+    return shadowEngine.formationSummary(store.getShadows(saveId));
+  }
+  return f;
+}
+
+function shadowLine(s) {
+  return `${s.deployed ? "▶" : "·"} ${s.name}（${s.rank}级 · Lv.${s.level}）攻${s.stats.atk} 防${s.stats.def} 血${s.stats.hp}`;
+}
 
 // 任务数据走引擎加载器：quests.json 校验不过会在启动时直接抛错。
 const QUESTS = questEngine.loadQuests();
@@ -167,14 +186,178 @@ function itemLine(item) {
 }
 
 
-// Whitelisted intents. Each entry owns its keyword match, log role, the
+// Whitelisted intents. Each entry owns its log role, the
 // deterministic state delta and the narration text — every number is computed
 // here on the server, never taken from the client payload.
+// 关键词匹配不在此表：/action 与 /ai-action 统一走 ai/keywords.js 的
+// INTENT_MATCHERS（单一事实源），INTENTS 只负责按 id 结算。
 const INTENTS = [
+  {
+    id: "shadow_deploy",
+    role: "system",
+    build: (save, input) => {
+      const f = formationView(save.id);
+      const shadows = store.getShadows(save.id);
+      if (!shadows.length) {
+        return {
+          patch: null,
+          shadows: f,
+          content: "【影子编队】你的影子栏位空空如也。击败强敌后尝试将其提取为影子，再来编队。",
+        };
+      }
+      // 只剥句首指令前缀；影子名（可含「影子」「的」等字）原文保留。
+      const target = shadowEngine.shadowTarget(input);
+      if (!target) {
+        // 裸指令「影子出战」：绝不替玩家选人，只列名单并提示点名格式。
+        const idle = f.shadows.find((s) => !s.deployed);
+        const hint =
+          f.count >= f.max
+            ? `队伍已满 ${f.count}/${f.max}。先「影子撤回 <名字>」撤下一员，再点名出战。`
+            : `点名出战对象：「影子出战 ${(idle || f.shadows[0]).name}」。`;
+        return {
+          patch: null,
+          shadows: f,
+          content:
+            `【影子编队】已出战 ${f.count}/${f.max} · 战力合计 ${f.power}\n` +
+            f.shadows.map(shadowLine).join("\n") +
+            `\n${hint}`,
+        };
+      }
+      const gate = shadowEngine.canDeploy(shadows, target);
+      if (!gate.ok && gate.reason === "ambiguous") {
+        return {
+          patch: null,
+          shadows: f,
+          content:
+            `【影子编队】「${target}」同时命中多个影子，请改用影子 ID 点名：\n` +
+            gate.candidates.map((s) => `· ${s.name}（ID ${s.id}）`).join("\n"),
+        };
+      }
+      if (!gate.ok && gate.reason === "formation_full") {
+        return {
+          patch: null,
+          shadows: f,
+          content: `【影子编队】队伍已满（${f.count}/${f.max}）。先「影子撤回」一名影子，再遣新影出战。`,
+        };
+      }
+      if (!gate.ok) {
+        return {
+          patch: null,
+          shadows: f,
+          content:
+            `【影子编队】没有找到名为「${target}」的影子（原指令：「${input}」）。当前影子：\n` +
+            f.shadows.map(shadowLine).join("\n"),
+        };
+      }
+      if (!gate.already && !store.setShadowDeployed(save.id, gate.shadow.rowId, true)) {
+        return {
+          patch: null,
+          shadows: formationView(save.id),
+          content: `【影子编队】「${gate.shadow.name}」出战失败：影子记录已变化，请重试。`,
+        };
+      }
+      const after = formationView(save.id);
+      return {
+        patch: null,
+        shadows: after,
+        content: gate.already
+          ? `【影子编队】「${gate.shadow.name}」已在阵中。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`
+          : `【影子编队】「${gate.shadow.name}」自你脚下的阴影中升起，列入战阵。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`,
+      };
+    },
+  },
+  {
+    id: "shadow_undeploy",
+    role: "system",
+    build: (save, input) => {
+      const f = formationView(save.id);
+      const shadows = store.getShadows(save.id);
+      if (!shadows.length) {
+        return {
+          patch: null,
+          shadows: f,
+          content: "【影子编队】你的影子栏位空空如也，无影可撤。",
+        };
+      }
+      const target = shadowEngine.shadowTarget(input);
+      if (!target) {
+        // 裸指令「影子撤回」：与出战对称，列出名单让玩家点名。
+        const onDuty = f.shadows.find((s) => s.deployed);
+        return {
+          patch: null,
+          shadows: f,
+          content:
+            `【影子编队】已出战 ${f.count}/${f.max} · 战力合计 ${f.power}\n` +
+            f.shadows.map(shadowLine).join("\n") +
+            `\n点名撤回对象：「影子撤回 ${(onDuty || f.shadows[0]).name}」。`,
+        };
+      }
+      const gate = shadowEngine.canUndeploy(shadows, target);
+      if (!gate.ok && gate.reason === "ambiguous") {
+        return {
+          patch: null,
+          shadows: f,
+          content:
+            `【影子编队】「${target}」同时命中多个影子，请改用影子 ID 点名：\n` +
+            gate.candidates.map((s) => `· ${s.name}（ID ${s.id}）`).join("\n"),
+        };
+      }
+      if (!gate.ok && gate.reason === "not_deployed") {
+        return {
+          patch: null,
+          shadows: f,
+          content: `【影子编队】「${gate.shadow.name}」本就不在战阵之中。已出战 ${f.count}/${f.max}。`,
+        };
+      }
+      if (!gate.ok) {
+        return {
+          patch: null,
+          shadows: f,
+          content:
+            `【影子编队】没有找到名为「${target}」的影子（原指令：「${input}」）。当前影子：\n` +
+            f.shadows.map(shadowLine).join("\n"),
+        };
+      }
+      if (!store.setShadowDeployed(save.id, gate.shadow.rowId, false)) {
+        return {
+          patch: null,
+          shadows: formationView(save.id),
+          content: `【影子编队】「${gate.shadow.name}」撤回失败：影子记录已变化，请重试。`,
+        };
+      }
+      const after = formationView(save.id);
+      return {
+        patch: null,
+        shadows: after,
+        content: `【影子编队】「${gate.shadow.name}」化作一缕黑雾归回你的影子里。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`,
+      };
+    },
+  },
+  {
+    id: "shadow_formation",
+    role: "system",
+    build: (save) => {
+      const f = formationView(save.id);
+      if (!f.shadows.length) {
+        return {
+          patch: null,
+          shadows: f,
+          content: "【影子编队】你的影子栏位空空如也。击败强敌后尝试将其提取为影子，再来编队。",
+        };
+      }
+      return {
+        patch: null,
+        shadows: f,
+        content:
+          `【影子编队】已出战 ${f.count}/${f.max} · 战力合计 ${f.power}\n` +
+          f.shadows.map(shadowLine).join("\n") +
+          `\n「影子出战 <名字>」遣其入阵 · 「影子撤回 <名字>」令其归队。`,
+      };
+    },
+  },
   {
     id: "status",
     role: "system",
-    match: /状态|面板|属性|status|stat/i,
     build: (save) => {
       const s = save.stats || {};
       return {
@@ -189,7 +372,6 @@ const INTENTS = [
   {
     id: "help",
     role: "system",
-    match: /帮助|指令|help/i,
     build: () => ({
       patch: null,
       content:
@@ -197,13 +379,13 @@ const INTENTS = [
         "「状态」查看属性面板 · 「帮助」列出指令 · 「观察」环顾四周\n" +
         "「前进」推进剧情（消耗少量体力） · 「潜行」压低气息（消耗 5 MP）\n" +
         "「休息」恢复体力与魔力 · 「存档」写入当前进度\n" +
+        "「影子」查看编队 · 「影子出战 <名字>」遣影入阵 · 「影子撤回 <名字>」令其归队\n" +
         "其余自由输入将交由叙事层判定，未识别的动作不会改变状态。",
     }),
   },
   {
     id: "observe",
     role: "narrator",
-    match: /观察|查看|环顾|四周|环境|look/i,
     build: () => ({
       patch: null,
       content:
@@ -213,7 +395,6 @@ const INTENTS = [
   {
     id: "advance",
     role: "narrator",
-    match: /前进|探索|走|移动|离开|进入|advance|go/i,
     build: (save) => {
       const hp = clamp(save.hp - 3, 1, save.max_hp);
       const mp = clamp(save.mp - 2, 0, save.max_mp);
@@ -228,7 +409,6 @@ const INTENTS = [
   {
     id: "sneak",
     role: "narrator",
-    match: /潜行|藏匿|隐蔽|sneak|stealth/i,
     build: (save) => {
       const mp = clamp(save.mp - 5, 0, save.max_mp);
       return {
@@ -242,7 +422,6 @@ const INTENTS = [
   {
     id: "rest",
     role: "narrator",
-    match: /休息|睡觉|休整|小憩|rest|sleep/i,
     build: (save) => {
       const hp = clamp(save.hp + 15, 0, save.max_hp);
       const mp = clamp(save.mp + 8, 0, save.max_mp);
@@ -257,7 +436,6 @@ const INTENTS = [
   {
     id: "save",
     role: "system",
-    match: /存档|保存|save/i,
     build: (save) => ({
       patch: null,
       content: `【系统】存档已写入。第${save.chapter}章 · Lv.${save.level} · ${vitalsLine(save)} · 金币 ${save.gold}。`,
@@ -272,18 +450,23 @@ const PLACEHOLDER = {
 
 // 引擎执行：intent id → 服务端结算出参。/action 与 /ai-action 共用，
 // AI/客户端给的任何数值都不会走到这里，patch 只由白名单模板产出。
-function executeIntent(save, intentId) {
+function executeIntent(save, intentId, input) {
   const intent = INTENTS.find((it) => it.id === intentId);
   if (!intent) return null;
-  const built = intent.build(save);
-  return { intent: intent.id, role: intent.role, patch: built.patch, content: built.content };
+  const built = intent.build(save, input);
+  return {
+    intent: intent.id,
+    role: intent.role,
+    patch: built.patch,
+    content: built.content,
+    shadows: built.shadows,
+  };
 }
 
 function resolveAction(save, input) {
-  for (const intent of INTENTS) {
-    if (intent.match.test(input)) {
-      return executeIntent(save, intent.id);
-    }
+  const intentId = intentRules.resolveIntent(input);
+  if (intentId) {
+    return executeIntent(save, intentId, input);
   }
   return {
     intent: "unknown",
@@ -487,6 +670,85 @@ api.get("/saves/:id/quests", (req, res) => {
   );
 });
 
+// 影子面板：编队视图（名单 + 出战位 + 战力合计），全部引擎纯函数拼装。
+api.get("/saves/:id/shadows", (req, res) => {
+  const save = store.getSave(Number(req.params.id));
+  if (!save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+  const f = formationView(save.id);
+  res.json({ shadows: f.shadows, formation: { max: f.max, count: f.count, power: f.power } });
+});
+
+// 出战/撤回：客户端只传 shadow_id + op，满员判定与文案都在服务端结算。
+api.post("/saves/:id/shadow", (req, res) => {
+  const save = store.getSave(Number(req.params.id));
+  if (!save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const shadowId = typeof body.shadow_id === "string" ? body.shadow_id.trim() : "";
+  const op = body.op === "deploy" || body.op === "undeploy" ? body.op : null;
+  if (!shadowId) return res.status(400).json({ error: "shadow_id is required" });
+  if (!op) return res.status(400).json({ error: 'op must be one of deploy, undeploy' });
+
+  const f = formationView(save.id);
+  const shadows = store.getShadows(save.id);
+  // 与 /action 的同名指令共用同一套引擎判定，两处行为不分叉。
+  const gate =
+    op === "deploy"
+      ? shadowEngine.canDeploy(shadows, shadowId)
+      : shadowEngine.canUndeploy(shadows, shadowId);
+
+  if (!gate.ok && gate.reason === "ambiguous") {
+    return res.status(409).json({
+      error: `「${shadowId}」同时命中多个影子，请改用影子 ID`,
+      code: "ambiguous",
+      candidates: gate.candidates.map((s) => ({ id: s.id, name: s.name })),
+    });
+  }
+  if (!gate.ok && gate.reason === "formation_full") {
+    return res.status(400).json({
+      error: `队伍已满（${f.count}/${f.max}），先撤回一名影子`,
+      code: "formation_full",
+    });
+  }
+  if (!gate.ok && gate.reason === "not_found") {
+    return res.status(404).json({ error: "没有找到这个影子", code: "not_found" });
+  }
+
+  let content;
+  if (op === "deploy") {
+    if (gate.already) {
+      content = `【影子编队】「${gate.shadow.name}」已在阵中。已出战 ${f.count}/${f.max} · 战力合计 ${f.power}。`;
+    } else {
+      const updated = store.setShadowDeployed(save.id, gate.shadow.rowId, true);
+      const after = formationView(save.id);
+      content = updated
+        ? `【影子编队】「${gate.shadow.name}」自你脚下的阴影中升起，列入战阵。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`
+        : `【影子编队】「${gate.shadow.name}」出战失败：影子记录已变化，请重试。`;
+    }
+  } else if (!gate.ok) {
+    // 仅剩 not_deployed（其余失败分支上面已拦截）。
+    content = `【影子编队】「${gate.shadow.name}」本就不在战阵之中。已出战 ${f.count}/${f.max}。`;
+  } else {
+    const updated = store.setShadowDeployed(save.id, gate.shadow.rowId, false);
+    const after = formationView(save.id);
+    content = updated
+      ? `【影子编队】「${gate.shadow.name}」化作一缕黑雾归回你的影子里。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`
+      : `【影子编队】「${gate.shadow.name}」撤回失败：影子记录已变化，请重试。`;
+  }
+
+  const after = formationView(save.id);
+  const reply = store.appendLog(save.id, "system", content);
+  res.json({
+    reply,
+    shadows: after.shadows,
+    formation: { max: after.max, count: after.count, power: after.power },
+    save: saveView(store.getSave(save.id)),
+  });
+});
+
 // 每日任务结算：输入 → 事件（前进/技能/击败）→ 当天进度累加；
 // 完成的任务当场发奖励（XP/金币/物品），并返回一行播报并入本条回复。
 function settleDailyQuests(saveId, input) {
@@ -559,7 +821,9 @@ api.post("/action", (req, res) => {
     outcome.role,
     questNote ? `${outcome.content}\n${questNote}` : outcome.content
   );
-  res.json({ reply, save: saveView(store.getSave(save.id)) });
+  const payload = { reply, save: saveView(store.getSave(save.id)) };
+  if (outcome.shadows) payload.shadows = outcome.shadows;
+  res.json(payload);
 });
 
 // F021 自由输入 → AI JSON → 白名单校验 → 引擎执行 → 叙述返回。
@@ -642,7 +906,7 @@ api.post("/ai-action", async (req, res) => {
       degraded = true;
     }
 
-    const outcome = executeIntent(save, intentId) || executeIntent(save, "observe");
+    const outcome = executeIntent(save, intentId, input) || executeIntent(save, "observe", input);
     if (outcome.patch) {
       // F025：await AI 期间存档可能已被其它写入改动，outcome.patch 是相对旧
       // 快照的绝对值。重读存档，把 patch 隐含的增量套到新快照上再夹紧写回。
@@ -656,6 +920,7 @@ api.post("/ai-action", async (req, res) => {
       questNote ? `${outcome.content}\n${questNote}` : outcome.content
     );
     const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
+    if (outcome.shadows) payload.shadows = outcome.shadows;
     if (degraded) payload.degraded = true;
     res.json(payload);
   } catch (err) {

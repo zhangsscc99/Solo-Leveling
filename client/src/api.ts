@@ -181,7 +181,50 @@ export const spendStat = (save_id: number, stat: StatKey) =>
   );
 
 export const sendAction = (save_id: number, input: string) =>
-  req<{ reply: LogEntry; save: Save }>("/action", {
+  req<{ reply: LogEntry; save: Save; shadows?: ShadowFormation }>("/action", {
     method: "POST",
     body: JSON.stringify({ save_id, input }),
+  });
+
+// ── 影子编队（F051）──
+// 出战位上限/战力由服务端结算；面板只渲染视图并上报 shadow_id + op。
+
+export interface ShadowStats {
+  atk: number;
+  def: number;
+  hp: number;
+}
+
+export interface Shadow {
+  id: string;
+  name: string;
+  rank: string;
+  level: number;
+  source: string | null;
+  skills: unknown[];
+  deployed: boolean;
+  stats: ShadowStats;
+  power: number;
+  createdAt: string;
+}
+
+export interface ShadowFormation {
+  max: number;
+  count: number;
+  power: number;
+  shadows: Shadow[];
+}
+
+export const getShadows = (id: number) =>
+  req<{ shadows: Shadow[]; formation: Omit<ShadowFormation, "shadows"> }>(`/saves/${id}/shadows`);
+
+export const setShadowDeployment = (save_id: number, shadow_id: string, op: "deploy" | "undeploy") =>
+  req<{
+    reply: LogEntry;
+    shadows: Shadow[];
+    formation: Omit<ShadowFormation, "shadows">;
+    save: Save;
+  }>(`/saves/${save_id}/shadow`, {
+    method: "POST",
+    body: JSON.stringify({ shadow_id, op }),
   });

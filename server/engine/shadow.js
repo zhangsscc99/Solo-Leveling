@@ -71,6 +71,8 @@ const DEFAULT_CONFIG = {
     perLevel: { atk: 2, def: 1, hp: 10 },
     inherit: { slots: 2, chance: 0.6, levelDiscount: 0.5 },
   },
+  // F051 编队：可同时出战的影子上限，单点调参（shadow.json 的 formation.maxDeployed）。
+  formation: { maxDeployed: 3 },
 };
 
 let cached = null;
@@ -252,6 +254,14 @@ function normalizeConfig(raw) {
     },
   };
 
+  const formationSrc = isPlainObject(src.formation) ? src.formation : {};
+  const formation = {
+    maxDeployed: Math.max(
+      0,
+      Math.floor(num(formationSrc.maxDeployed, DEFAULT_CONFIG.formation.maxDeployed)),
+    ),
+  };
+
   return {
     version: Math.floor(num(src.version, DEFAULT_CONFIG.version)),
     rankOrder,
@@ -264,6 +274,7 @@ function normalizeConfig(raw) {
     limits,
     caps,
     growth,
+    formation,
   };
 }
 
@@ -569,6 +580,181 @@ function discountSkill(skill, discount) {
   return { ...skill, level: Math.max(1, Math.floor(lv * discount)) };
 }
 
+// ---------------------------------------------------------------------------
+// F051 影子编队与出战：纯函数，输入为影子数组（来自 db.getShadows），
+// 持久化写库由 server/db.js 的 setShadowDeployed 负责，这里只出判定与视图。
+// ---------------------------------------------------------------------------
+
+// 指令匹配全部锚定句首：叙述句（如「我想让影子出战后休息」「影子在风中飘散」）
+// 不以指令词开头，一律不触发、不改变任何状态。句首允许礼貌前缀（可叠加）。
+const CMD_POLITE = "(?:(?:请|麻烦|帮我)\\s*)*";
+
+// 出战类：「影子出战 <名>」「出战 伊格利特」「派遣影子」「deploy shadow」。
+const DEPLOY_COMMAND = new RegExp(
+  `^${CMD_POLITE}(?:(?:影子|shadows?)\\s*)?(?:出战|派遣|出击|deploy)`,
+  "iu",
+);
+
+// 撤回类：「影子撤回 <名>」「召回 伊格利特」「归队 伊格利特」「召回影子」。
+const UNDEPLOY_COMMAND = new RegExp(
+  `^${CMD_POLITE}(?:(?:影子|shadows?)\\s*)?(?:撤回|归队|收回|召回|recall|undeploy)`,
+  "iu",
+);
+
+// 编队查看类：整句只能是指令本身（「影子」「影子编队」「我的影子」「查看影子」
+// 「编队」「shadow list」），句中再带别的词就不算编队指令。
+const FORMATION_COMMAND = new RegExp(
+  `^${CMD_POLITE}(?:(?:查看|列出|看看)\\s*(?:我的\\s*)?|我的\\s*)?(?:影子|shadows?)` +
+    `(?:\\s*(?:编队|列表|面板|名单|list))?\\s*$` +
+    `|^${CMD_POLITE}(?:编队|shadows?\\s+list)\\s*$`,
+  "iu",
+);
+
+// 目标名提取：只剥句首指令前缀，剩余部分就是影子名/ID 原文 ——
+// 名字里含「影子」「的」等字一律保留，绝不整串删词。
+const TARGET_STRIP = new RegExp(
+  `^${CMD_POLITE}(?:(?:影子|shadows?)\\s*)?(?:出战|派遣|出击|撤回|归队|收回|召回|deploy|recall|undeploy)` +
+    `\\s*[:：，,、]?\\s*(.*)$`,
+  "iu",
+);
+
+function shadowTarget(input) {
+  const m = String(input || "").trim().match(TARGET_STRIP);
+  if (!m) return "";
+  return (m[1] || "")
+    .trim()
+    .replace(/^[「『“”"'【《(（]+/u, "")
+    .replace(/[」』“”"'】》)）]+$/u, "")
+    .replace(/^(?:影子|shadow)\s+/iu, "")
+    .replace(/[。，！？?!.,;；、~～\s]+$/u, "")
+    .replace(/[吧呢啊呀啦嘛哦]+$/u, "")
+    .replace(/[。，！？?!.,;；、~～\s]+$/u, "")
+    .trim();
+}
+
+// 目标解析：shadow.id 全等优先，其次 name 精确匹配。
+// 两类命中不同对象、或 name 命中多个 → ambiguous（列出候选，绝不替玩家猜）。
+function resolveShadow(shadows, key) {
+  const list = (Array.isArray(shadows) ? shadows : []).filter(Boolean);
+  const k = typeof key === "string" ? key.trim() : "";
+  if (!k) return { ok: false, reason: "not_found", shadow: null, candidates: [] };
+  const byId = list.find((s) => s.id === k) || null;
+  const byName = list.filter((s) => s.name === k);
+  if (byId) {
+    const clash = byName.find((s) => s.id !== byId.id) || null;
+    if (clash) {
+      return { ok: false, reason: "ambiguous", shadow: null, candidates: [byId, clash] };
+    }
+    return { ok: true, reason: "ok", shadow: byId, candidates: [byId] };
+  }
+  if (byName.length > 1) {
+    return { ok: false, reason: "ambiguous", shadow: null, candidates: byName };
+  }
+  if (byName.length === 1) {
+    return { ok: true, reason: "ok", shadow: byName[0], candidates: byName };
+  }
+  return { ok: false, reason: "not_found", shadow: null, candidates: [] };
+}
+
+// 出战位上限：formation.maxDeployed（默认 3），0 表示编队功能关闭。
+function maxDeployed(config) {
+  const cfg = configOr(config);
+  return cfg.formation.maxDeployed;
+}
+
+// 影子属性：db 层只持久化 rank/level/skills（stats 是成长的内存产物），
+// 因此这里「显式 stats 优先，缺省按 rank 基础值 + 每级 growth.perLevel 推导」，
+// 与 grantXp 的升级曲线同源，保证同一影子战力可复算。
+function shadowStats(shadow, config) {
+  const cfg = configOr(config);
+  const src = isPlainObject(shadow) ? shadow : {};
+  if (isPlainObject(src.stats)) {
+    return {
+      atk: num(src.stats.atk, 0),
+      def: num(src.stats.def, 0),
+      hp: num(src.stats.hp, 0),
+    };
+  }
+  const rank = normalizeRank(src.rank, cfg.rankOrder);
+  const idx = Math.max(0, cfg.rankOrder.indexOf(rank));
+  const lv = shadowLevel(src);
+  const base = { atk: 6 + idx * 4, def: 3 + idx * 2, hp: 40 + idx * 30 };
+  return {
+    atk: base.atk + (lv - 1) * cfg.growth.perLevel.atk,
+    def: base.def + (lv - 1) * cfg.growth.perLevel.def,
+    hp: base.hp + (lv - 1) * cfg.growth.perLevel.hp,
+  };
+}
+
+// 战力映射：atk + def + hp/10（hp 量级大一个数量级，折算后与其他两项同权）。
+function shadowPower(shadow, config) {
+  const s = shadowStats(shadow, config);
+  return s.atk + s.def + Math.floor(s.hp / 10);
+}
+
+// 面板视图：在 db 行之上补 deployed / stats / power。
+function shadowView(shadow, config) {
+  const src = isPlainObject(shadow) ? shadow : {};
+  return {
+    ...src,
+    deployed: src.deployed === true || Number(src.deployed) === 1,
+    stats: shadowStats(src, config),
+    power: shadowPower(src, config),
+  };
+}
+
+// 出战判定。返回 { ok, reason, shadow, candidates, already }：
+//   ok | not_found | ambiguous | already_deployed（幂等，ok=true + already=true）| formation_full
+// 命中规则与歧义处理全部由 resolveShadow 统一结算。
+function canDeploy(shadows, key, config) {
+  const cfg = configOr(config);
+  const list = Array.isArray(shadows) ? shadows : [];
+  const hit = resolveShadow(list, key);
+  if (!hit.ok) return { ok: false, reason: hit.reason, shadow: null, candidates: hit.candidates };
+  const target = hit.shadow;
+  if (target.deployed === true || Number(target.deployed) === 1) {
+    return {
+      ok: true,
+      reason: "already_deployed",
+      shadow: target,
+      candidates: hit.candidates,
+      already: true,
+    };
+  }
+  const deployedCount = list.filter((s) => s && (s.deployed === true || Number(s.deployed) === 1)).length;
+  if (deployedCount >= cfg.formation.maxDeployed) {
+    return { ok: false, reason: "formation_full", shadow: target, candidates: hit.candidates };
+  }
+  return { ok: true, reason: "ok", shadow: target, candidates: hit.candidates };
+}
+
+// 撤回判定。返回 { ok, reason, shadow, candidates }：
+//   ok | not_found | ambiguous | not_deployed（影子存在但本就不在阵中）
+function canUndeploy(shadows, key) {
+  const list = Array.isArray(shadows) ? shadows : [];
+  const hit = resolveShadow(list, key);
+  if (!hit.ok) return { ok: false, reason: hit.reason, shadow: null, candidates: hit.candidates };
+  const target = hit.shadow;
+  if (!(target.deployed === true || Number(target.deployed) === 1)) {
+    return { ok: false, reason: "not_deployed", shadow: target, candidates: hit.candidates };
+  }
+  return { ok: true, reason: "ok", shadow: target, candidates: hit.candidates };
+}
+
+// 编队摘要：出战名单 + 满员上限 + 战力合计。
+function formationSummary(shadows, config) {
+  const cfg = configOr(config);
+  const list = (Array.isArray(shadows) ? shadows : []).map((s) => shadowView(s, cfg));
+  const deployed = list.filter((s) => s.deployed);
+  return {
+    max: cfg.formation.maxDeployed,
+    count: deployed.length,
+    power: deployed.reduce((sum, s) => sum + s.power, 0),
+    deployed: deployed.map((s) => s.id),
+    shadows: list,
+  };
+}
+
 module.exports = {
   canExtract,
   extractionChance,
@@ -577,6 +763,18 @@ module.exports = {
   xpForLevel,
   grantXp,
   inheritSkills,
+  maxDeployed,
+  shadowStats,
+  shadowPower,
+  shadowView,
+  DEPLOY_COMMAND,
+  UNDEPLOY_COMMAND,
+  FORMATION_COMMAND,
+  shadowTarget,
+  resolveShadow,
+  canDeploy,
+  canUndeploy,
+  formationSummary,
   loadConfig,
   normalizeConfig,
   clearCache,

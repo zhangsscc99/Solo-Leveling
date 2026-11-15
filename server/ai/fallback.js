@@ -1,6 +1,6 @@
 // F021/F024 规则兜底解析器：AI 网关失败、超时、输出非法时，
 // 用关键词把自由输入映射到白名单 intent，保证 /ai-action 永远有回应。
-// CommonJS，无依赖，纯函数，永不抛异常。
+// CommonJS，纯函数，永不抛异常。
 //
 // parse(input) -> { intent, args, content? }
 //   intent  白名单 id（与 server/index.js 的 INTENTS 一致）
@@ -9,15 +9,12 @@
 //
 // 无法识别的输入一律落到 observe（环顾四周），绝不返回空。
 
-const RULES = [
-  { intent: "status", match: /状态|面板|属性|status|stat/i },
-  { intent: "help", match: /帮助|指令|help/i },
-  { intent: "observe", match: /观察|查看|环顾|四周|环境|看|look|inspect/i },
-  { intent: "advance", match: /前进|继续|探索|走|移动|离开|进入|深入|前行|advance|go|move|continue/i },
-  { intent: "sneak", match: /潜行|藏匿|隐蔽|躲|sneak|stealth|hide/i },
-  { intent: "rest", match: /休息|睡觉|休整|小憩|恢复|rest|sleep/i },
-  { intent: "save", match: /存档|保存|save/i },
-];
+// 词表与匹配顺序统一来自 ./keywords —— /action 的 resolveAction 用的也是
+// 同一张 INTENT_MATCHERS（单一事实源）。影子三条句首锚定，其余七条沿用
+// main 的子串语义；两条路径不会再出现一边锚定一边不锚定的漂移。
+const { INTENT_MATCHERS } = require("./keywords");
+
+const RULES = INTENT_MATCHERS;
 
 function parse(input) {
   try {
