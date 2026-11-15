@@ -769,8 +769,13 @@ export default function App() {
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
                 // 不再发这条必拒指令。F096：交战态下「前进」是撤离掷逃且
-                // 不再推进主线，主按钮改标「撤离」并写明不推进，照常发出。
+                // 不再推进主线，主按钮改标「撤离」并写明不推进，照常发出；
+                // 守关者未击杀而人站在 boss 场景之后（含章尾）时「前进」的
+                // 真实语义是折返回守关房再战——主按钮按服务端 advance_mode
+                // 换标「折返守关者」，不在前端猜场景。
                 const fleeing = b.input === "前进" && Boolean(save.combat);
+                const retreatToBoss =
+                  b.input === "前进" && !save.combat && save.advance_mode === "retreat_to_boss";
                 if (b.input === "前进" && save.at_epilogue && !save.combat) {
                   return (
                     <button
@@ -790,10 +795,17 @@ export default function App() {
                     className={`btn${b.primary ? " primary" : ""}`}
                     disabled={busy || blocked || restBlocked}
                     onClick={() => dispatch(b.input)}
-                    title={reason || (fleeing ? `撤离不会推进主线 · 快捷键 ${i + 1}` : `快捷键 ${i + 1}`)}
+                    title={
+                      reason ||
+                      (fleeing
+                        ? `撤离不会推进主线 · 快捷键 ${i + 1}`
+                        : retreatToBoss
+                          ? `守关者未击杀 · 折返再战 · 快捷键 ${i + 1}`
+                          : `快捷键 ${i + 1}`)
+                    }
                     aria-disabled={busy || blocked || restBlocked}
                   >
-                    {fleeing ? "撤离" : b.label}
+                    {fleeing ? "撤离" : retreatToBoss ? "折返守关者" : b.label}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>

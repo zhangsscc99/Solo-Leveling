@@ -134,6 +134,21 @@ function restStatus(save, combat) {
   return { available: reason === null, remaining, reason };
 }
 
+// F096 收尾：守关者未击杀时玩家位置不得越过 boss 场景——人站在守关者
+// 身后（含主线链尾，多为旧档冷却期穿房的落点）时，「前进」的真实语义是
+// 折返回守关房再战而非继续推进。主按钮据此换标「折返守关者」：模式由
+// 服务端按主线链位置下发，前端不猜场景。
+function advanceMode(save) {
+  const chapter = chaptersEngine.getChapter(save && save.chapter);
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  const idxBoss = path.findIndex((s) => s && s.kind === "boss");
+  const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save && save.scene) : -1;
+  if (idxBoss >= 0 && idx > idxBoss && !bossCleared(save, chapter.id)) {
+    return "retreat_to_boss";
+  }
+  return "advance";
+}
+
 // at_epilogue 与 cleared 同值，是 F089 给前端的显式终章态信号——前端按
 // 字段渲染「查看结算」入口，不做任何文本匹配。
 function saveView(save) {
@@ -151,6 +166,7 @@ function saveView(save) {
     // 前提），前端只渲染不自行推导——按钮 disabled 与 /action 门禁同一口径。
     skills: skillViews(save, combat),
     rest: restStatus(save, combat),
+    advance_mode: advanceMode(save),
     cleared,
     at_epilogue: cleared,
     xp_to_next: progression.xpToNext(save.level),
@@ -440,6 +456,48 @@ function advanceOutcome(save) {
   }
 
   const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
+
+  // F096 收尾硬门：守关者未击杀时，玩家位置不得越过本章 boss 场景。
+  // 冷却期撤离只换来「不被迫打」，不换来「穿房」——等价口径堵死两条旧
+  // 死路（冷却期内一路推进到链尾干等、站在房内再前进直接越过去）：
+  const idxBoss = path.findIndex((s) => s && s.kind === "boss");
+  const bossAlive = idxBoss >= 0 && !bossCleared(save, chapter.id);
+  if (bossAlive && idx === idxBoss) {
+    //   a) 人就站在守关房里（F095 逃生阀放进来的，或守关房即链尾）：
+    //      「前进」不是放行——守关者封着出口，只能退回上一主线场景；
+    //      链首即守关房无退路时，兜底为零消耗拒绝（数据上 8 章的守关房
+    //      都不在链首，该分支是防数据漂移的保险丝）。
+    const prev = idx > 0 ? path[idx - 1] : null;
+    if (!prev) {
+      return {
+        patch: null,
+        refused: true,
+        content:
+          `【主线】「${chapterBossName(chapter)}」仍挡在出口——必须击败它才能通过。\n` +
+          `（本次没有消耗体力）`,
+      };
+    }
+    return {
+      patch: { ...vit.patch, scene: prev.id },
+      content:
+        `【主线】「${chapterBossName(chapter)}」的威压仍封着出口——` +
+        `你无法越过守关者，只能退回「${prev.title}」。\n${vit.note}`,
+    };
+  }
+  if (bossAlive && idx > idxBoss) {
+    //   b) 人站在 boss 场景之后（旧档冷却期穿房的落点、含主线链尾）：
+    //      「前进」不再干拒绝——折返回守关房。清掉 boss 房再入冷却
+    //      （patch.encounter_clock = 0），落地经 tryEncounter 的 boss
+    //      分支强制真打（advanceWithEncounter 按 retreatToBoss 传
+    //      forceBoss，负冷却挡不住这场再战）。
+    return {
+      patch: { ...vit.patch, scene: path[idxBoss].id, encounter_clock: 0 },
+      retreatToBoss: true,
+      content:
+        `【主线】守关者还守在那扇门前——你原路折返，回到「${path[idxBoss].title}」。\n` +
+        `${vit.note}`,
+    };
+  }
 
   // 已站在主线链尾：再前进即过门穿章；没有下一章 = 全篇终点。
   // F089：终章拒绝推进——零体力消耗、零落点改动；正常入口在路由层短路
@@ -744,20 +802,28 @@ function advanceWithEncounter(save) {
   if (!encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, landedScene)) {
     enemy = tryEncounter(
       { ...save, chapter: patch.chapter || save.chapter, encounter_cd: cdNext },
-      patch.scene
+      patch.scene,
+      // 折返落地的是本章守关房：这场再战是折返的目的——负冷却
+      // （F095 逃生阀）不得把它挡掉，forceBoss 显式压过再入冷却。
+      out.retreatToBoss ? { forceBoss: true } : undefined
     );
   }
   const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
   if (enemy) {
     res.combat = { op: "set", enemy, turn: 1 };
-    // 开战清零保底；boss 逃跑冷却未走完则继续倒数（不互相吞掉）。
-    patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
+    // 开战清零保底；守关者当面成形时残余再入冷却一并作废（残骸已成军），
+    // 普通遭遇落地则逃跑冷却未走完继续倒数（不互相吞掉）。
+    patch.encounter_clock = enemy.boss ? 0 : rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
     res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
-  } else if (rawClock < 0) {
-    patch.encounter_clock = Math.min(0, rawClock + 1);
-  } else if (!(patch.chapter && patch.chapter !== save.chapter)) {
-    patch.encounter_clock = rawClock + 1;
+  } else if (!out.retreatToBoss) {
+    // 折返落点是守关房、开战有兜底——上面没掷出敌人时也不得把
+    // advanceOutcome 已清零的再入冷却改回倒数。
+    if (rawClock < 0) {
+      patch.encounter_clock = Math.min(0, rawClock + 1);
+    } else if (!(patch.chapter && patch.chapter !== save.chapter)) {
+      patch.encounter_clock = rawClock + 1;
+    }
   }
 
   applyTailGate(res, nextChapter, Boolean(enemy && enemy.boss));

@@ -11,10 +11,22 @@
 //      血、击杀 kills+1/XP 入账、播报含「击败 X，获得 XP +N · 金币 +M」；
 //   6) 击杀冷却：原地连点「攻击」不再开战、不再计 kill——刷怪必须
 //      付出移动成本；
-//   7) boss 门控：不杀守关 boss 走到主线链尾 → 不发主线奖励且播报
-//      显性说明；击杀后落到链尾 → 主线奖励正常入账。
+//   7) boss 门控：不杀守关 boss → 不发主线奖励；F096 收尾后守关者未
+//      击杀时位置不得越过 boss 场景，链尾干等这条旧路已封死——链尾
+//      「前进」改为折返回守关房落地真打；击杀后落到链尾 → 主线奖励
+//      正常入账。
 //   期望值只依赖服务端返回的 save.combat / kills / xp / rewards，不调引擎。
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assert, ok, get, makeSave, act, fetchSaveView, advanceOnce } from "./_http.mjs";
+
+const require = createRequire(import.meta.url);
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const Database = require("better-sqlite3");
+const dbPath =
+  process.env.DB_PATH || process.env.SL_GAME_DB || path.join(ROOT, "data", "game.db");
+const db = new Database(dbPath);
 
 // ── A) 同档验证：遭遇/差异/休息/道具/击杀/冷却 ────────────────────
 const id = await makeSave("encounter-combat");
@@ -130,7 +142,12 @@ for (let i = 1; i < fights.length; i++) {
   const act2 = (input) => act(sid, input);
   let c2 = null;
   const forceEncounter = async () => {
-    for (let i = 0; i < 10 && !(c2 && c2.save.combat); i++) c2 = await act2("攻击");
+    // 击杀冷却（encounter_cd>0）期内原地「攻击」必空挥——技能若刚把
+    // 敌人打死，先多走几步把冷却磨掉再逼遭遇，否则 10 连空挥必挂。
+    for (let i = 0; i < 20 && !(c2 && c2.save.combat); i++) {
+      const s = (await fetchSaveView(sid)).save;
+      c2 = await act2(s.encounter_cd > 0 ? "前进" : "攻击");
+    }
     assert(c2 && c2.save.combat, "setup: no encounter for item checks");
   };
   await forceEncounter();
@@ -254,25 +271,44 @@ for (let i = 1; i < fights.length; i++) {
   }
 }
 
-// ── B) boss 门控：不杀守关 boss 到链尾不发主线奖励 ────────────────
+// ── B) boss 门控：不杀守关 boss 不发主线奖励；链尾「前进」折返再战 ──
+// F096 收尾口径：守关者未击杀时位置不得越过 boss 场景——旧口径「全程
+// 掷逃走到链尾干等」已封死，「不杀 boss 站在链尾」仅存于线上旧档，
+// 用 DB 落点复刻并在此注明。
 {
   const sid = await makeSave("boss-gate-flee");
-  let cur2 = null;
-  // 小怪一律掷逃、boss 也掷逃——一路推进到 ch1 链尾 ch1_surface。
-  for (let i = 0; i < 80; i++) {
-    cur2 = await advanceOnce(sid, { fight: "none" });
-    if (cur2.save.scene === "ch1_surface") break;
-  }
-  assert(cur2 && cur2.save.scene === "ch1_surface", `never reached ch1 tail, stuck at ${cur2 && cur2.save.scene}`);
+  db.prepare(
+    "UPDATE saves SET scene = 'ch1_surface', boss_cleared_json = '[]' WHERE id = ?"
+  ).run(sid);
   const s2 = (await fetchSaveView(sid)).save;
+  assert(
+    s2.scene === "ch1_surface" && !s2.combat,
+    `B setup broken: ${s2.scene} combat=${JSON.stringify(s2.combat)}`
+  );
   const claimed = Array.isArray(s2.rewards) ? s2.rewards : [];
   assert(
     !claimed.includes("ch1"),
     `main reward granted without boss kill: rewards=${JSON.stringify(claimed)}`
   );
+  // 链尾「前进」不再干等——折返回守关房落地真打，主线奖励仍分文未发。
+  const r = await act(sid, "前进");
   assert(
-    cur2.reply.content.includes("守关者") || cur2.reply.content.includes("未结算"),
-    `tail landing missing boss-gate hint: ${cur2.reply.content.slice(-160)}`
+    r.save.scene === "ch1_statues" && r.save.chapter === 1,
+    `tail push should retreat to the guardian room, got ${r.save.scene} ch${r.save.chapter}`
+  );
+  assert(
+    r.save.combat && r.save.combat.enemy && r.save.combat.enemy.boss === true,
+    `retreat landing must re-engage the guardian: ${JSON.stringify(r.save.combat)}`
+  );
+  assert(
+    r.reply.content.includes("折返") && r.reply.content.includes("守关者"),
+    `retreat reply missing 折返/守关者 wording: ${r.reply.content.slice(-160)}`
+  );
+  const after = (await fetchSaveView(sid)).save;
+  const claimed2 = Array.isArray(after.rewards) ? after.rewards : [];
+  assert(
+    !claimed2.includes("ch1"),
+    `main reward granted without boss kill after retreat: rewards=${JSON.stringify(claimed2)}`
   );
 }
 
