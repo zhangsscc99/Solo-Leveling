@@ -150,6 +150,15 @@ export default function SkillsPanel({
                   aria-disabled={!canCast}
                   aria-label={ariaLabel}
                   aria-live="off"
+                  title={
+                    !unlocked
+                      ? `等级不足：需 Lv.${skill.learn_level}`
+                      : coolingNow
+                        ? `冷却中：剩余 ${remain} 秒`
+                        : !enoughMp
+                          ? "MP 不足"
+                          : undefined
+                  }
                   onClick={() => release(skill)}
                 >
                   {coolingNow ? `冷却 ${remain}s` : "释放"}

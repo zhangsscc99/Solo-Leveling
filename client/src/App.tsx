@@ -23,7 +23,7 @@ import {
   StatKey,
   useItem,
 } from "./api";
-import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
+import CombatPanel, { detectCombatGate } from "./panels/CombatPanel";
 import EndingPanel from "./panels/EndingPanel";
 import InventoryPanel from "./panels/InventoryPanel";
 import QuestPanel from "./panels/QuestPanel";
@@ -317,6 +317,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [combatOpen, setCombatOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
 
   useEffect(() => {
     getItems()
@@ -351,9 +352,16 @@ export default function App() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [log]);
 
-  // 战斗态没有服务端字段：日志里出现遭遇/回合/伤害等措辞时自动展开面板。
+  // 战斗态没有服务端字段：日志里出现明确交战信号（遭遇X / 第N回合）时
+  // 自动展开面板；gate 由 engage 跳变到 ended 的那一次收束关闭。
+  // 边沿触发而非电平触发：ended 残留期内手动打开的面板不会被后续日志
+  // 强行关掉，engage 持续期内手动收起的面板也不会被下一条日志重新顶开。
   useEffect(() => {
-    if (detectCombatSignal(log)) setCombatOpen(true);
+    const gate = detectCombatGate(log);
+    const prev = gateRef.current;
+    gateRef.current = gate;
+    if (gate === "engage" && prev !== "engage") setCombatOpen(true);
+    else if (gate === "ended" && prev === "engage") setCombatOpen(false);
   }, [log]);
 
   const dispatch = useCallback(
@@ -667,6 +675,7 @@ export default function App() {
           <div className="side-foot">
             <span>面板 5–0</span>
             <span className="foot-esc">ESC 关闭</span>
+            <span className="foot-tap">点 × 关闭</span>
           </div>
         </div>
       </aside>
