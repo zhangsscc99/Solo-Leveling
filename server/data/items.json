@@ -1,0 +1,120 @@
+[
+  {
+    "id": "rusty_hunting_knife",
+    "name": "生锈猎刀",
+    "category": "weapon",
+    "rarity": "common",
+    "desc": "协会仓库角落里翻出的旧刀，刃口卷了两处，砍柴都嫌钝。至少比空手强。",
+    "atk": 4
+  },
+  {
+    "id": "knight_dagger",
+    "name": "骑士匕首",
+    "category": "weapon",
+    "rarity": "rare",
+    "desc": "骑士阶见习猎人的配发短刃，刀脊刻着一行磨平的编号。出手极快，适合贴身补刀。",
+    "atk": 8
+  },
+  {
+    "id": "stone_guard_greatsword",
+    "name": "石像守卫者巨剑",
+    "category": "weapon",
+    "rarity": "epic",
+    "desc": "从石像守卫手中夺下的巨剑，剑身残留着灰色的石纹。握久了，能听见低沉的吟诵。",
+    "atk": 21
+  },
+  {
+    "id": "shadow_fang",
+    "name": "影牙短剑",
+    "category": "weapon",
+    "rarity": "legendary",
+    "desc": "影子凝聚成的实体之刃，边缘没有反光，只在挥出的一瞬收割光。持有者即是君主的容器。",
+    "atk": 34
+  },
+  {
+    "id": "worn_leather_vest",
+    "name": "破旧皮甲",
+    "category": "armor",
+    "rarity": "common",
+    "desc": "E 级猎人的入门护具，皮革被地下城的潮气泡得发软，缝线处补过三次。",
+    "def": 3
+  },
+  {
+    "id": "hunter_association_uniform",
+    "name": "猎人协会制服",
+    "category": "armor",
+    "rarity": "rare",
+    "desc": "协会配发的战术外套，内衬织了薄薄一层魔力纤维。袖口绣着你的登记编号。",
+    "def": 9
+  },
+  {
+    "id": "stone_guard_armor",
+    "name": "石像守卫者护甲",
+    "category": "armor",
+    "rarity": "epic",
+    "desc": "石像的胸腔被拆解重铸成胸甲，沉重、冰冷，却能在致命一击前替你挡下一次。",
+    "def": 18
+  },
+  {
+    "id": "shadow_plate",
+    "name": "影之铠甲",
+    "category": "armor",
+    "rarity": "legendary",
+    "desc": "没有重量的铠甲，贴着皮肤像一层影子。影子的君主从不惧怕伤口。",
+    "def": 27
+  },
+  {
+    "id": "low_heal_potion",
+    "name": "低级治疗药水",
+    "category": "consumable",
+    "rarity": "common",
+    "desc": "猎人协会的标准补给，暗红色，味道像铁锈。伤口会以肉眼可见的速度缝合。",
+    "heal": 40
+  },
+  {
+    "id": "mid_heal_potion",
+    "name": "中级治疗药水",
+    "category": "consumable",
+    "rarity": "rare",
+    "desc": "用地下城生物血液提纯的药剂，入口灼烧。断骨也能在数个呼吸间接回原位。",
+    "heal": 120
+  },
+  {
+    "id": "mana_potion",
+    "name": "魔力药剂",
+    "category": "consumable",
+    "rarity": "common",
+    "desc": "淡蓝色的透明液体，喝下去像往血管里灌了一阵冷风。用于补充魔力。",
+    "mp": 30
+  },
+  {
+    "id": "elixir_of_life",
+    "name": "生命圣水",
+    "category": "consumable",
+    "rarity": "epic",
+    "desc": "只在高等地下城的宝箱深处出现。一口即可把濒死的猎人从门槛上拽回来。",
+    "heal": 300,
+    "mp": 80
+  },
+  {
+    "id": "gate_shard",
+    "name": "传送门碎片",
+    "category": "material",
+    "rarity": "common",
+    "desc": "传送门崩塌后残留的结晶，摸上去还在轻轻震动。协会按枚回收，也可用于强化。"
+  },
+  {
+    "id": "stone_guard_core",
+    "name": "石像守卫者核心",
+    "category": "material",
+    "rarity": "rare",
+    "desc": "驱动石像的魔力核，灰白色，内部有缓慢旋转的纹路。工匠为它开出高价。"
+  },
+  {
+    "id": "monarch_blood",
+    "name": "君主之血",
+    "category": "material",
+    "rarity": "legendary",
+    "desc": "一滴也不会凝固的黑色液体。它不是战利品，是某个存在留下的标记。"
+  }
+]

@@ -695,25 +695,313 @@ button {
   color: var(--faint);
 }
 
-.inv-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* ── 背包面板 ──────────────────────────────
+   方正细边列表，不用卡片：每行左侧 2px 稀有度轨 + 名称亮度梯度。
+   稀有度不新开彩虹色，只沿 system / gate 两支功能色加深。
+*/
+.inv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
 }
 
-.inv-item {
+/* 装备位：三行仪表，发丝线分隔 */
+.inv-slots {
+  border-top: 1px solid var(--line);
+}
+
+.inv-slot {
   display: flex;
-  justify-content: space-between;
   align-items: baseline;
-  gap: var(--sp-3);
-  padding: var(--sp-2) 0;
+  gap: var(--sp-2);
+  padding: 6px 0;
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-sm);
 }
 
-.inv-qty {
+.inv-slot-label {
+  flex: none;
+  width: 34px;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.inv-slot-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.inv-slot-name.empty {
+  color: var(--faint);
+}
+
+.inv-slot-num {
+  flex: none;
   font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   color: var(--dim);
+}
+
+.inv-slot-total .inv-slot-num {
+  color: var(--faint);
+}
+
+/* 稀有度：只调亮度与描边强度 */
+.inv-slot-name.r-common {
+  color: var(--dim);
+}
+
+.inv-slot-name.r-rare {
+  color: #b9d9f2;
+}
+
+.inv-slot-name.r-epic {
+  color: #d8ccff;
+}
+
+.inv-slot-name.r-legendary {
+  color: #fff;
+  text-shadow: 0 0 10px rgba(154, 123, 255, 0.55);
+}
+
+/* 分类标签：1px 网格，激活态靠底部 2px 青轨，不用胶囊 */
+.inv-tabs {
+  display: flex;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.inv-tab {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 2px;
+  background: var(--hull);
+  border: 0;
+  border-radius: 0;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.inv-tab:hover {
+  color: var(--text);
+}
+
+.inv-tab.on {
+  background: var(--hull-2);
+  color: var(--system);
+  box-shadow: inset 0 -2px 0 var(--system);
+}
+
+.inv-tab-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-style: normal;
+  color: var(--faint);
+  margin-left: 3px;
+}
+
+.inv-tab.on .inv-tab-badge {
+  color: var(--system);
+}
+
+.inv-notice {
+  margin: 0;
+  padding: 2px 0 2px var(--sp-2);
+  border-left: 2px solid var(--blood);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--blood);
+}
+
+.inv-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.inv-row {
+  padding: 10px var(--sp-3);
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  border-radius: 0;
+}
+
+.inv-row.r-common {
+  border-left-color: var(--faint);
+}
+
+.inv-row.r-rare {
+  border-left-color: var(--system-dim);
+  background: rgba(79, 200, 255, 0.03);
+}
+
+.inv-row.r-epic {
+  border-left-color: rgba(154, 123, 255, 0.55);
+  background: rgba(154, 123, 255, 0.05);
+}
+
+.inv-row.r-legendary {
+  border-left-color: var(--gate);
+  background: rgba(154, 123, 255, 0.08);
+  box-shadow: inset 0 0 18px rgba(154, 123, 255, 0.12);
+}
+
+.inv-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.inv-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.inv-row.r-common .inv-row-name {
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.inv-row.r-rare .inv-row-name {
+  color: #b9d9f2;
+}
+
+.inv-row.r-epic .inv-row-name {
+  color: #d8ccff;
+}
+
+.inv-row.r-legendary .inv-row-name {
+  color: #fff;
+  text-shadow: 0 0 12px rgba(154, 123, 255, 0.5);
+}
+
+.inv-rarity {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--faint);
+}
+
+.r-rare .inv-rarity {
+  color: var(--system-dim);
+}
+
+.r-epic .inv-rarity {
+  color: rgba(154, 123, 255, 0.65);
+}
+
+.r-legendary .inv-rarity {
+  color: var(--gate);
+}
+
+.inv-qty {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+
+.inv-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-top: 2px;
+}
+
+.inv-row-stat {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--tick);
+}
+
+.inv-row-flag {
+  font-size: 10px;
+  color: var(--system);
+}
+
+.inv-row-desc {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.75;
+  color: var(--faint);
+}
+
+.inv-row-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.inv-btn {
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+  color: var(--dim);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.inv-btn:hover:not(:disabled) {
+  border-color: var(--system-dim);
+  color: var(--system);
+}
+
+.inv-btn-discard {
+  margin-left: auto;
+}
+
+.inv-btn-discard:hover:not(:disabled) {
+  border-color: var(--blood-dim);
+  color: var(--blood);
+}
+
+.inv-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.inv-btn:focus-visible {
+  outline: 2px solid var(--system);
+  outline-offset: 1px;
+}
+
+.inv-row-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.inv-empty {
+  font-size: var(--fs-xs);
 }
 
 .stat-line {
@@ -1175,6 +1463,20 @@ button {
   .btn {
     flex: none;
     min-height: 44px;
+  }
+}
+
+/* ── 背包面板移动端：可点区域 ≥44px ───────── */
+@media (max-width: 880px) {
+  .inv-tab {
+    min-height: 44px;
+    font-size: var(--fs-sm);
+  }
+
+  .inv-btn {
+    min-height: 44px;
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-sm);
   }
 }
 

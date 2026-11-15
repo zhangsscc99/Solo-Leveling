@@ -1,5 +1,7 @@
+const fs = require("fs");
 const path = require("path");
 const express = require("express");
+const Database = require("better-sqlite3");
 const store = require("./db");
 
 const VERSION = "0.1.0";
@@ -21,6 +23,127 @@ function clamp(value, min, max) {
 function vitalsLine(save) {
   return `HP ${save.hp}/${save.max_hp} · MP ${save.mp}/${save.max_mp}`;
 }
+
+/* ────────────────────────────────────────────────────────────────
+   物品目录与背包写操作
+   目录是纯数据（server/data/items.json）；db.js 只读导出 inventory，
+   因此这里开一条独立连接（WAL 下多连接安全）负责 qty 增减。
+   所有数值都在服务端计算，客户端只传 item_id 与 op。
+──────────────────────────────────────────────────────────────── */
+const CATALOG = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "items.json"), "utf8"));
+const ITEMS = new Map(CATALOG.map((item) => [item.id, item]));
+const OPS = ["use", "equip", "discard"];
+const SLOT_OF = { weapon: "weapon", armor: "armor" };
+const SLOT_LABEL = { weapon: "武器", armor: "防具" };
+
+const db = new Database(path.join(__dirname, "..", "data", "game.db"));
+
+const invStmts = {
+  get: db.prepare("SELECT qty FROM inventory WHERE save_id = ? AND item_id = ?"),
+  add: db.prepare(`
+    INSERT INTO inventory (save_id, item_id, qty) VALUES (?, ?, ?)
+    ON CONFLICT(save_id, item_id) DO UPDATE SET qty = qty + excluded.qty
+  `),
+  setQty: db.prepare("UPDATE inventory SET qty = ? WHERE save_id = ? AND item_id = ?"),
+  remove: db.prepare("DELETE FROM inventory WHERE save_id = ? AND item_id = ?"),
+  isEmpty: db.prepare("SELECT 1 FROM inventory WHERE save_id = ? LIMIT 1"),
+  seeded: db.prepare("SELECT 1 FROM log WHERE save_id = ? AND content LIKE '%配发基础装备%' LIMIT 1"),
+};
+
+const STARTER_KIT = [
+  ["rusty_hunting_knife", 1],
+  ["worn_leather_vest", 1],
+  ["low_heal_potion", 3],
+  ["mana_potion", 2],
+  ["gate_shard", 2],
+];
+
+// 装备位：saves 表没有装备列且 db.js 不在本功能可改范围内，
+// 因此用一个 JSON 边车文件按 save_id 记录当前武器/防具。
+const EQUIP_FILE = path.join(__dirname, "data", "equipment.json");
+
+function loadEquip() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(EQUIP_FILE, "utf8"));
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+const equipment = loadEquip();
+
+function persistEquip() {
+  const tmp = `${EQUIP_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(equipment, null, 2));
+  fs.renameSync(tmp, EQUIP_FILE);
+}
+
+function slotView(saveId, slot) {
+  const itemId = (equipment[saveId] || {})[slot];
+  const item = itemId ? ITEMS.get(itemId) : null;
+  if (!item || SLOT_OF[item.category] !== slot) return null;
+  return {
+    item_id: item.id,
+    name: item.name,
+    rarity: item.rarity,
+    atk: item.atk || 0,
+    def: item.def || 0,
+  };
+}
+
+function equipView(saveId) {
+  const weapon = slotView(saveId, "weapon");
+  const armor = slotView(saveId, "armor");
+  return {
+    weapon,
+    armor,
+    atk: (weapon ? weapon.atk : 0) + (armor ? armor.atk : 0),
+    def: (weapon ? weapon.def : 0) + (armor ? armor.def : 0),
+  };
+}
+
+function clearSlot(saveId, slot) {
+  if (!equipment[saveId] || !equipment[saveId][slot]) return false;
+  delete equipment[saveId][slot];
+  persistEquip();
+  return true;
+}
+
+function grantStarterKit(saveId) {
+  const tx = db.transaction((rows) => {
+    for (const [itemId, qty] of rows) invStmts.add.run(saveId, itemId, qty);
+  });
+  tx(STARTER_KIT);
+  store.appendLog(
+    saveId,
+    "system",
+    "【系统】猎人协会向你配发基础装备与补给（猎刀 / 皮甲 / 治疗药水 ×3 / 魔力药剂 ×2 / 传送门碎片 ×2），已存入背包。"
+  );
+}
+
+// 老存档第一次打开背包时补发一次；用日志里的配发记录做幂等标记，
+// 所以清空背包后不会无限补发。
+function ensureStarterKit(saveId) {
+  if (invStmts.isEmpty.get(saveId)) {
+    if (!invStmts.seeded.get(saveId)) grantStarterKit(saveId);
+    return true;
+  }
+  return false;
+}
+
+function itemLine(item) {
+  if (item.category === "weapon") return `攻击 +${item.atk || 0}`;
+  if (item.category === "armor") return `防御 +${item.def || 0}`;
+  if (item.category === "consumable") {
+    const parts = [];
+    if (item.heal) parts.push(`HP +${item.heal}`);
+    if (item.mp) parts.push(`MP +${item.mp}`);
+    return parts.join(" · ");
+  }
+  return "素材";
+}
+
 
 // Whitelisted intents. Each entry owns its keyword match, log role, the
 // deterministic state delta and the narration text — every number is computed
@@ -146,12 +269,18 @@ api.get("/health", (req, res) => {
   res.json({ ok: true, version: VERSION });
 });
 
+api.get("/items", (req, res) => {
+  res.json({ items: CATALOG });
+});
+
 api.post("/saves", (req, res) => {
   const playerName = String((req.body && req.body.player_name) || "").trim();
   if (!playerName) {
     return res.status(400).json({ error: "player_name is required" });
   }
-  res.status(201).json({ save: store.createSave(playerName) });
+  const save = store.createSave(playerName);
+  grantStarterKit(save.id);
+  res.status(201).json({ save: store.getSave(save.id) });
 });
 
 api.get("/saves/:id", (req, res) => {
@@ -159,7 +288,98 @@ api.get("/saves/:id", (req, res) => {
   if (!save) {
     return res.status(404).json({ error: "save not found" });
   }
-  res.json({ save, inventory: store.getInventory(save.id) });
+  ensureStarterKit(save.id);
+  res.json({
+    save: store.getSave(save.id),
+    inventory: store.getInventory(save.id),
+    equipment: equipView(save.id),
+  });
+});
+
+// 背包操作：只有 item_id + op 两个入参，效果（回复量、装备加成、qty 扣减）
+// 全部由服务端按目录计算，客户端传任何数值都会被忽略。
+api.post("/saves/:id/item", (req, res) => {
+  const save = store.getSave(Number(req.params.id));
+  if (!save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const itemId = typeof body.item_id === "string" ? body.item_id.trim() : "";
+  const item = ITEMS.get(itemId);
+  if (!item) {
+    return res.status(400).json({ error: "unknown item_id" });
+  }
+  if (!OPS.includes(body.op)) {
+    return res.status(400).json({ error: `op must be one of ${OPS.join(", ")}` });
+  }
+
+  const row = invStmts.get.get(save.id, item.id);
+  const qty = row ? Number(row.qty) : 0;
+  if (qty <= 0) {
+    return res.status(400).json({ error: "item not in inventory" });
+  }
+
+  let content = "";
+  let patch = null;
+
+  if (body.op === "use") {
+    if (item.category !== "consumable") {
+      return res.status(400).json({ error: "该物品无法使用" });
+    }
+    // 数值只取目录 + 当前存档，客户端不可覆盖；HP/MP 一律夹紧到 0..max。
+    const hp = item.heal ? clamp(save.hp + item.heal, 0, save.max_hp) : save.hp;
+    const mp = item.mp ? clamp(save.mp + item.mp, 0, save.max_mp) : save.mp;
+    if (hp === save.hp && mp === save.mp) {
+      return res.status(400).json({ error: "当前状态已是满值，无需使用" });
+    }
+    patch = { hp, mp };
+    const deltas = [];
+    if (hp !== save.hp) deltas.push(`HP ${save.hp}→${hp}`);
+    if (mp !== save.mp) deltas.push(`MP ${save.mp}→${mp}`);
+    content =
+      `【系统】已使用「${item.name}」。${deltas.join(" · ")}。` +
+      `（${itemLine(item)}，剩余 ×${qty - 1}）`;
+    if (qty <= 1) invStmts.remove.run(save.id, item.id);
+    else invStmts.setQty.run(qty - 1, save.id, item.id);
+  } else if (body.op === "equip") {
+    const slot = SLOT_OF[item.category];
+    if (!slot) {
+      return res.status(400).json({ error: "该物品无法装备" });
+    }
+    equipment[save.id] = equipment[save.id] || {};
+    const previous = equipment[save.id][slot];
+    equipment[save.id][slot] = item.id;
+    persistEquip();
+    const view = equipView(save.id);
+    content =
+      `【系统】已装备「${item.name}」至${SLOT_LABEL[slot]}位。` +
+      (previous && previous !== item.id ? `原装备已卸下。` : "") +
+      `当前攻击 +${view.atk} · 防御 +${view.def}。`;
+  } else {
+    // discard：可能丢掉的正是当前装备，qty 归零时同时清空装备位。
+    const next = qty - 1;
+    if (next <= 0) invStmts.remove.run(save.id, item.id);
+    else invStmts.setQty.run(next, save.id, item.id);
+    const slot = SLOT_OF[item.category];
+    const wasEquipped = slot && equipment[save.id] && equipment[save.id][slot] === item.id;
+    if (wasEquipped && next <= 0) {
+      clearSlot(save.id, slot);
+    }
+    content =
+      `【系统】已丢弃「${item.name}」×1` +
+      (next > 0 ? `，剩余 ×${next}。` : "，背包中已无此物。") +
+      (wasEquipped && next <= 0 ? `（${SLOT_LABEL[slot]}位已空出）` : "");
+  }
+
+  if (patch) store.updateSave(save.id, patch);
+  const reply = store.appendLog(save.id, "system", content);
+  res.json({
+    reply,
+    save: store.getSave(save.id),
+    inventory: store.getInventory(save.id),
+    equipment: equipView(save.id),
+  });
 });
 
 api.get("/saves/:id/log", (req, res) => {

@@ -1,5 +1,19 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { createSave, getLog, getSave, sendAction, LogEntry, Save } from "./api";
+import {
+  createSave,
+  Equipment,
+  getItems,
+  getLog,
+  getSave,
+  InventoryRow,
+  Item,
+  ItemOp,
+  sendAction,
+  LogEntry,
+  Save,
+  useItem,
+} from "./api";
+import InventoryPanel from "./panels/InventoryPanel";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
@@ -29,11 +43,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "map", label: "地图" },
   { key: "quests", label: "任务" },
 ];
-
-interface InvItem {
-  item_id: string;
-  qty: number;
-}
 
 function RankEmblem({ rank, level }: { rank: string; level: number }) {
   const R = 15.5;
@@ -156,20 +165,37 @@ function StageEntry({ entry }: { entry: LogEntry }) {
   return <p className="narration">{entry.content}</p>;
 }
 
-function SidePanel({ tab, save, inventory }: { tab: TabKey; save: Save; inventory: InvItem[] }) {
+function SidePanel({
+  tab,
+  save,
+  inventory,
+  items,
+  equipment,
+  itemBusy,
+  itemNotice,
+  onItemOp,
+}: {
+  tab: TabKey;
+  save: Save;
+  inventory: InventoryRow[];
+  items: Item[];
+  equipment: Equipment | null;
+  itemBusy: boolean;
+  itemNotice: string | null;
+  onItemOp: (itemId: string, op: ItemOp) => void;
+}) {
   switch (tab) {
     case "inventory":
-      return inventory.length ? (
-        <ul className="inv-list">
-          {inventory.map((it) => (
-            <li key={it.item_id} className="inv-item">
-              <span className="inv-name">{it.item_id.replace(/_/g, " ")}</span>
-              <span className="inv-qty">×{it.qty}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="side-empty">背包是空的。战利品会出现在这里。</p>
+      return (
+        <InventoryPanel
+          save={save}
+          inventory={inventory}
+          items={items}
+          equipment={equipment}
+          busy={itemBusy}
+          notice={itemNotice}
+          onOp={onItemOp}
+        />
       );
     case "skills":
       return <p className="side-empty">尚未习得技能。系统的馈赠尚未到来。</p>;
@@ -229,7 +255,11 @@ function SidePanel({ tab, save, inventory }: { tab: TabKey; save: Save; inventor
 export default function App() {
   const [save, setSave] = useState<Save | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
-  const [inventory, setInventory] = useState<InvItem[]>([]);
+  const [inventory, setInventory] = useState<InventoryRow[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [equipment, setEquipment] = useState<Equipment | null>(null);
+  const [itemBusy, setItemBusy] = useState(false);
+  const [itemNotice, setItemNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -240,15 +270,22 @@ export default function App() {
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    getItems()
+      .then(setItems)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       setLoading(false);
       return;
     }
     getSave(Number(raw))
-      .then(async ({ save, inventory }) => {
+      .then(async ({ save, inventory, equipment }) => {
         setSave(save);
         setInventory(inventory);
+        setEquipment(equipment);
         setLog(await getLog(save.id));
       })
       .catch(() => localStorage.removeItem(STORAGE_KEY))
@@ -284,12 +321,40 @@ export default function App() {
   const openTab = useCallback((key: TabKey) => {
     setTab(key);
     setDrawer(true);
+    setItemNotice(null);
   }, []);
+
+  // 背包操作：只上报 item_id + op，效果与数值都由服务端结算后回灌。
+  const onItemOp = useCallback(
+    async (itemId: string, op: ItemOp) => {
+      if (!save || itemBusy) return;
+      setItemBusy(true);
+      setItemNotice(null);
+      try {
+        const r = await useItem(save.id, itemId, op);
+        setSave(r.save);
+        setInventory(r.inventory);
+        setEquipment(r.equipment);
+        setLog((l) => [...l, r.reply]);
+      } catch (e) {
+        const msg = e instanceof Error && !/^API \d+$/.test(e.message) ? e.message : null;
+        setItemNotice(
+          msg ?? (op === "use" ? "无法使用该物品。" : op === "equip" ? "无法装备该物品。" : "无法丢弃该物品。")
+        );
+      } finally {
+        setItemBusy(false);
+      }
+    },
+    [save, itemBusy]
+  );
 
   useEffect(() => {
     if (tab !== "inventory" || !save) return;
     getSave(save.id)
-      .then((r) => setInventory(r.inventory))
+      .then((r) => {
+        setInventory(r.inventory);
+        setEquipment(r.equipment);
+      })
       .catch(() => {});
   }, [tab, save]);
 
@@ -319,7 +384,10 @@ export default function App() {
       try {
         const created = await createSave(playerName);
         localStorage.setItem(STORAGE_KEY, String(created.id));
-        setSave(created);
+        const full = await getSave(created.id);
+        setSave(full.save);
+        setInventory(full.inventory);
+        setEquipment(full.equipment);
         setLog(await getLog(created.id));
       } catch {
         setError("存档创建失败，请重试。");
@@ -415,7 +483,16 @@ export default function App() {
         </div>
         <div className="side-body">
           <div className="side-scroll">
-            <SidePanel tab={tab} save={save} inventory={inventory} />
+            <SidePanel
+              tab={tab}
+              save={save}
+              inventory={inventory}
+              items={items}
+              equipment={equipment}
+              itemBusy={itemBusy}
+              itemNotice={itemNotice}
+              onItemOp={onItemOp}
+            />
           </div>
           <div className="side-foot">
             <span>面板 5–9</span>
