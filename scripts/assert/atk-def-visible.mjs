@@ -2,14 +2,17 @@
 // F083 contract: 顶栏与属性面板显示含装备加成的 攻/防。
 //   1. 顶栏 .status-nums 同时出现「攻」「防」标签，数值为纯数字；
 //   2. 属性抽屉有「战斗数值」段，攻击/防御合计 = floor(系数×属性) + 装备加成，
-//      真值取自 GET /api/saves/:id（容差 0）；装备为空时显示「无配发装备」；
-//   3. 装备武器刷新后数值随 equipment 更新；
-//   4. 负向：页面无 NaN / undefined / +0 裸占位。
-// 折算系数与 server/engine/stats.js 保持一致（atk=1.6×力量, def=0.8×体力）。
+//      真值取自 GET /api/saves/:id（容差 0），系数直接取 server/engine/stats.js；
+//      装备为空时显示「无配发装备」；
+//   3. 装备武器 + 防具刷新后数值随 equipment 更新；
+//   4. 移动端 360/375/390/414：每个 .stat 的 <b> 与标签同行（sameLine），
+//      header 高度 ≤142px（main 版 390px 实测 137px 量级）；
+//   5. 负向：数值单元格无 NaN / undefined / +0 裸占位。
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadPW, findChrome } from "../e2e/lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
@@ -25,24 +28,6 @@ function assert(cond, msg) {
   if (!cond) fail(msg);
 }
 
-function loadPW() {
-  for (const dir of [path.join(ROOT, "scripts", "e2e"), ROOT, "/www/fable5_project", "/tmp"]) {
-    try {
-      return createRequire(path.join(dir, "noop.js"))("playwright-core");
-    } catch {}
-  }
-  fail("playwright-core not found");
-}
-function findChrome() {
-  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
-  const base = "/root/.cache/ms-playwright";
-  for (const d of fs.readdirSync(base).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse()) {
-    const p = path.join(base, d, "chrome-linux", "chrome");
-    if (fs.existsSync(p)) return p;
-  }
-  fail("no chromium binary");
-}
-
 async function api(pathname, init) {
   const res = await fetch(`${API}${pathname}`, {
     headers: { "Content-Type": "application/json" },
@@ -52,9 +37,16 @@ async function api(pathname, init) {
   return { status: res.status, body };
 }
 
-// 镜像 client api.ts：floor(1.6×str)+eq.atk / floor(0.8×vit)+eq.def（容差 0）。
-const expAtk = (s, eq) => Math.floor(s.strength * 1.6) + (eq?.atk ?? 0);
-const expDef = (s, eq) => Math.floor(s.vitality * 0.8) + (eq?.def ?? 0);
+// 折算系数直接取服务端：def 用 stats.defenseOf（= 0.8×体力）；
+// atk 系数 stats.js 未单独导出，用 physicalDamage({strength:100},0) 探测
+// （整数探针下 round 无失真，得 K.dmgStr=1.6）。展示口径仍是 floor + 装备加成。
+const statsLib = createRequire(path.join(ROOT, "noop.js"))(
+  path.join(ROOT, "server", "engine", "stats.js")
+);
+const ATK_COEF = statsLib.physicalDamage({ stats: { strength: 100 } }, 0) / 100;
+const expAtk = (s, eq) =>
+  Math.floor(statsLib.statOf({ stats: s }, "strength") * ATK_COEF) + (eq?.atk ?? 0);
+const expDef = (s, eq) => Math.floor(statsLib.defenseOf({ stats: s })) + (eq?.def ?? 0);
 
 async function readCombatNums(page) {
   // 从「战斗数值」两行的 aria-label 解析合计（最贴近读屏口径）。
@@ -69,12 +61,55 @@ async function readCombatNums(page) {
 }
 
 async function checkNoPlaceholders(page) {
-  // 只查状态栏与档案侧栏：stage 日志是服务端原文（如「防御 +0」播报），不在本契约内。
+  // +0 负向扫描限定在顶栏/面板的数值单元格，避免误伤背包「攻击 +4」等正常文案；
+  // stage 日志是服务端原文（如「防御 +0」播报），不在本契约内。
+  const cells = await page.evaluate(() =>
+    [".status-nums .stat b", ".combat-nums .cn-num", ".combat-nums .cn-eq"]
+      .flatMap((s) => [...document.querySelectorAll(s)].map((el) => el.textContent.trim()))
+  );
+  for (const t of cells) {
+    assert(!/\+0/.test(t), `数值单元格出现裸占位 +0: ${JSON.stringify(t)}`);
+    assert(t !== "NaN" && t !== "undefined", `数值单元格出现 ${JSON.stringify(t)}`);
+  }
   const text = await page.evaluate(() =>
     [".status", ".sidebar"].map((s) => document.querySelector(s)?.innerText || "").join("\n"));
-  for (const bad of ["NaN", "undefined", "+0"]) {
+  for (const bad of ["NaN", "undefined"]) {
     assert(!text.includes(bad), `状态栏/属性面板出现裸占位文本 ${JSON.stringify(bad)}`);
   }
+}
+
+// 实测每个 .stat 的 <b> 与标签是否同行 + header 高度（审查同款口径）。
+async function measureBar(page) {
+  return page.evaluate(() => {
+    const stats = [...document.querySelectorAll(".status-nums .stat")].map((el) => {
+      const b = el.querySelector("b");
+      const er = el.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return {
+        text: el.textContent.trim(),
+        w: Math.round(er.width),
+        h: Math.round(er.height),
+        // <b> 字体基线与行盒有 ≤2px 视觉偏移；换行时偏移 ≥ 一个行高(≈19px)。
+        sameLine: Math.abs(er.top - br.top) < 3,
+      };
+    });
+    const header = document.querySelector(".status").getBoundingClientRect();
+    return { stats, headerH: Math.round(header.height) };
+  });
+}
+
+async function assertMobileBar(page, width) {
+  await page.setViewportSize({ width, height: 844 });
+  await page.waitForSelector(".status .status-nums");
+  const { stats, headerH } = await measureBar(page);
+  assert(stats.length === 9, `@${width} 顶栏应有 9 项 .stat，实测 ${stats.length}`);
+  const bad = stats.filter((s) => !s.sameLine);
+  assert(
+    bad.length === 0,
+    `@${width} 有 ${bad.length} 项数字被挤到第二行: ${bad.map((s) => s.text).join(",")}`
+  );
+  assert(headerH <= 142, `@${width} header 高 ${headerH}px > 142px（main 版量级 137px）`);
+  return { stats, headerH };
 }
 
 async function main() {
@@ -122,7 +157,7 @@ async function main() {
     let nums = await readCombatNums(page);
     assert(nums.攻击 && nums.防御, "战斗数值段缺攻击或防御行");
     assert(nums.攻击.total === expAtk(truth.save.stats, truth.equipment),
-      `攻击合计 ${nums.攻击.total} ≠ floor(1.6×${truth.save.stats.strength})+${truth.equipment.atk}`);
+      `攻击合计 ${nums.攻击.total} ≠ floor(${ATK_COEF}×${truth.save.stats.strength})+${truth.equipment.atk}`);
     assert(nums.防御.total === expDef(truth.save.stats, truth.equipment),
       `防御合计 ${nums.防御.total} ≠ floor(0.8×${truth.save.stats.vitality})+${truth.equipment.def}`);
     assert(Number(top.atk) === nums.攻击.total, `顶栏攻 ${top.atk} ≠ 面板合计 ${nums.攻击.total}`);
@@ -130,6 +165,7 @@ async function main() {
 
     // 新存档未装备任何物品 → 装备列应为「无配发装备」而非 +0。
     const eqCells = await page.locator(".combat-nums .cn-eq").allInnerTexts();
+    assert(eqCells.length === 2, `战斗数值应有两行装备列，实测 ${eqCells.length}: ${eqCells}`);
     assert(eqCells.every((t) => t.includes("无配发装备")), `空装备应显示「无配发装备」，实际 ${eqCells}`);
 
     fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -137,30 +173,62 @@ async function main() {
     await page.keyboard.press("Escape");
     await page.locator(".status").screenshot({ path: path.join(SHOT_DIR, "f083-statusbar.png") });
 
-    // ── 3) 装备武器后刷新：数值随 equipment 更新 ──
-    const eq = await api(`/saves/${saveId}/item`, {
-      method: "POST",
-      body: JSON.stringify({ item_id: "rusty_hunting_knife", op: "equip" }),
-    });
-    assert(eq.status === 200 && eq.body?.equipment?.atk > 0, `equip failed (HTTP ${eq.status})`);
+    // ── 3) 装备武器 + 防具后刷新：顶栏/面板攻防合计都随 equipment 更新 ──
+    for (const itemId of ["rusty_hunting_knife", "worn_leather_vest"]) {
+      const eq = await api(`/saves/${saveId}/item`, {
+        method: "POST",
+        body: JSON.stringify({ item_id: itemId, op: "equip" }),
+      });
+      assert(eq.status === 200, `equip ${itemId} failed (HTTP ${eq.status})`);
+    }
+    truth = (await api(`/saves/${saveId}`)).body;
+    assert(truth.equipment.atk > 0 && truth.equipment.def > 0,
+      `装备后应有 atk/def 加成: ${JSON.stringify(truth.equipment)}`);
+
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector(".status .status-nums");
-    await page.waitForSelector(".actions .btn-group-sys .btn");
+
+    const top2 = await page.evaluate(() => {
+      const stats = [...document.querySelectorAll(".status-nums .stat")];
+      const pick = (label) => {
+        const el = stats.find((s) => s.textContent.trim().startsWith(label));
+        return el?.querySelector("b")?.textContent.trim() ?? null;
+      };
+      return { atk: pick("攻"), def: pick("防") };
+    });
+    assert(Number(top2.atk) === expAtk(truth.save.stats, truth.equipment),
+      `装备后顶栏攻 ${top2.atk} ≠ 期望 ${expAtk(truth.save.stats, truth.equipment)}`);
+    assert(Number(top2.def) === expDef(truth.save.stats, truth.equipment),
+      `装备后顶栏防 ${top2.def} ≠ 期望 ${expDef(truth.save.stats, truth.equipment)}`);
+
     await page.locator('.btn-group-sys .btn', { hasText: "属性" }).click();
     await page.waitForSelector(".stat-panel .combat-nums");
-
-    truth = (await api(`/saves/${saveId}`)).body;
     nums = await readCombatNums(page);
     assert(nums.攻击.total === expAtk(truth.save.stats, truth.equipment),
       `装备后攻击合计 ${nums.攻击.total} ≠ 期望 ${expAtk(truth.save.stats, truth.equipment)}`);
+    assert(nums.防御.total === expDef(truth.save.stats, truth.equipment),
+      `装备后防御合计 ${nums.防御.total} ≠ 期望 ${expDef(truth.save.stats, truth.equipment)}`);
     assert(nums.攻击.eq === truth.equipment.atk, `装备加成应为 ${truth.equipment.atk}，实际 ${nums.攻击.eq}`);
+    assert(nums.防御.eq === truth.equipment.def, `防具加成应为 ${truth.equipment.def}，实际 ${nums.防御.eq}`);
     const eqCells2 = await page.locator(".combat-nums .cn-eq").allInnerTexts();
+    assert(eqCells2.length === 2, `战斗数值应有两行装备列，实测 ${eqCells2.length}: ${eqCells2}`);
     assert(eqCells2.some((t) => t.trim() === `+${truth.equipment.atk}`), `装备列缺 +${truth.equipment.atk}: ${eqCells2}`);
+    assert(eqCells2.some((t) => t.trim() === `+${truth.equipment.def}`), `装备列缺 +${truth.equipment.def}: ${eqCells2}`);
 
-    // ── 4) 负向：无 NaN / undefined / +0 ──
+    // ── 4) 移动端四宽度：数字不被挤到第二行，header ≤142px ──
+    await page.keyboard.press("Escape"); // 收起属性抽屉，否则 fixed 抽屉盖住 .status 截图
+    const report = [];
+    for (const w of [360, 375, 390, 414]) {
+      const r = await assertMobileBar(page, w);
+      report.push(`${w}px: ${r.stats.length}项全同行 header=${r.headerH}px`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator(".status").screenshot({ path: path.join(SHOT_DIR, "f083-statusbar-390.png") });
+
+    // ── 5) 负向：数值单元格无 NaN / undefined / +0 ──
     await checkNoPlaceholders(page);
 
-    console.log(`[ASSERT] atk-def-visible OK save=${saveId} 攻${nums.攻击.total} 防${nums.防御.total}`);
+    console.log(`[ASSERT] atk-def-visible OK save=${saveId} 攻${nums.攻击.total} 防${nums.防御.total} | ${report.join(" | ")}`);
   } finally {
     await browser.close().catch(() => {});
   }

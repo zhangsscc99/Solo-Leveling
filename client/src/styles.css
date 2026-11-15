@@ -1488,15 +1488,36 @@ button {
     overflow-x: auto;
     flex-wrap: nowrap;
     scrollbar-width: none;
+    /* 右缘渐隐：内容溢出时暗示可横滑；未溢出时渐隐区是空白，无视觉影响 */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  /* 每项禁止压缩/内部换行，行内容超宽时交给 .status-nums 横滚，
+     否则 .stat 被压到 min-content 后标签与数字折成两行、顶栏被撑高。 */
+  .status-nums .stat {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .status-nums::-webkit-scrollbar {
     display: none;
   }
 
+  /* 抽屉键提到证徽/ gauges 之前排布：与 .status-id 同一行靠右（margin-left:auto），
+     否则它落在最后一行独占 44px，小屏顶栏会多出整行高度。 */
   .drawer-toggle {
     display: block;
     margin-left: auto;
+    order: 1;
+  }
+
+  .status-gauges {
+    order: 2;
+  }
+
+  .status-nums {
+    order: 3;
   }
 
   .stage-col {
