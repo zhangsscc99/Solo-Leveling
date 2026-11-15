@@ -355,10 +355,26 @@ function vitalsCost(save) {
   return { patch: { hp, mp }, note };
 }
 
+// 本章守关者真名：遭遇表 boss 模板为准（玩家实际交手的实体），兜底主线
+// 链上 kind="boss" 场景的标题；都拿不到才回退到通用称谓——数据上 8 章
+// 的守关者都有真名，占位串永远不写出。
+function chapterBossName(chapter) {
+  if (!chapter) return "守关者";
+  const boss = encounterEngine.spawnBoss(chapter.index);
+  if (boss && boss.name) return boss.name;
+  const path = chaptersEngine.chapterPath(chapter);
+  const scene = path.find((s) => s && s.kind === "boss");
+  return scene && scene.title ? scene.title : "守关者";
+}
+
 // 章节门（F075）：站在本章主线链尾再前进 = 本章主线完成，结算准入。
 // 准入通过 → chapter+1 并落到下一章主线链首场景，同时写入一行主线播报；
 // 准入失败 → 留在当前场景，仅提示门槛。等级门当前是软门：等级不足也放行，
 // 但播报必须显性写出压制提示，不得静默（见 chapters.js 的 TODO(F088)）。
+// F096 守关者硬门：unlockedFor 通过之后，本章守关者还必须已被击杀
+// （bossRequirementMet —— 与主线奖励同一口径：链上无 boss 场景的章
+// 自动满足）。未击杀时 patch 不动 chapter/scene，只扣本次推进的体力，
+// 正文给出可执行的下一步（击败守关者，附当前进度）。
 function chapterGate(save, chapter, nextChapter, vit) {
   const gate = chaptersEngine.unlockedFor(save, nextChapter);
   if (!gate.ok) {
@@ -368,6 +384,17 @@ function chapterGate(save, chapter, nextChapter, vit) {
       patch: vit.patch,
       content:
         `【主线】通往第${nextChapter.index}章的门没有开启——${need} 才能进入第${nextChapter.index}章。\n` +
+        vit.note,
+    };
+  }
+  if (!bossRequirementMet(save, chapter)) {
+    const path = chaptersEngine.chapterPath(chapter);
+    const steps = Math.max(0, chaptersEngine.pathIndexOf(chapter, save.scene) + 1);
+    return {
+      patch: vit.patch,
+      content:
+        `【主线】第${chapter.index}章的守关者仍守在那扇门前——` +
+        `必须击败「${chapterBossName(chapter)}」才能通过（当前进度 ${steps}/${path.length}）。\n` +
         vit.note,
     };
   }
@@ -625,8 +652,8 @@ function tryEncounter(save, sceneId, opts) {
 
 // 「前进」结算 + 交战态收敛 + 遭遇判定（F074/F077/F088 交汇点）：
 //   1) 交战中前进 = 撤离尝试：与「逃跑」同一判定（resolveTurn 的 flee
-//      回合），失败白挨一回合敌人反击、原地不动；成功才脱离并落点，
-//      脱离后本次落点不再掷遭遇；
+//      回合 + retreatOnFlee 撤退），失败白挨一回合敌人反击、原地不动；
+//      成功只脱离交战（守关战撤回上一主线场景），不产生任何主线推进；
 //   2) 正常推进落到新场景 → boss 场景必遇本章 boss，否则按保底/遭遇率掷点；
 //      击杀冷却（encounter_cd）随每次真实移动递减，未归零不掷怪；
 //   3) 落到主线链尾 → grantMain，但本章守关 boss 未击杀时只给提示不发奖；
@@ -649,9 +676,12 @@ function advanceWithEncounter(save) {
   };
 
   if (cbt) {
-    // 撤离掷逃：直接复用战斗回合的 flee 结算（同一概率/公式/反击），
-    // 失败回合照推（吃反击、turn+1、原地不动），死亡交由 settleDeath。
-    const fleeRes = combatTurn(save, cbt, "flee", "前进");
+    // F096：交战中「前进」= 撤离掷逃，与「逃跑」按钮同一结算（combatTurn
+    // 的 retreatOnFlee）：失败回合照推（吃反击、turn+1、原地不动），死亡
+    // 交由 settleDeath；成功只脱离交战——守关战撤回上一主线场景并挂
+    // boss 房再入冷却（F095 逃生阀），普通遭遇原地脱离，链首场景则原地
+    // 脱离。绝不调用 advanceOutcome——同一次点击不得白嫖一次落点/穿章。
+    const fleeRes = combatTurn(save, cbt, "flee", "前进", null, { retreatOnFlee: true });
     const fledOk =
       fleeRes.combat &&
       fleeRes.combat.op === "clear" &&
@@ -667,27 +697,20 @@ function advanceWithEncounter(save) {
         grantMain: null,
       };
     }
-    // 撤离成功才推进：体力消耗按战后血量结算，落点不掷遭遇。
-    const fledSave = { ...save, hp: fleeRes.patch.hp, mp: fleeRes.patch.mp };
-    const out = advanceOutcome(fledSave);
-    const patch = { ...fleeRes.patch, ...(out.patch || {}) };
-    const moved = typeof patch.scene === "string" && patch.scene !== save.scene;
-    const res = {
-      patch,
-      content: `${fleeRes.content}\n你且战且退，甩开了${enemyName}的纠缠。\n${out.content}`,
-      events: moved ? ["advance"] : [],
+    const retreated =
+      typeof fleeRes.patch.scene === "string" && fleeRes.patch.scene !== save.scene;
+    return {
+      patch: fleeRes.patch,
+      content:
+        `${fleeRes.content}\n` +
+        (retreated
+          ? `【战斗】撤离成功——你退离了战场，这次撤离没有推进主线。`
+          : `【战斗】撤离成功——你甩开了${enemyName}的纠缠，守在原地没有推进。`),
+      events: fleeRes.events || [],
       combat: { op: "clear" },
       rewards: null,
       grantMain: null,
     };
-    if (!moved) return res;
-    patch.encounter_cd = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
-    if (patch.chapter && patch.chapter !== save.chapter) patch.encounter_clock = 0;
-    // 撤离后的真实移动同样消耗 boss 房再入冷却（负值向 0 倒数）。
-    const fleeClock = Math.trunc(Number(save.encounter_clock) || 0);
-    if (fleeClock < 0) patch.encounter_clock = Math.min(0, fleeClock + 1);
-    applyTailGate(res, chaptersEngine.getChapter(patch.chapter || save.chapter), false);
-    return res;
   }
 
   const out = advanceOutcome(save);
@@ -831,8 +854,8 @@ const BOSS_FLEE_COOLDOWN = 2;
 // 开战盐（enemy.seq，每场战斗唯一）+ 回合数构成，确定性可复现且场场
 // 不同；事件文案全部由引擎产出，本函数只做落库参数与播报拼装
 // （HP/MP 变化如实写出，不变不写）。
-// opts.retreatOnFlee：显式「逃跑」指令成功时允许撤退回上一主线场景
-// （守关 boss 专用逃生阀）；「前进」强行撤离走另一条路——向前落点。
+// opts.retreatOnFlee：逃跑判定成功时允许撤退回上一主线场景
+// （守关 boss 专用逃生阀）；「逃跑」指令与交战中「前进」撤离都走此路。
 function combatTurn(save, cbt, action, input, skill, opts) {
   let itemUse = null;
   if (action === "item") {
@@ -1306,7 +1329,7 @@ const INTENTS = [
         "「前进」推进剧情（消耗少量体力） · 「潜行」压低气息（消耗 5 MP）\n" +
         "「休息」恢复体力与魔力（每章 3 次，休憩会推进时间、可能惊动敌人） · 「存档」写入当前进度\n" +
         "「影子」查看编队 · 「影子出战 <名字>」遣影入阵 · 「影子撤回 <名字>」令其归队\n" +
-        "遭遇战中：「攻击」「释放技能 <名字>」「防御」「使用道具」「逃跑」或「前进」强行撤离\n" +
+        "遭遇战中：「攻击」「释放技能 <名字>」「防御」「使用道具」「逃跑」或「前进」尝试撤离（不推进主线）\n" +
         "其余自由输入将交由叙事层判定，未识别的动作不会改变状态。",
     }),
   },

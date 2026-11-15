@@ -768,8 +768,9 @@ export default function App() {
                     : null;
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
-                // 不再发这条必拒指令。交战态除外：此时「前进」是撤离掷逃，
-                // 主按钮改标「前进（撤离）」照常发出。
+                // 不再发这条必拒指令。F096：交战态下「前进」是撤离掷逃且
+                // 不再推进主线，主按钮改标「撤离」并写明不推进，照常发出。
+                const fleeing = b.input === "前进" && Boolean(save.combat);
                 if (b.input === "前进" && save.at_epilogue && !save.combat) {
                   return (
                     <button
@@ -789,10 +790,10 @@ export default function App() {
                     className={`btn${b.primary ? " primary" : ""}`}
                     disabled={busy || blocked || restBlocked}
                     onClick={() => dispatch(b.input)}
-                    title={reason || `快捷键 ${i + 1}`}
+                    title={reason || (fleeing ? `撤离不会推进主线 · 快捷键 ${i + 1}` : `快捷键 ${i + 1}`)}
                     aria-disabled={busy || blocked || restBlocked}
                   >
-                    {b.input === "前进" && save.at_epilogue && save.combat ? "前进（撤离）" : b.label}
+                    {fleeing ? "撤离" : b.label}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>
