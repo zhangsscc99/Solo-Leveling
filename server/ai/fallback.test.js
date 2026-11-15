@@ -51,8 +51,11 @@ test("fallback.parse maps shadow commands to the F051 intents", () => {
   }
 });
 
-test("fallback.parse: 影子叙述句不触发指令，落到 observe", () => {
-  for (const input of ["我想让影子出战后休息", "影子在风中飘散", "他说影子出战才算赢"]) {
+test("fallback.parse: 影子叙述句不触发影子指令；含既有指令词按子串语义命中", () => {
+  // 「影子出战」不在句首 → 不触发 shadow_deploy；但句中「休息」沿用
+  // main 的子串匹配语义命中 rest（与 /action 的 resolveAction 一致）。
+  assert.equal(fallback.parse("我想让影子出战后休息").intent, "rest");
+  for (const input of ["影子在风中飘散", "他说影子出战才算赢"]) {
     const r = fallback.parse(input);
     assert.equal(r.intent, "observe", `input "${input}"`);
   }

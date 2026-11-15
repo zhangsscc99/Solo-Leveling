@@ -11,6 +11,7 @@ const aiGateway = require("./ai/gateway");
 const aiValidate = require("./ai/validate");
 const aiContext = require("./ai/context");
 const aiFallback = require("./ai/fallback");
+const intentRules = require("./ai/keywords");
 
 const VERSION = "0.1.0";
 const HOST = "127.0.0.1";
@@ -57,8 +58,16 @@ const SLOT_LABEL = { weapon: "武器", armor: "防具" };
 const SKILLS = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "skills.json"), "utf8"));
 
 // F051 影子编队：列表/摘要统一走引擎纯函数，db 行 → 视图（含 stats/power/deployed）。
+// 读视图前先自愈：旧版按 (save_id, shadow_id) 广播 deployed=1，同 shadow_id
+// 多行曾被一次全部置出战、计数冲破上限。写库已改按主键行定位（不再新增），
+// 这里把仍超出上限的出战行自动收回，只保留前 max 个。
 function formationView(saveId) {
-  return shadowEngine.formationSummary(store.getShadows(saveId));
+  const f = shadowEngine.formationSummary(store.getShadows(saveId));
+  if (f.count > f.max) {
+    store.releaseExcessDeployed(saveId, f.max);
+    return shadowEngine.formationSummary(store.getShadows(saveId));
+  }
+  return f;
 }
 
 function shadowLine(s) {
@@ -177,17 +186,18 @@ function itemLine(item) {
 }
 
 
-// Whitelisted intents. Each entry owns its keyword match, log role, the
+// Whitelisted intents. Each entry owns its log role, the
 // deterministic state delta and the narration text — every number is computed
 // here on the server, never taken from the client payload.
+// 关键词匹配不在此表：/action 与 /ai-action 统一走 ai/keywords.js 的
+// INTENT_MATCHERS（单一事实源），INTENTS 只负责按 id 结算。
 const INTENTS = [
   {
     id: "shadow_deploy",
     role: "system",
-    match: shadowEngine.DEPLOY_COMMAND,
     build: (save, input) => {
+      const f = formationView(save.id);
       const shadows = store.getShadows(save.id);
-      const f = shadowEngine.formationSummary(shadows);
       if (!shadows.length) {
         return {
           patch: null,
@@ -239,7 +249,7 @@ const INTENTS = [
             f.shadows.map(shadowLine).join("\n"),
         };
       }
-      if (!gate.already && !store.setShadowDeployed(save.id, gate.shadow.id, true)) {
+      if (!gate.already && !store.setShadowDeployed(save.id, gate.shadow.rowId, true)) {
         return {
           patch: null,
           shadows: formationView(save.id),
@@ -259,10 +269,9 @@ const INTENTS = [
   {
     id: "shadow_undeploy",
     role: "system",
-    match: shadowEngine.UNDEPLOY_COMMAND,
     build: (save, input) => {
+      const f = formationView(save.id);
       const shadows = store.getShadows(save.id);
-      const f = shadowEngine.formationSummary(shadows);
       if (!shadows.length) {
         return {
           patch: null,
@@ -309,7 +318,7 @@ const INTENTS = [
             f.shadows.map(shadowLine).join("\n"),
         };
       }
-      if (!store.setShadowDeployed(save.id, gate.shadow.id, false)) {
+      if (!store.setShadowDeployed(save.id, gate.shadow.rowId, false)) {
         return {
           patch: null,
           shadows: formationView(save.id),
@@ -327,7 +336,6 @@ const INTENTS = [
   {
     id: "shadow_formation",
     role: "system",
-    match: shadowEngine.FORMATION_COMMAND,
     build: (save) => {
       const f = formationView(save.id);
       if (!f.shadows.length) {
@@ -350,7 +358,6 @@ const INTENTS = [
   {
     id: "status",
     role: "system",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:(?:查看|打开|看看?|调出)\s*)?(?:状态|面板|属性|status|stats?)/i,
     build: (save) => {
       const s = save.stats || {};
       return {
@@ -365,7 +372,6 @@ const INTENTS = [
   {
     id: "help",
     role: "system",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:帮助|指令|help)/i,
     build: () => ({
       patch: null,
       content:
@@ -380,7 +386,6 @@ const INTENTS = [
   {
     id: "observe",
     role: "narrator",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:观察|查看|环顾|四周|环境|look)/i,
     build: () => ({
       patch: null,
       content:
@@ -390,7 +395,6 @@ const INTENTS = [
   {
     id: "advance",
     role: "narrator",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:前进|探索|走|移动|离开|进入|advance|explore|go)/i,
     build: (save) => {
       const hp = clamp(save.hp - 3, 1, save.max_hp);
       const mp = clamp(save.mp - 2, 0, save.max_mp);
@@ -405,7 +409,6 @@ const INTENTS = [
   {
     id: "sneak",
     role: "narrator",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:潜行|藏匿|隐蔽|sneak|stealth)/i,
     build: (save) => {
       const mp = clamp(save.mp - 5, 0, save.max_mp);
       return {
@@ -419,7 +422,6 @@ const INTENTS = [
   {
     id: "rest",
     role: "narrator",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:休息|睡觉|休整|小憩|rest|sleep)/i,
     build: (save) => {
       const hp = clamp(save.hp + 15, 0, save.max_hp);
       const mp = clamp(save.mp + 8, 0, save.max_mp);
@@ -434,7 +436,6 @@ const INTENTS = [
   {
     id: "save",
     role: "system",
-    match: /^(?:(?:请|麻烦|帮我)\s*)*(?:存档|保存|save)/i,
     build: (save) => ({
       patch: null,
       content: `【系统】存档已写入。第${save.chapter}章 · Lv.${save.level} · ${vitalsLine(save)} · 金币 ${save.gold}。`,
@@ -463,10 +464,9 @@ function executeIntent(save, intentId, input) {
 }
 
 function resolveAction(save, input) {
-  for (const intent of INTENTS) {
-    if (intent.match.test(input)) {
-      return executeIntent(save, intent.id, input);
-    }
+  const intentId = intentRules.resolveIntent(input);
+  if (intentId) {
+    return executeIntent(save, intentId, input);
   }
   return {
     intent: "unknown",
@@ -692,8 +692,8 @@ api.post("/saves/:id/shadow", (req, res) => {
   if (!shadowId) return res.status(400).json({ error: "shadow_id is required" });
   if (!op) return res.status(400).json({ error: 'op must be one of deploy, undeploy' });
 
+  const f = formationView(save.id);
   const shadows = store.getShadows(save.id);
-  const f = shadowEngine.formationSummary(shadows);
   // 与 /action 的同名指令共用同一套引擎判定，两处行为不分叉。
   const gate =
     op === "deploy"
@@ -722,7 +722,7 @@ api.post("/saves/:id/shadow", (req, res) => {
     if (gate.already) {
       content = `【影子编队】「${gate.shadow.name}」已在阵中。已出战 ${f.count}/${f.max} · 战力合计 ${f.power}。`;
     } else {
-      const updated = store.setShadowDeployed(save.id, gate.shadow.id, true);
+      const updated = store.setShadowDeployed(save.id, gate.shadow.rowId, true);
       const after = formationView(save.id);
       content = updated
         ? `【影子编队】「${gate.shadow.name}」自你脚下的阴影中升起，列入战阵。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`
@@ -732,7 +732,7 @@ api.post("/saves/:id/shadow", (req, res) => {
     // 仅剩 not_deployed（其余失败分支上面已拦截）。
     content = `【影子编队】「${gate.shadow.name}」本就不在战阵之中。已出战 ${f.count}/${f.max}。`;
   } else {
-    const updated = store.setShadowDeployed(save.id, gate.shadow.id, false);
+    const updated = store.setShadowDeployed(save.id, gate.shadow.rowId, false);
     const after = formationView(save.id);
     content = updated
       ? `【影子编队】「${gate.shadow.name}」化作一缕黑雾归回你的影子里。已出战 ${after.count}/${after.max} · 战力合计 ${after.power}。`
