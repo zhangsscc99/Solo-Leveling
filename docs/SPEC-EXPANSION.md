@@ -31,3 +31,6 @@
 - [ ] 影子提取接线（F051 前置）：`server/engine/shadow.js` 已就绪但无人调用。在 `/action` 战斗胜利分支按 `canExtract → rollExtraction → shadowCap+countShadows → addShadow` 落库并写系统播报，前端战斗面板出现「ARISE」按钮与成功率预览
 - [ ] 加点即时反馈：`POST /game/api/saves/:id/spend` 成功后除刷新面板外，要往日志写一条系统播报（如「力量 +1 → 12」并附带 max_hp 变化），属性行数值做 200ms 高亮过渡（遵循 reduced-motion）；顺带给加点按钮接键盘快捷键与移动端操作栏
 - [ ] 压制系数可见化：战斗面板显示双方猎人等级与当前 `rankFactor`（如「E vs C · 伤害 ×0.80」），并把 E..S 系数表补进 `docs/DESIGN.md` 的战斗说明，方便后续平衡调整
+
+- [ ] 任务面板可读性打磨（F008 实测截图问题）：0% 进度条几乎不可见、奖励预览「XP 30 金币 20」对比度偏低 → 进度条给最小可见段（≥4px）与数值前置、奖励改成等宽数值 + 分隔符；同时修 `.side-scroll` 底部硬切（任务面板第三条「推进战线」初始视口即被裁断，快捷栏还挤占最后一行）
+- [ ] F021 接线：把已就绪的 `server/ai/context.js`（buildContext）与 `server/ai/validate.js`（normalizeDecision/clampVitals/withDeadline）串进新 `POST /game/api/ai-action` —— gateway 调用 → 上下文压缩 → 白名单校验 → `resolveAction` 执行 → 叙述返回，并在 `server/ai/aiAction.test.js` 里用假 gateway 跑端到端
