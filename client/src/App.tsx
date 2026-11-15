@@ -483,7 +483,8 @@ export default function App() {
     [save, statBusy]
   );
 
-  // 技能释放只发文本指令，MP 扣减与冷却结算交给服务端；冷却倒计时在面板本地起表。
+  // 技能释放只发文本指令：MP 扣减、回合冷却与伤害全部由服务端结算后
+  // 随 save.skills 回灌（cooldown_remaining/can_cast/reason），面板不再本地起表。
   const onRelease = useCallback(
     (skill: Skill) => {
       dispatch(`释放技能 ${skill.name}`);
@@ -659,7 +660,7 @@ export default function App() {
             <CombatPanel
               save={save}
               log={log}
-              skills={skills}
+              skills={save.skills ?? skills}
               inventory={inventory}
               items={items}
               busy={busy}
@@ -703,7 +704,7 @@ export default function App() {
               itemBusy={itemBusy}
               itemNotice={itemNotice}
               onItemOp={onItemOp}
-              skills={skills}
+              skills={save.skills ?? skills}
               skillsError={skillsError}
               busy={busy}
               onRelease={onRelease}

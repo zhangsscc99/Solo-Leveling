@@ -217,7 +217,7 @@ export default function CombatPanel({
   const actDisabled = busy || !ctx.inCombat;
   const actTitle = ctx.inCombat ? undefined : "当前没有交战目标";
   const learned = useMemo(
-    () => skills.filter((s) => s.learn_level <= save.level),
+    () => skills.filter((s) => s.unlocked ?? s.learn_level <= save.level),
     [skills, save.level]
   );
   const consumables = useMemo(() => {
@@ -350,21 +350,34 @@ export default function CombatPanel({
           {learned.length === 0 ? (
             <li className="combat-sub-empty">尚未习得技能。</li>
           ) : (
-            learned.map((s) => (
-              <li key={s.id} className="combat-sub-row">
-                <span className="combat-sub-name">{s.name}</span>
-                <span className="combat-sub-meta">
-                  MP {s.mp_cost} · 威力 {s.power}
-                </span>
-                <button
-                  className="combat-sub-btn"
-                  disabled={busy || save.mp < s.mp_cost}
-                  onClick={() => act(`释放技能 ${s.name}`)}
-                >
-                  {save.mp < s.mp_cost ? "MP 不足" : "释放"}
-                </button>
-              </li>
-            ))
+            learned.map((s) => {
+              const cd = s.cooldown_remaining ?? 0;
+              const mpShort = !(s.mp_enough ?? save.mp >= s.mp_cost);
+              const disabled = busy || (s.can_cast !== undefined ? !s.can_cast : cd > 0 || mpShort);
+              const label = cd > 0 ? `冷却 ${cd} 回合` : mpShort ? "MP 不足" : "释放";
+              const hint = cd > 0
+                ? `冷却中：还需 ${cd} 回合`
+                : mpShort
+                  ? `MP 不足：需 ${s.mp_cost}（当前 ${save.mp}）`
+                  : undefined;
+              return (
+                <li key={s.id} className="combat-sub-row">
+                  <span className="combat-sub-name">{s.name}</span>
+                  <span className="combat-sub-meta">
+                    MP {s.mp_cost} · 威力 {s.power}
+                  </span>
+                  <button
+                    className="combat-sub-btn"
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    title={hint}
+                    onClick={() => act(`释放技能 ${s.name}`)}
+                  >
+                    {label}
+                  </button>
+                </li>
+              );
+            })
           )}
         </ul>
       )}

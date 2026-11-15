@@ -81,9 +81,10 @@ export async function advanceOnce(id, { fight = "mobs", restAt = 0.45, max = 400
       const isBoss = Boolean(s.combat.enemy && s.combat.enemy.boss);
       const wantFight = fight === "all" || (fight === "boss" && isBoss) || (fight === "mobs" && !isBoss);
       const lowHp = s.hp > 0 && s.hp <= Math.max(25, s.max_hp * 0.35);
+      const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
       let input;
       if (lowHp && hasHealer) input = "使用道具";
-      else if (wantFight) input = s.mp >= 12 ? "释放技能 猛虎猛击" : "攻击";
+      else if (wantFight) input = castable ? `释放技能 ${castable.name}` : "攻击";
       else input = "前进"; // 掷逃：成功即落地移动，失败白挨一回合
       const r = await act(id, input);
       if (r.save.scene !== s.scene || r.save.chapter !== s.chapter) return r;
@@ -122,9 +123,10 @@ export async function advanceTraverse(id, { fightCap = 8, max = 600 } = {}) {
       const lowHp = s.hp > 0 && s.hp <= Math.max(30, s.max_hp * 0.4);
       const mobLv = 2 + 5 * (s.chapter - 1);
       const farmable = !isBoss && s.level < fightCap && mobLv <= s.level + 4 && s.hp > s.max_hp * 0.35;
+      const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
       let input;
       if (lowHp && hasHealer) input = "使用道具";
-      else if (farmable) input = s.mp >= 12 ? "释放技能 猛虎猛击" : "攻击";
+      else if (farmable) input = castable ? `释放技能 ${castable.name}` : "攻击";
       else input = "前进";
       const r = await act(id, input);
       if (r.save.scene !== s.scene || r.save.chapter !== s.chapter) return r;
@@ -147,7 +149,8 @@ export async function clearCombat(id, { max = 120 } = {}) {
     if (!s.combat) return s;
     const hasHealer = (inventory || []).some((r) => r.qty > 0 && HEAL_ITEM_IDS.has(r.item_id));
     const lowHp = s.hp > 0 && s.hp <= Math.max(25, s.max_hp * 0.35);
-    await act(id, lowHp && hasHealer ? "使用道具" : s.mp >= 12 ? "释放技能 猛虎猛击" : "攻击");
+    const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
+    await act(id, lowHp && hasHealer ? "使用道具" : castable ? `释放技能 ${castable.name}` : "攻击");
   }
   fail(`clearCombat: ${max} actions and combat still active`);
 }

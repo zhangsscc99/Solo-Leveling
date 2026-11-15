@@ -861,7 +861,8 @@ button {
 }
 
 .inv-notice,
-.stat-notice {
+.stat-notice,
+.skill-notice {
   margin: 0;
   padding: 2px 0 2px var(--sp-2);
   border-left: 2px solid var(--blood);

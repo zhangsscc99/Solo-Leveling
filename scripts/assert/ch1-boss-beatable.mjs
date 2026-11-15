@@ -95,12 +95,14 @@ assert(
 const HEAL_IDS = new Set(["low_heal_potion", "mid_heal_potion", "elixir_of_life"]);
 const hasHealer = (inv) => (inv || []).some((r) => r.qty > 0 && HEAL_IDS.has(r.item_id));
 
-// 白名单战斗一步：低血嗑药 → 有 MP 放技能 → 否则普攻。
+// 白名单战斗一步：低血嗑药 → 有可释放技能放技能（can_cast 已含冷却/MP/
+// 交战门禁，冷却期不放技能而不是空转）→ 否则普攻。
 async function fightStep(id) {
   const { save: s, inventory } = await fetchSaveView(id);
   const low = s.hp > 0 && s.hp <= Math.max(30, s.max_hp * 0.35);
   if (low && hasHealer(inventory)) return act(id, "使用道具");
-  if (s.mp >= 12) return act(id, "释放技能 猛虎猛击");
+  const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
+  if (castable) return act(id, `释放技能 ${castable.name}`);
   return act(id, "攻击");
 }
 async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {

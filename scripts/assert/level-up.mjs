@@ -69,7 +69,10 @@ const play = async () => {
     const lowHp = s.hp > 0 && s.hp <= Math.max(30, s.max_hp * 0.35);
     if (lowHp && hasHealer) return act(id, "使用道具");
     if (!isBoss && s.kills >= 3) return act(id, "前进"); // 掷逃小怪
-    return act(id, s.mp >= 12 ? "释放技能 猛虎猛击" : "攻击");
+    // 冷却期不放技能（门禁诚实拒绝不耗回合，空放会变成零推进死循环）——
+    // 读 save.skills 的 can_cast，能放才放，否则普攻。
+    const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
+    return act(id, castable ? `释放技能 ${castable.name}` : "攻击");
   }
   if (s.hp > 0 && s.hp < s.max_hp * 0.55) return act(id, "休息");
   // 守关者未死且人在其门口：原地「攻击」召怪，必打。

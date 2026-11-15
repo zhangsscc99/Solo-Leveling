@@ -135,6 +135,10 @@ if (!saveCols.includes("encounter_cd")) {
 if (!saveCols.includes("boss_cleared_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN boss_cleared_json TEXT NOT NULL DEFAULT '[]'");
 }
+// F081 技能冷却：{ skill_id: 剩余回合数 }，只随已结算的战斗回合衰减。
+if (!saveCols.includes("skill_cd_json")) {
+  db.exec("ALTER TABLE saves ADD COLUMN skill_cd_json TEXT NOT NULL DEFAULT '{}'");
+}
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
@@ -207,7 +211,7 @@ const stmts = {
 
 function toSave(row) {
   if (!row) return null;
-  const { stats_json, rewards_json, boss_cleared_json, ...rest } = row;
+  const { stats_json, rewards_json, boss_cleared_json, skill_cd_json, ...rest } = row;
   let stats = {};
   try {
     stats = JSON.parse(stats_json || "{}");
@@ -228,7 +232,19 @@ function toSave(row) {
   } catch {
     boss_cleared = [];
   }
-  return { ...rest, stats, rewards, boss_cleared };
+  let skill_cds = {};
+  try {
+    const parsed = JSON.parse(skill_cd_json || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed)) {
+        const n = Math.trunc(Number(v) || 0);
+        if (n > 0) skill_cds[k] = n;
+      }
+    }
+  } catch {
+    skill_cds = {};
+  }
+  return { ...rest, stats, rewards, boss_cleared, skill_cds };
 }
 
 function createSave(playerName) {
@@ -275,6 +291,11 @@ function updateSave(id, patch) {
   if (patch.boss_cleared !== undefined) {
     sets.push("boss_cleared_json = ?");
     values.push(JSON.stringify(Array.isArray(patch.boss_cleared) ? patch.boss_cleared : []));
+  }
+  if (patch.skill_cds !== undefined) {
+    sets.push("skill_cd_json = ?");
+    const cds = patch.skill_cds && typeof patch.skill_cds === "object" ? patch.skill_cds : {};
+    values.push(JSON.stringify(cds));
   }
   if (!sets.length) return getSave(id);
   db.prepare(`UPDATE saves SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
