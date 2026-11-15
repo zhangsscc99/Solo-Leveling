@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "comment": "影子提取（Arise）调参表。baseChance 按敌人 rank，等级差惩罚与稀有度修正叠加后 clamp 到 [minChance, maxChance]。",
+  "rankOrder": ["E", "D", "C", "B", "A", "S"],
+  "rankBaseLevel": { "E": 1, "D": 10, "C": 20, "B": 30, "A": 40, "S": 50 },
+  "ranks": {
+    "E": { "baseChance": 0.7, "gapScale": 0.5 },
+    "D": { "baseChance": 0.55, "gapScale": 0.7 },
+    "C": { "baseChance": 0.42, "gapScale": 0.9 },
+    "B": { "baseChance": 0.3, "gapScale": 1.1 },
+    "A": { "baseChance": 0.18, "gapScale": 1.3 },
+    "S": { "baseChance": 0.1, "gapScale": 1.6 }
+  },
+  "levelGap": {
+    "penaltyPerLevel": 0.03,
+    "advantageBonusPerLevel": 0.005,
+    "advantageBonusCap": 0.1
+  },
+  "perception": {
+    "weight": 0.004,
+    "bonusCap": 0.12
+  },
+  "rarityModifier": {
+    "common": 0.05,
+    "uncommon": 0.02,
+    "rare": 0,
+    "epic": -0.04,
+    "legendary": -0.08
+  },
+  "boss": {
+    "flags": ["isBoss", "boss"],
+    "rankRequirement": { "S": 40, "A": 30 },
+    "denyRanks": [],
+    "chanceMultiplier": 0.5
+  },
+  "limits": {
+    "minChance": 0.01,
+    "maxChance": 0.95
+  },
+  "caps": {
+    "perLevels": 10,
+    "max": 10
+  }
+}
