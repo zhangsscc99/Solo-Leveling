@@ -4,8 +4,12 @@
 // conjured by wording, and any returned intent must be whitelisted.
 import { assert, get, makeSave, ok, post } from "./_http.mjs";
 
+// 现行意图白名单（server/index.js INTENTS + 未解析输入的 "unknown" 兜底）。
 const WHITELIST = new Set([
-  "explore", "attack", "talk", "use_item", "rest", "flee", "skill", "arise", "custom",
+  "advance", "observe", "rest", "sneak", "save", "status", "help",
+  "attack", "skill", "defend", "item", "flee",
+  "shadow_deploy", "shadow_undeploy", "shadow_formation",
+  "unknown",
 ]);
 
 const sid = await makeSave("guard");

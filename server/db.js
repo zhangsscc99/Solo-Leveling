@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS saves (
   chapter INTEGER NOT NULL DEFAULT 1,
   scene TEXT,
   cleared_at TEXT,
+  encounter_seq INTEGER NOT NULL DEFAULT 0,
+  encounter_cd INTEGER NOT NULL DEFAULT 0,
+  boss_cleared_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -119,6 +122,19 @@ if (!saveCols.includes("encounter_clock")) {
 if (!saveCols.includes("rewards_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN rewards_json TEXT NOT NULL DEFAULT '[]'");
 }
+// F088 加固：encounter_seq 是开战盐（每次开战 +1，混入遭遇与回合种子，
+// 保证同档连续两场战斗的 RNG 流不同）；encounter_cd 是击杀冷却（剩余
+// 移动次数），原地连点「攻击」不再刷怪。boss_cleared_json 记已击杀的
+// 守关 boss 章节 id——主线奖励与 boss 击杀解耦后靠它结算。
+if (!saveCols.includes("encounter_seq")) {
+  db.exec("ALTER TABLE saves ADD COLUMN encounter_seq INTEGER NOT NULL DEFAULT 0");
+}
+if (!saveCols.includes("encounter_cd")) {
+  db.exec("ALTER TABLE saves ADD COLUMN encounter_cd INTEGER NOT NULL DEFAULT 0");
+}
+if (!saveCols.includes("boss_cleared_json")) {
+  db.exec("ALTER TABLE saves ADD COLUMN boss_cleared_json TEXT NOT NULL DEFAULT '[]'");
+}
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
@@ -191,7 +207,7 @@ const stmts = {
 
 function toSave(row) {
   if (!row) return null;
-  const { stats_json, rewards_json, ...rest } = row;
+  const { stats_json, rewards_json, boss_cleared_json, ...rest } = row;
   let stats = {};
   try {
     stats = JSON.parse(stats_json || "{}");
@@ -205,7 +221,14 @@ function toSave(row) {
   } catch {
     rewards = [];
   }
-  return { ...rest, stats, rewards };
+  let boss_cleared = [];
+  try {
+    const parsed = JSON.parse(boss_cleared_json || "[]");
+    if (Array.isArray(parsed)) boss_cleared = parsed;
+  } catch {
+    boss_cleared = [];
+  }
+  return { ...rest, stats, rewards, boss_cleared };
 }
 
 function createSave(playerName) {
@@ -233,6 +256,7 @@ function getSave(id) {
 const MUTABLE_COLUMNS = [
   "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
+  "encounter_seq", "encounter_cd",
 ];
 
 function updateSave(id, patch) {
@@ -247,6 +271,10 @@ function updateSave(id, patch) {
   if (patch.rewards !== undefined) {
     sets.push("rewards_json = ?");
     values.push(JSON.stringify(Array.isArray(patch.rewards) ? patch.rewards : []));
+  }
+  if (patch.boss_cleared !== undefined) {
+    sets.push("boss_cleared_json = ?");
+    values.push(JSON.stringify(Array.isArray(patch.boss_cleared) ? patch.boss_cleared : []));
   }
   if (!sets.length) return getSave(id);
   db.prepare(`UPDATE saves SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
@@ -348,7 +376,14 @@ function clearCombat(saveId) {
   stmts.clearCombat.run(saveId);
 }
 
+// applyOutcome 需要把「写存档 + 写战斗态 + 发奖 + 去重标记」包进同一事务：
+// 必须把 better-sqlite3 的原生连接与 transaction 工厂透出（同事务只对同一
+// 连接生效，index.js 不得再开第二条连接来装库存/奖励写操作）。
+const transaction = (fn) => db.transaction(fn);
+
 module.exports = {
+  db,
+  transaction,
   createSave,
   getSave,
   getInventory,

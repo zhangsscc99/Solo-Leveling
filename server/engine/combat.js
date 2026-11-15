@@ -107,9 +107,10 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
   }
 }
 
-function resolveTurn(state, action, seed) {
+function resolveTurn(state, action, seed, opts) {
   const events = [];
   const src = state && typeof state === "object" ? state : {};
+  const options = opts && typeof opts === "object" ? opts : {};
   const next = {
     turn: S.num(src.turn),
     player: sanitizeEntity(src.player),
@@ -117,6 +118,24 @@ function resolveTurn(state, action, seed) {
   };
   const { player, enemy } = next;
   const enemyName = enemy.name || "敌人";
+
+  // opts.item / opts.skill 由 index.js 注入真实目录数据（items.json /
+  // skills.json）：缺省时回落到旧默认（治疗药水 ITEM_HEAL / 基础技能），
+  // 保证纯函数测试与未接线调用方行为不变。
+  const itemUse = options.item && typeof options.item === "object" ? options.item : null;
+  const skillUse = options.skill && typeof options.skill === "object" ? options.skill : null;
+  const itemName = itemUse && typeof itemUse.name === "string" && itemUse.name ? itemUse.name : "治疗药水";
+  const itemHeal = itemUse ? Math.max(0, Math.trunc(S.num(itemUse.heal))) : ITEM_HEAL;
+  const itemMp = itemUse ? Math.max(0, Math.trunc(S.num(itemUse.mp))) : 0;
+  const skillCostNow = skillUse
+    ? Math.max(1, Math.trunc(S.num(skillUse.mp_cost) || 1))
+    : S.skillCost(player, SKILL_COST);
+  const skillMult = skillUse
+    ? Math.max(0.5, S.num(skillUse.power) / 10 || S.skillMultiplier(player))
+    : S.skillMultiplier(player);
+  const skillLabel = skillUse && typeof skillUse.name === "string" && skillUse.name
+    ? `「${skillUse.name}」`
+    : "你的技能";
 
   if (!VALID_ACTIONS.has(action)) {
     events.push({ type: "error", side: "system", text: `未知的行动「${action}」，回合未推进。` });
@@ -140,7 +159,6 @@ function resolveTurn(state, action, seed) {
   // 防御姿态在本回合内始终生效（即使敌人抢先出手，也能及时架住）。
   const defending = action === "defend";
   const defendMult = defending ? DEFEND_MULT : 1;
-  const skillCost = S.skillCost(player, SKILL_COST);
   let fled = false;
 
   // 玩家行动：与旧版行为一致，但技能伤害系数与 MP 消耗由智力决定。
@@ -155,15 +173,15 @@ function resolveTurn(state, action, seed) {
         });
         break;
       case "skill":
-        if (player.mp < skillCost) {
-          events.push({ type: "error", side: "system", text: `魔力不足（需要 ${skillCost} MP），技能释放失败。` });
+        if (player.mp < skillCostNow) {
+          events.push({ type: "error", side: "system", text: `魔力不足（需要 ${skillCostNow} MP），技能释放失败。` });
         } else {
-          player.mp = clamp(player.mp - skillCost, 0, player.maxMp);
+          player.mp = clamp(player.mp - skillCostNow, 0, player.maxMp);
           strike({
             attacker: player, defender: enemy,
             attackerSide: "player", defenderSide: "enemy",
             defenderName: enemyName, def: S.defenseFor(enemy),
-            rng, events, mult: S.skillMultiplier(player), label: "你的技能",
+            rng, events, mult: skillMult, label: skillLabel,
           });
         }
         break;
@@ -171,12 +189,20 @@ function resolveTurn(state, action, seed) {
         // 姿态已在 `defending` 中生效，无需额外事件。
         break;
       case "item": {
-        const before = player.hp;
-        player.hp = clamp(player.hp + ITEM_HEAL, 0, player.maxHp);
-        const healed = player.hp - before;
+        const beforeHp = player.hp;
+        const beforeMp = player.mp;
+        player.hp = clamp(player.hp + itemHeal, 0, player.maxHp);
+        player.mp = clamp(player.mp + itemMp, 0, player.maxMp);
+        const healed = player.hp - beforeHp;
+        const restored = player.mp - beforeMp;
+        const parts = [];
+        if (healed > 0) parts.push(`恢复 ${healed} 点生命`);
+        if (restored > 0) parts.push(`恢复 ${restored} 点魔力`);
         events.push({
-          type: "heal", side: "player", value: healed,
-          text: healed > 0 ? `你使用了治疗药水，恢复 ${healed} 点生命。` : "你使用了治疗药水，但生命已满，毫无效果。",
+          type: "heal", side: "player", value: healed + restored,
+          text: parts.length
+            ? `你使用了「${itemName}」，${parts.join("、")}。`
+            : `你使用了「${itemName}」，但状态已满，毫无效果。`,
         });
         break;
       }

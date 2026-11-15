@@ -16,7 +16,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, post, get, makeSave } from "./_http.mjs";
+import { assert, ok, post, get, makeSave, clearCombat, advanceTraverse } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -56,10 +56,12 @@ const ch2Unlock = raw.chapters.find((c) => c.index === 2).unlock;
 const EPILOGUE = "ch8_epilogue";
 const epilogueFrag = stripWs(sceneTextById.get(EPILOGUE)).slice(0, 12);
 
+// 交战中「前进」= 撤离掷逃（失败白挨一回合）：低章顺手打打得动的小怪
+// 攒级撑血线（advanceTraverse 的生存向驱动），跨章后纯掷逃。
+// 练级硬上限 Lv8：ch2（Lv.5）/ch3（Lv.10）软门的「等级未达」断言必须
+// 成立，多打的怪只用于后期章节的生存余量。
 async function advance(id) {
-  const { status, body } = await post("/action", { save_id: id, input: "前进" });
-  assert(status === 200 && body && body.reply && body.save, `advance failed (HTTP ${status})`);
-  return body;
+  return advanceTraverse(id, { fightCap: 8 });
 }
 
 const id = await makeSave("chapter-gate");
@@ -81,8 +83,11 @@ async function dualSource(tag) {
   );
 }
 
-// 观察负向：scene / hp / mp 必须三不变。
+// 观察负向：scene / hp / mp 必须三不变。交战中「观察」会被服务端改判
+// 为战斗提示——先就地清场（原地击杀，不移动）再验。
 async function observeFree(tag) {
+  const s0 = (await get(`/saves/${id}`)).body.save;
+  if (s0.combat) await clearCombat(id);
   const before = (await get(`/saves/${id}`)).body.save;
   const { status, body } = await post("/action", { save_id: id, input: "观察" });
   assert(status === 200 && body && body.reply && body.save, `${tag}: observe failed (HTTP ${status})`);
@@ -158,7 +163,9 @@ for (let i = 0; i < 5; i++) last = await advance(id);
 let enteredCh3 = null;
 {
   let save = null;
-  for (let i = 0; i < 60; i++) {
+  // 掷逃驱动的「逻辑推进」上限：每次 advance 至少产生一次场景变化，
+  // 但失败掷逃/死亡回溯会额外消耗预算——余量给足。
+  for (let i = 0; i < 300; i++) {
     const { reply, save: s } = await advance(id);
     if (s.chapter === 3 && s.chapter_steps === 1 && !enteredCh3) enteredCh3 = reply.content;
     if (s.scene === EPILOGUE) {

@@ -17,7 +17,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, post, get, makeSave } from "./_http.mjs";
+import { assert, ok, get, makeSave, advanceTraverse } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -105,11 +105,23 @@ const id = await makeSave("scene-advance");
   assert(Array.isArray(s.next_choices), "next_choices must be an array");
 }
 
-// ── 2/3/4) 连推 12 次 ────────────────────────────────────────────
+// ── 2/3/4) 连推 12 个真实落点 ────────────────────────────────────
+// 交战中「前进」= 撤离掷逃（失败原地挨回合，阵亡回溯章首）——每次逻辑
+// 推进由 advanceTraverse 展开成真实操作序列（打得动的小怪就地击杀攒级
+// 撑血线、其余掷逃、血危先嗑药/休息）。死亡回溯会把场景拉回章首——
+// 不计入落点序列，继续推进直到精确落在期望场景才记一次。
 const results = [];
 for (let i = 0; i < expected.length; i++) {
-  const { status, body } = await post("/action", { save_id: id, input: "前进" });
-  assert(status === 200 && body && body.reply && body.save, `advance ${i + 1} failed (HTTP ${status})`);
+  const exp = expected[i];
+  let body = null;
+  for (let t = 0; t < 40; t++) {
+    body = await advanceTraverse(id, { fightCap: 8 });
+    if (body.save.scene === exp.scene && body.save.chapter === exp.chapter) break;
+  }
+  assert(
+    body && body.save.scene === exp.scene && body.save.chapter === exp.chapter,
+    `push ${i + 1}: never reached ${exp.scene} (stuck at ${body && body.save.scene})`
+  );
   results.push({ content: body.reply.content, save: body.save });
 }
 

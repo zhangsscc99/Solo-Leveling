@@ -288,7 +288,7 @@ function buildMainQuests(chapterList, save, mainRewards) {
   const cleared = endingEngine.hasCleared(save);
 
   return (chapterList || []).map((chapter) => {
-    const status =
+    let status =
       chapter.index < current || (chapter.index === current && cleared)
         ? "done"
         : chapter.index === current

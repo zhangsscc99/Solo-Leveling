@@ -15,6 +15,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sl-f088-test-"));
 process.env.DB_PATH = path.join(tmp, "game.db");
 
 const { app } = require("./index");
+const store = require("./db");
 const encounter = require("./engine/encounter");
 
 let server;
@@ -94,6 +95,59 @@ test("HP 归零进入复活分支：deaths+1 · HP≈max/2 · 交战收敛", asy
   assert.ok(s.combat === null);
   assert.match(cur.reply.content, /倒下/);
   assert.match(cur.reply.content, /回溯至第\d+章/);
+});
+
+test("击杀后原地连点「攻击」不再刷怪：冷却生效，移动后新战斗 seq 不同", async () => {
+  const id = await newSave("t-cooldown");
+  let cur = null;
+  for (let i = 0; i < 10 && !(cur && cur.save.combat); i++) cur = await act(id, "攻击");
+  assert.ok(cur.save.combat, "setup: no encounter");
+  const seq1 = cur.save.combat.seq;
+  assert.ok(Number.isFinite(seq1), "combat should expose an encounter seq");
+  for (let i = 0; i < 60 && cur.save.combat; i++) {
+    cur = await act(id, "攻击");
+    assert.ok(cur.save.hp > 0, "player died during setup kill");
+  }
+  assert.equal(cur.save.kills, 1);
+
+  // 冷却期间原地连点：不得再开战、不得再计 kill。
+  for (let i = 0; i < 6; i++) {
+    cur = await act(id, "攻击");
+    assert.equal(cur.save.combat, null, `attack #${i} spawned during cooldown`);
+    assert.equal(cur.save.kills, 1, "cooldown must not allow repeat kills");
+  }
+
+  // 真实移动两次走完冷却，此后遭遇恢复且第二场开战胜带新 seq。
+  let second = null;
+  for (let i = 0; i < 12 && !second; i++) {
+    cur = await act(id, cur.save.combat ? "攻击" : "前进");
+    if (!cur.save.combat) cur = await act(id, "攻击");
+    if (cur.save.combat) second = cur.save.combat;
+  }
+  assert.ok(second, "no second fight after moving through the cooldown");
+  assert.notEqual(second.seq, seq1, "consecutive fights must carry different seeds");
+});
+
+test("交战中「使用道具」按所选物品结算：MP 药剂真回 MP、名字对版、库存扣减", async () => {
+  const id = await newSave("t-item");
+  let cur = null;
+  for (let i = 0; i < 10 && !(cur && cur.save.combat); i++) cur = await act(id, "攻击");
+  assert.ok(cur.save.combat, "setup: no encounter");
+
+  // 压低 MP、顶满 HP，塞一瓶魔力药剂——只有 MP 侧需要补给。
+  store.updateSave(id, { mp: 5 });
+  store.db
+    .prepare("INSERT INTO inventory (save_id, item_id, qty) VALUES (?, ?, 1) ON CONFLICT(save_id, item_id) DO UPDATE SET qty = 1")
+    .run(id, "mana_potion");
+  const mpBefore = 5;
+  const hpBefore = cur.save.hp;
+  cur = await act(id, "使用道具 魔力药剂");
+  assert.match(cur.reply.content, /魔力药剂/, "narration must name the selected item");
+  assert.doesNotMatch(cur.reply.content, /治疗药水/, "narration must not name a different item");
+  assert.equal(cur.save.mp, Math.min(cur.save.max_mp, mpBefore + 30), "mana potion must restore 30 MP");
+  assert.ok(cur.save.hp <= hpBefore, "mana potion must not heal HP");
+  const inv = store.getInventory(id).find((r) => r.item_id === "mana_potion");
+  assert.ok(!inv || inv.qty === 0, "potion must be consumed exactly once");
 });
 
 test("encounter.roll 保底与 boss 场景必中（纯函数）", () => {

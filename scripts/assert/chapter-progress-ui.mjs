@@ -9,7 +9,7 @@ process.env.E2E_BASE_URL = BASE;
 process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
 
 const { run, createSave, assert } = await import("../e2e/lib.mjs");
-const { post, get } = await import("./_http.mjs");
+const { post, get, advanceTraverse } = await import("./_http.mjs");
 
 const NAME = `e2e-chprog-${Date.now().toString(36)}`;
 const TOPBAR_RE = /第\d+章.*\d+\/\d+/;
@@ -52,15 +52,16 @@ run("chapter-progress-ui", async ({ page }) => {
     await mctx.close();
   }
 
-  // ② 一路「前进」到终章 epilogue（chapter_completed + cleared）
+  // ② 一路「前进」到终章 epilogue（chapter_completed + cleared）。
+  //    交战中前进=掷逃、死亡会回溯——低章顺手练级撑血线的生存向驱动
+  //    （advanceTraverse）展开成真实操作序列，预算给足。
   let view = null;
-  for (let i = 0; i < 60; i++) {
-    const r = await post("/action", { save_id: saveId, input: "前进" });
-    assert(r.status === 200, `advance ${i + 1} failed (HTTP ${r.status})`);
-    view = r.body.save;
+  for (let i = 0; i < 300; i++) {
+    const body = await advanceTraverse(saveId, { max: 600 });
+    view = body.save;
     if (view && view.cleared) break;
   }
-  assert(view && view.cleared, "did not reach epilogue within 60 advances");
+  assert(view && view.cleared, "did not reach epilogue within the landing budget");
   assert(view.chapter_progress === "5/5", `final progress ${view.chapter_progress} != 5/5`);
   const sv = await get(`/saves/${saveId}`);
   assert(
