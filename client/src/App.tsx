@@ -20,6 +20,7 @@ import {
   useItem,
 } from "./api";
 import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
+import EndingPanel from "./panels/EndingPanel";
 import InventoryPanel from "./panels/InventoryPanel";
 import QuestPanel from "./panels/QuestPanel";
 import SkillsPanel from "./panels/SkillsPanel";
@@ -45,7 +46,7 @@ const ACTION_BUTTONS = [
   { label: "休息", input: "休息" },
 ];
 
-type TabKey = "inventory" | "skills" | "stats" | "map" | "quests";
+type TabKey = "inventory" | "skills" | "stats" | "map" | "quests" | "ending";
 const TABS: { key: TabKey; label: string }[] = [
   { key: "inventory", label: "背包" },
   { key: "skills", label: "技能" },
@@ -53,6 +54,8 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "map", label: "地图" },
   { key: "quests", label: "任务" },
 ];
+// 结算 tab 只在通关（chapter ≥ 8）后出现，不占常驻快捷键位。
+const ENDING_TAB: { key: TabKey; label: string } = { key: "ending", label: "结算" };
 
 function RankEmblem({ rank, level }: { rank: string; level: number }) {
   const R = 15.5;
@@ -255,6 +258,8 @@ function SidePanel({
       );
     case "quests":
       return <QuestPanel data={quests} error={questsError} />;
+    case "ending":
+      return <EndingPanel saveId={save.id} />;
   }
 }
 
@@ -341,6 +346,9 @@ export default function App() {
     },
     [save, busy]
   );
+
+  // 通关后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
+  const tabs = save && save.chapter >= 8 ? [...TABS, ENDING_TAB] : TABS;
 
   const openTab = useCallback((key: TabKey) => {
     setTab(key);
@@ -433,11 +441,11 @@ export default function App() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const n = Number(e.key);
       if (n >= 1 && n <= ACTION_BUTTONS.length) dispatch(ACTION_BUTTONS[n - 1].input);
-      else if (n >= 5 && n < 5 + TABS.length) openTab(TABS[n - 5].key);
+      else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab]);
+  }, [dispatch, openTab, tabs]);
 
   const onCreate = useCallback(
     async (e: FormEvent) => {
@@ -553,7 +561,7 @@ export default function App() {
           <div className="side-title">
             <span>档案</span>
             <i className="status-div" aria-hidden="true" />
-            <span className="cur">{TABS.find((t) => t.key === tab)?.label}</span>
+            <span className="cur">{tabs.find((t) => t.key === tab)?.label}</span>
           </div>
           <button className="side-close" onClick={() => setDrawer(false)} aria-label="关闭档案面板">
             ×
@@ -608,10 +616,15 @@ export default function App() {
             </div>
             <div className="btn-group btn-group-sys">
               <span className="group-label">系统</span>
-              {TABS.map((t, i) => (
-                <button key={t.key} className="btn" onClick={() => openTab(t.key)} title={`快捷键 ${i + 5}`}>
+              {tabs.map((t, i) => (
+                <button
+                  key={t.key}
+                  className="btn"
+                  onClick={() => openTab(t.key)}
+                  title={i + 5 < 10 ? `快捷键 ${i + 5}` : undefined}
+                >
                   {t.label}
-                  <kbd>{i + 5}</kbd>
+                  {i + 5 < 10 && <kbd>{i + 5}</kbd>}
                 </button>
               ))}
               <button

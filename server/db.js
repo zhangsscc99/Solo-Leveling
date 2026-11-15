@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS saves (
   stats_json TEXT NOT NULL DEFAULT '{}',
   free_points INTEGER NOT NULL DEFAULT 0,
   gold INTEGER NOT NULL DEFAULT 0,
+  kills INTEGER NOT NULL DEFAULT 0,
   chapter INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -75,6 +76,9 @@ CREATE TABLE IF NOT EXISTS quest_daily (
 const saveCols = db.prepare("PRAGMA table_info(saves)").all().map((c) => c.name);
 if (!saveCols.includes("free_points")) {
   db.exec("ALTER TABLE saves ADD COLUMN free_points INTEGER NOT NULL DEFAULT 0");
+}
+if (!saveCols.includes("kills")) {
+  db.exec("ALTER TABLE saves ADD COLUMN kills INTEGER NOT NULL DEFAULT 0");
 }
 
 const DEFAULT_STATS = {
@@ -164,7 +168,7 @@ function getSave(id) {
 
 // Whitelisted column writes for state mutation (the narrative engine only ever
 // changes these through the action endpoint, which clamps values first).
-const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "level", "chapter", "rank", "free_points"];
+const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level", "chapter", "rank", "free_points"];
 
 function updateSave(id, patch) {
   if (!patch) return getSave(id);

@@ -489,20 +489,11 @@
           "choices": [],
           "next_scene": null,
           "stats": {
-            "sample": true,
-            "note": "结算面板占位示例：fields 中的数值仅为示意，正式值由存档在结算时填充。",
             "title": "通关统计",
             "lines": [
               "通关统计：等级 {level} · 总击杀 {kills} · 影子数量 {shadows} · 通关耗时 {clear_time}",
               "战绩结算：S 级传送门攻略完成，济州岛战役生还，获得影子「Beru」。"
-            ],
-            "fields": {
-              "level": 78,
-              "kills": 1342,
-              "shadows": 27,
-              "clear_time": "3:47:12",
-              "chapters_cleared": 8
-            }
+            ]
           }
         }
       ]

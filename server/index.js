@@ -6,6 +6,7 @@ const store = require("./db");
 const progression = require("./engine/progression");
 const chaptersEngine = require("./engine/chapters");
 const questEngine = require("./engine/quests");
+const endingEngine = require("./engine/ending");
 const aiGateway = require("./ai/gateway");
 const aiValidate = require("./ai/validate");
 const aiContext = require("./ai/context");
@@ -37,6 +38,7 @@ function saveView(save) {
   return {
     ...save,
     free_points: Number(save.free_points) || 0,
+    kills: Number(save.kills) || 0,
     xp_to_next: progression.xpToNext(save.level),
   };
 }
@@ -328,6 +330,23 @@ api.get("/saves/:id", (req, res) => {
     inventory: store.getInventory(save.id),
     equipment: equipView(save.id),
   });
+});
+
+// 通关结算：全部数值实时取自存档行 + shadows 表 + 当前时间，
+// chapters_cleared 按章节推导（到第 8 章视为全通，否则当前章 -1）。
+api.get("/saves/:id/ending", (req, res) => {
+  const save = store.getSave(Number(req.params.id));
+  if (!save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+  const chapter = chaptersEngine.getChapter(8);
+  const ending = endingEngine.buildEnding({
+    save,
+    shadows: store.countShadows(save.id),
+    chapter,
+    now: Date.now(),
+  });
+  res.json({ ending });
 });
 
 // 自由属性点加点：stat 白名单 + free_points 余量都在服务端校验，
