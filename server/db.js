@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS saves (
   mp INTEGER NOT NULL DEFAULT 20,
   max_mp INTEGER NOT NULL DEFAULT 20,
   stats_json TEXT NOT NULL DEFAULT '{}',
+  free_points INTEGER NOT NULL DEFAULT 0,
   gold INTEGER NOT NULL DEFAULT 0,
   chapter INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -58,6 +59,12 @@ CREATE TABLE IF NOT EXISTS shadows (
 CREATE INDEX IF NOT EXISTS idx_shadows_save_id ON shadows (save_id, id);
 CREATE INDEX IF NOT EXISTS idx_shadows_shadow_id ON shadows (save_id, shadow_id);
 `);
+
+// CREATE TABLE IF NOT EXISTS 不会给已有表补列，老库走 ALTER 迁移。
+const saveCols = db.prepare("PRAGMA table_info(saves)").all().map((c) => c.name);
+if (!saveCols.includes("free_points")) {
+  db.exec("ALTER TABLE saves ADD COLUMN free_points INTEGER NOT NULL DEFAULT 0");
+}
 
 const DEFAULT_STATS = {
   strength: 10,
@@ -136,15 +143,19 @@ function getSave(id) {
 
 // Whitelisted column writes for state mutation (the narrative engine only ever
 // changes these through the action endpoint, which clamps values first).
-const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "level", "chapter", "rank"];
+const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "level", "chapter", "rank", "free_points"];
 
 function updateSave(id, patch) {
   if (!patch) return getSave(id);
   const cols = MUTABLE_COLUMNS.filter((c) => patch[c] !== undefined);
-  if (!cols.length) return getSave(id);
-  const sets = cols.map((c) => `${c} = ?`).join(", ");
+  const sets = cols.map((c) => `${c} = ?`);
   const values = cols.map((c) => patch[c]);
-  db.prepare(`UPDATE saves SET ${sets}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
+  if (patch.stats !== undefined) {
+    sets.push("stats_json = ?");
+    values.push(JSON.stringify(patch.stats || {}));
+  }
+  if (!sets.length) return getSave(id);
+  db.prepare(`UPDATE saves SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
   return getSave(id);
 }
 

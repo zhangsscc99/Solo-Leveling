@@ -8,17 +8,21 @@ export interface Stats {
   perception: number;
 }
 
+export type StatKey = keyof Stats;
+
 export interface Save {
   id: number;
   player_name: string;
   level: number;
   rank: string;
   xp: number;
+  xp_to_next: number;
   hp: number;
   max_hp: number;
   mp: number;
   max_mp: number;
   stats: Stats;
+  free_points: number;
   gold: number;
   chapter: number;
 }
@@ -118,6 +122,13 @@ export const useItem = (save_id: number, item_id: string, op: ItemOp) =>
   req<{ reply: LogEntry; save: Save; inventory: InventoryRow[]; equipment: Equipment }>(
     `/saves/${save_id}/item`,
     { method: "POST", body: JSON.stringify({ item_id, op }) }
+  );
+
+// 属性点分配：只报要加哪一项，扣点与上限联动由服务端结算后回灌存档。
+export const spendStat = (save_id: number, stat: StatKey) =>
+  req<{ reply: LogEntry | null; save: Save; inventory: InventoryRow[]; equipment: Equipment }>(
+    `/saves/${save_id}/spend`,
+    { method: "POST", body: JSON.stringify({ stat }) }
   );
 
 export const sendAction = (save_id: number, input: string) =>

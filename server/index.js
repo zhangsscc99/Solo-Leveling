@@ -3,6 +3,7 @@ const path = require("path");
 const express = require("express");
 const Database = require("better-sqlite3");
 const store = require("./db");
+const progression = require("./engine/progression");
 
 const VERSION = "0.1.0";
 const HOST = "127.0.0.1";
@@ -22,6 +23,16 @@ function clamp(value, min, max) {
 
 function vitalsLine(save) {
   return `HP ${save.hp}/${save.max_hp} · MP ${save.mp}/${save.max_mp}`;
+}
+
+// 出参统一带派生字段：xp_to_next 由等级曲线算出，free_points 兜底 0。
+function saveView(save) {
+  if (!save) return save;
+  return {
+    ...save,
+    free_points: Number(save.free_points) || 0,
+    xp_to_next: progression.xpToNext(save.level),
+  };
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -286,7 +297,7 @@ api.post("/saves", (req, res) => {
   }
   const save = store.createSave(playerName);
   grantStarterKit(save.id);
-  res.status(201).json({ save: store.getSave(save.id) });
+  res.status(201).json({ save: saveView(store.getSave(save.id)) });
 });
 
 api.get("/saves/:id", (req, res) => {
@@ -296,7 +307,48 @@ api.get("/saves/:id", (req, res) => {
   }
   ensureStarterKit(save.id);
   res.json({
-    save: store.getSave(save.id),
+    save: saveView(store.getSave(save.id)),
+    inventory: store.getInventory(save.id),
+    equipment: equipView(save.id),
+  });
+});
+
+// 自由属性点加点：stat 白名单 + free_points 余量都在服务端校验，
+// 客户端只传要加哪一项，数值一律由 progression.spendPoint 结算。
+api.post("/saves/:id/spend", (req, res) => {
+  const save = store.getSave(Number(req.params.id));
+  if (!save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const stat = typeof body.stat === "string" ? body.stat.trim() : "";
+  if (!progression.VALID_STATS.includes(stat)) {
+    return res.status(400).json({ error: `stat must be one of ${progression.VALID_STATS.join(", ")}` });
+  }
+  if ((Number(save.free_points) || 0) <= 0) {
+    return res.status(400).json({ error: "没有剩余的自由属性点" });
+  }
+
+  const { state, events } = progression.spendPoint(save, stat);
+  const failed = events.find((e) => e.type === "error");
+  if (failed) {
+    return res.status(400).json({ error: failed.message || "无法分配属性点" });
+  }
+  store.updateSave(save.id, {
+    free_points: state.free_points,
+    max_hp: state.max_hp,
+    max_mp: state.max_mp,
+    stats: state.stats,
+  });
+
+  const message = events
+    .filter((e) => e.type === "spend" && e.message)
+    .map((e) => e.message)
+    .join("\n");
+  const reply = message ? store.appendLog(save.id, "system", message) : null;
+  res.json({
+    reply,
+    save: saveView(store.getSave(save.id)),
     inventory: store.getInventory(save.id),
     equipment: equipView(save.id),
   });
@@ -382,7 +434,7 @@ api.post("/saves/:id/item", (req, res) => {
   const reply = store.appendLog(save.id, "system", content);
   res.json({
     reply,
-    save: store.getSave(save.id),
+    save: saveView(store.getSave(save.id)),
     inventory: store.getInventory(save.id),
     equipment: equipView(save.id),
   });
@@ -435,7 +487,7 @@ api.post("/action", (req, res) => {
     store.updateSave(save.id, outcome.patch);
   }
   const reply = store.appendLog(save.id, outcome.role, outcome.content);
-  res.json({ reply, save: store.getSave(save.id) });
+  res.json({ reply, save: saveView(store.getSave(save.id)) });
 });
 
 api.use((req, res) => res.status(404).json({ error: "not found" }));

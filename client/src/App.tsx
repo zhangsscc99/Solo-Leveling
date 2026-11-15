@@ -10,14 +10,17 @@ import {
   Item,
   ItemOp,
   sendAction,
+  spendStat,
   LogEntry,
   Save,
   Skill,
+  StatKey,
   useItem,
 } from "./api";
 import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
 import InventoryPanel from "./panels/InventoryPanel";
 import SkillsPanel from "./panels/SkillsPanel";
+import StatsPanel from "./panels/StatsPanel";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
@@ -182,6 +185,9 @@ function SidePanel({
   skillsError,
   busy,
   onRelease,
+  statBusy,
+  statNotice,
+  onSpendStat,
 }: {
   tab: TabKey;
   save: Save;
@@ -195,6 +201,9 @@ function SidePanel({
   skillsError: boolean;
   busy: boolean;
   onRelease: (skill: Skill) => void;
+  statBusy: boolean;
+  statNotice: string | null;
+  onSpendStat: (stat: StatKey) => void;
 }) {
   switch (tab) {
     case "inventory":
@@ -219,38 +228,8 @@ function SidePanel({
           onRelease={onRelease}
         />
       );
-    case "stats": {
-      const s = save.stats;
-      const rows: [string, number][] = [
-        ["力量", s.strength],
-        ["敏捷", s.agility],
-        ["体力", s.vitality],
-        ["智力", s.intelligence],
-        ["感知", s.perception],
-      ];
-      const top = Math.max(...rows.map((r) => r[1]), 1);
-      return (
-        <div className="stat-table">
-          {rows.map(([label, v]) => (
-            <div className="stat-line" key={label}>
-              <span className="stat-line-label">{label}</span>
-              <div className="stat-line-track">
-                <div className="stat-line-fill" style={{ width: `${(v / top) * 100}%` }} />
-              </div>
-              <span className="stat-line-num">{v}</span>
-            </div>
-          ))}
-          <div className="stat-line stat-line-meta">
-            <span className="stat-line-label">经验值</span>
-            <span className="stat-line-num">{save.xp}</span>
-          </div>
-          <div className="stat-line stat-line-meta">
-            <span className="stat-line-label">自由属性点</span>
-            <span className="stat-line-num">0</span>
-          </div>
-        </div>
-      );
-    }
+    case "stats":
+      return <StatsPanel save={save} busy={statBusy} notice={statNotice} onSpend={onSpendStat} />;
     case "map":
       return (
         <ol className="map-list">
@@ -280,6 +259,8 @@ export default function App() {
   const [equipment, setEquipment] = useState<Equipment | null>(null);
   const [itemBusy, setItemBusy] = useState(false);
   const [itemNotice, setItemNotice] = useState<string | null>(null);
+  const [statBusy, setStatBusy] = useState(false);
+  const [statNotice, setStatNotice] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsError, setSkillsError] = useState(false);
   const [input, setInput] = useState("");
@@ -356,6 +337,7 @@ export default function App() {
     setTab(key);
     setDrawer(true);
     setItemNotice(null);
+    setStatNotice(null);
   }, []);
 
   // 背包操作：只上报 item_id + op，效果与数值都由服务端结算后回灌。
@@ -380,6 +362,26 @@ export default function App() {
       }
     },
     [save, itemBusy]
+  );
+
+  // 属性点分配：只上报 stat，扣点与属性/上限结算由服务端返回的最新存档回灌。
+  const onSpendStat = useCallback(
+    async (stat: StatKey) => {
+      if (!save || statBusy) return;
+      setStatBusy(true);
+      setStatNotice(null);
+      try {
+        const { reply, save: updated } = await spendStat(save.id, stat);
+        setSave(updated);
+        if (reply) setLog((l) => [...l, reply]);
+      } catch (e) {
+        const msg = e instanceof Error && !/^API \d+$/.test(e.message) ? e.message : null;
+        setStatNotice(msg ?? "无法分配属性点。");
+      } finally {
+        setStatBusy(false);
+      }
+    },
+    [save, statBusy]
   );
 
   // 技能释放只发文本指令，MP 扣减与冷却结算交给服务端；冷却倒计时在面板本地起表。
@@ -552,6 +554,9 @@ export default function App() {
               skillsError={skillsError}
               busy={busy}
               onRelease={onRelease}
+              statBusy={statBusy}
+              statNotice={statNotice}
+              onSpendStat={onSpendStat}
             />
           </div>
           <div className="side-foot">
