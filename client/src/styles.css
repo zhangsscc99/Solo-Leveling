@@ -2613,3 +2613,72 @@ button {
     font-size: var(--fs-md);
   }
 }
+
+/* ── 属性面板 · 战斗数值 ──────────────────────
+   基础 / 装备加成 / 合计三列，等宽数字右对齐读作仪表；
+   无装备时装备列收为一句「无配发装备」，不显示 +0 占位。
+*/
+.combat-nums {
+  border-top: 1px solid var(--line);
+  padding-top: var(--sp-2);
+}
+
+.combat-nums-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--dim);
+}
+
+.combat-nums-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.combat-nums-cols,
+.combat-nums-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 1fr 1fr;
+  gap: var(--sp-3);
+  align-items: baseline;
+  padding: var(--sp-1) 0;
+}
+
+.combat-nums-cols {
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.combat-nums-cols span:not(:first-child) {
+  text-align: right;
+}
+
+.cn-label {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+}
+
+.cn-num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--dim);
+}
+
+.cn-eq {
+  color: var(--faint);
+}
+
+.cn-eq.cn-none {
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  text-align: right;
+}
+
+.cn-total {
+  color: var(--text);
+}

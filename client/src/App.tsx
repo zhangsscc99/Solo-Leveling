@@ -1,5 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  baseAttack,
+  baseDefense,
   createSave,
   Equipment,
   getItems,
@@ -106,8 +108,19 @@ function Gauge({ label, value, max, kind }: { label: string; value: number; max:
   );
 }
 
-function StatusBar({ save, onOpenDrawer }: { save: Save; onOpenDrawer: () => void }) {
+function StatusBar({
+  save,
+  equipment,
+  onOpenDrawer,
+}: {
+  save: Save;
+  equipment: Equipment | null;
+  onOpenDrawer: () => void;
+}) {
   const s = save.stats;
+  // 含装备加成：折算系数与 server/engine/stats.js 保持一致，改动需两边同步。
+  const atk = baseAttack(s) + (equipment?.atk ?? 0);
+  const def = baseDefense(s) + (equipment?.def ?? 0);
   const chapterName = CHAPTERS[save.chapter - 1] ?? `第${save.chapter}章`;
   return (
     <header className="status">
@@ -143,6 +156,12 @@ function StatusBar({ save, onOpenDrawer }: { save: Save; onOpenDrawer: () => voi
         </span>
         <span className="stat">
           感<b>{s.perception}</b>
+        </span>
+        <span className="stat" aria-label={`攻击 ${atk}（含装备加成 ${equipment?.atk ?? 0}）`}>
+          攻<b>{atk}</b>
+        </span>
+        <span className="stat" aria-label={`防御 ${def}（含装备加成 ${equipment?.def ?? 0}）`}>
+          防<b>{def}</b>
         </span>
         <span className="stat stat-gold">
           金币<b>{save.gold}</b>
@@ -256,7 +275,15 @@ function SidePanel({
         />
       );
     case "stats":
-      return <StatsPanel save={save} busy={statBusy} notice={statNotice} onSpend={onSpendStat} />;
+      return (
+        <StatsPanel
+          save={save}
+          equipment={equipment}
+          busy={statBusy}
+          notice={statNotice}
+          onSpend={onSpendStat}
+        />
+      );
     case "map":
       return (
         <ol className="map-list">
@@ -604,7 +631,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <StatusBar save={save} onOpenDrawer={() => setDrawer(true)} />
+      <StatusBar save={save} equipment={equipment} onOpenDrawer={() => setDrawer(true)} />
 
       <main className="stage" ref={logRef}>
         <div className="stage-col">

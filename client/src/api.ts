@@ -67,6 +67,13 @@ export interface Equipment {
   def: number;
 }
 
+// ── 战斗数值折算 ──
+// 与 server/engine/stats.js 保持一致，改动需两边同步：
+//   攻击基数 = 1.6 × 力量（K.dmgStr），防御基数 = 0.8 × 体力（K.dmgPerVit）。
+// 展示口径：基础值 floor 取整后叠加装备加成，合计 = base + equipment.atk/def。
+export const baseAttack = (s: Stats) => Math.floor(Math.max(0, Number(s.strength) || 0) * 1.6);
+export const baseDefense = (s: Stats) => Math.floor(Math.max(0, Number(s.vitality) || 0) * 0.8);
+
 export interface InventoryRow {
   item_id: string;
   qty: number;
