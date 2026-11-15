@@ -1,0 +1,52 @@
+[
+  {
+    "id": "tiger_fury",
+    "name": "猛虎猛击",
+    "desc": "气力贯入拳锋，一记直截了当的近身重击。最弱的猎人，也得学会把全部力气押在一击上。",
+    "mp_cost": 12,
+    "cooldown": 8,
+    "power": 24,
+    "rarity": "common",
+    "learn_level": 1
+  },
+  {
+    "id": "quick_step",
+    "name": "瞬步",
+    "desc": "把魔力压进脚踝，一步踏出，身形便从原地消失。不是跑得快，是快到像没有移动过。",
+    "mp_cost": 8,
+    "cooldown": 5,
+    "power": 10,
+    "rarity": "common",
+    "learn_level": 3
+  },
+  {
+    "id": "mana_sense",
+    "name": "气感知",
+    "desc": "闭上眼，世界并没有变黑。魔力的流向、敌人的吐息、危险迫近的方向，全都在感知里浮现。",
+    "mp_cost": 15,
+    "cooldown": 12,
+    "power": 14,
+    "rarity": "rare",
+    "learn_level": 6
+  },
+  {
+    "id": "shadow_extract",
+    "name": "暗影抽取",
+    "desc": "对尚未消散的尸体伸出手，命令只有一个字：「站起来」。影子听从这个命令，从此替你而战。",
+    "mp_cost": 40,
+    "cooldown": 60,
+    "power": 45,
+    "rarity": "epic",
+    "learn_level": 12
+  },
+  {
+    "id": "rulers_authority",
+    "name": "统治者之权能",
+    "desc": "隔空抓握，万物俯首。那是属于君主的权柄——不必触碰，便能决定谁的膝盖先落地。",
+    "mp_cost": 65,
+    "cooldown": 120,
+    "power": 90,
+    "rarity": "legendary",
+    "learn_level": 20
+  }
+]
