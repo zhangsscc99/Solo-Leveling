@@ -11,9 +11,6 @@ import { InventoryRow, Item, LogEntry, Save, Skill } from "../api";
 const SCAN = 16;
 const MAX_FLOATERS = 4;
 
-const COMBAT_SIGNAL =
-  /遭遇|回合|反击|受到|战斗|造成.{0,6}点伤害|恢复.{0,6}点生命|逃跑|脱离战斗|倒下/;
-
 const ENEMY_RE = /遭遇[「『]?([^\s，。！？「」『』]{1,12})/;
 const COUNTER_RE = /([^\s，。！？」』]{1,12})的反击/;
 const TURN_RE = /第\s*(\d+)\s*回合/;
@@ -22,6 +19,32 @@ const HEAL_RE = /恢复\s*(\d+)\s*点生命/g;
 const END_RE = /战斗结束|脱离战斗|成功逃跑|已经倒下|倒下了/;
 const LEVEL_RE = /Lv\.\s*(\d+)|等级\s*(\d+)/;
 const SEGMENT_RE = /遭遇|第\s*1\s*回合/;
+
+// 交战门控：只有「遭遇X / 第N回合」这类明确信号才算进入战斗态——
+// 开场白与日常叙述里的「战斗」「受到」「倒下」等泛词一律不算。
+// 最近一条结束语（END_RE）命中即收束；同一条内交战与结束同时出现时结束优先。
+export type CombatGate = "engage" | "ended" | null;
+
+function gateIndexes(log: LogEntry[]): { engage: number; end: number } {
+  const tail = log.slice(-SCAN);
+  let engage = -1;
+  let end = -1;
+  for (let i = 0; i < tail.length; i++) {
+    const c = tail[i].content;
+    if (ENEMY_RE.test(c) || TURN_RE.test(c)) engage = i;
+    if (END_RE.test(c)) end = i;
+  }
+  return { engage, end };
+}
+
+// 供 App 判定面板开合：
+//   "engage" → 自动展开；"ended" → 收束关闭；null → 不干预（保留手动开关）。
+export function detectCombatGate(log: LogEntry[]): CombatGate {
+  const { engage, end } = gateIndexes(log);
+  if (end >= engage && end >= 0) return "ended";
+  if (engage >= 0) return "engage";
+  return null;
+}
 
 export interface CombatContext {
   inCombat: boolean;
@@ -38,17 +61,12 @@ export interface Floater {
   value: number;
 }
 
-// 供 App 判定「是否出现战斗上下文」——出现就自动展开面板。
-export function detectCombatSignal(log: LogEntry[]): boolean {
-  return log.slice(-SCAN).some((e) => COMBAT_SIGNAL.test(e.content));
-}
-
 function inferContext(log: LogEntry[]): CombatContext {
   const tail = log.slice(-SCAN);
+  const { engage, end } = gateIndexes(log);
   let enemyName: string | null = null;
   let enemyLevel: number | null = null;
   let turn: number | null = null;
-  let ended = false;
   for (const e of tail) {
     const enc = e.content.match(ENEMY_RE);
     if (enc) enemyName = enc[1];
@@ -58,10 +76,9 @@ function inferContext(log: LogEntry[]): CombatContext {
     if (lv) enemyLevel = Number(lv[1] ?? lv[2]);
     const t = e.content.match(TURN_RE);
     if (t) turn = Number(t[1]);
-    if (END_RE.test(e.content)) ended = true;
   }
-  const inCombat = tail.some((e) => COMBAT_SIGNAL.test(e.content));
-  return { inCombat, ended: inCombat && ended, enemyName, enemyLevel, turn };
+  const inCombat = engage > end && engage >= 0;
+  return { inCombat, ended: !inCombat && end >= 0, enemyName, enemyLevel, turn };
 }
 
 // 飘字归属：含「反击 / 受到」等受击措辞的行记到玩家侧，其余伤害记到敌人侧。
@@ -163,7 +180,9 @@ export default function CombatPanel({
   const ctx = useMemo(() => inferContext(log), [log]);
   const floaters = useMemo(() => inferFloaters(log, ctx.enemyName), [log, ctx.enemyName]);
 
-  const enemyName = ctx.enemyName ?? "未知的敌人";
+  const hasEnemy = ctx.enemyName !== null;
+  const actDisabled = busy || !hasEnemy;
+  const actTitle = hasEnemy ? undefined : "当前没有敌人";
   const learned = useMemo(
     () => skills.filter((s) => s.learn_level <= save.level),
     [skills, save.level]
@@ -187,7 +206,7 @@ export default function CombatPanel({
   return (
     <section className="combat" aria-label="战斗面板">
       <div className="combat-head">
-        <span className="combat-title">交战</span>
+        <span className="combat-title">{ctx.inCombat ? "交战" : "战斗"}</span>
         <i className="status-div" aria-hidden="true" />
         <span className="combat-turn">{ctx.turn !== null ? `第 ${ctx.turn} 回合` : "回合 —"}</span>
         {ctx.ended && <span className="combat-ended">已结束</span>}
@@ -220,47 +239,75 @@ export default function CombatPanel({
         </div>
 
         <div className="combatant combatant-enemy">
-          <div className="combatant-head">
-            <span className="combatant-name">{enemyName}</span>
-            <span className="combatant-lv">
-              {ctx.enemyLevel !== null ? `Lv.${ctx.enemyLevel}` : "Lv.??"}
-            </span>
-          </div>
-          <div className="combatant-gauge">
-            <CombatGauge label="HP" hp={null} maxHp={null} kind="hp" />
-            <div className="combat-floats" aria-hidden="true">
-              {floatsFor("enemy").map((f) => (
-                <span key={f.id} className={`combat-float cf-${f.kind}`}>
-                  {f.kind === "heal" ? `+${f.value}` : `-${f.value}`}
+          {hasEnemy ? (
+            <>
+              <div className="combatant-head">
+                <span className="combatant-name">{ctx.enemyName}</span>
+                <span className="combatant-lv">
+                  {ctx.enemyLevel !== null ? `Lv.${ctx.enemyLevel}` : "Lv.—"}
                 </span>
-              ))}
-            </div>
-          </div>
+              </div>
+              <div className="combatant-gauge">
+                <CombatGauge label="HP" hp={null} maxHp={null} kind="hp" />
+                <div className="combat-floats" aria-hidden="true">
+                  {floatsFor("enemy").map((f) => (
+                    <span key={f.id} className={`combat-float cf-${f.kind}`}>
+                      {f.kind === "heal" ? `+${f.value}` : `-${f.value}`}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="combatant-empty">当前没有交战目标</div>
+          )}
         </div>
       </div>
 
       <div className="combat-acts" role="group" aria-label="战斗行动">
-        <button className="combat-btn primary" disabled={busy} onClick={() => act("攻击")}>
+        <button
+          className="combat-btn primary"
+          disabled={actDisabled}
+          aria-disabled={actDisabled}
+          title={actTitle}
+          onClick={() => act("攻击")}
+        >
           攻击
         </button>
         <button
           className={`combat-btn${mode === "skill" ? " on" : ""}`}
-          disabled={busy}
+          disabled={actDisabled}
+          aria-disabled={actDisabled}
+          title={actTitle}
           onClick={() => setMode((m) => (m === "skill" ? null : "skill"))}
         >
           技能
         </button>
-        <button className="combat-btn" disabled={busy} onClick={() => act("防御")}>
+        <button
+          className="combat-btn"
+          disabled={actDisabled}
+          aria-disabled={actDisabled}
+          title={actTitle}
+          onClick={() => act("防御")}
+        >
           防御
         </button>
         <button
           className={`combat-btn${mode === "item" ? " on" : ""}`}
-          disabled={busy}
+          disabled={actDisabled}
+          aria-disabled={actDisabled}
+          title={actTitle}
           onClick={() => setMode((m) => (m === "item" ? null : "item"))}
         >
           道具
         </button>
-        <button className="combat-btn combat-flee" disabled={busy} onClick={() => act("逃跑")}>
+        <button
+          className="combat-btn combat-flee"
+          disabled={actDisabled}
+          aria-disabled={actDisabled}
+          title={actTitle}
+          onClick={() => act("逃跑")}
+        >
           逃跑
         </button>
       </div>

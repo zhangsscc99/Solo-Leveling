@@ -658,9 +658,23 @@ button {
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--sp-4);
+  padding: var(--sp-4) var(--sp-4) 0;
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
+}
+
+/* 滚动末端留白：flex 列容器尾部 padding 不进 scrollHeight（Blink 旧行为），
+   用 ::after 占位——滚到底时最后一张卡片与容器底边/脚注分隔线始终 ≥16px */
+.side-scroll::after {
+  content: "";
+  flex: none;
+  height: var(--sp-4);
+}
+
+/* 滚动容器里收缩没有退路：子项缩到内容高之下只会把卡片压进 ::after
+   留白区（表现为滚到底时卡片贴底）。直接子项一律不缩。 */
+.side-scroll > * {
+  flex-shrink: 0;
 }
 
 /* 贴底脚注：让短内容也有「面板被填满」的结构 */
@@ -677,6 +691,11 @@ button {
 }
 
 .foot-esc {
+  display: none;
+}
+
+/* 窄屏无 Esc 键语境，提示换成点按关闭 */
+.foot-tap {
   display: none;
 }
 
@@ -1569,6 +1588,21 @@ button {
   }
 }
 
+/* ── 手机档 ≤640px：抽屉近乎全宽，脚注改点按提示 ── */
+@media (max-width: 640px) {
+  .sidebar {
+    width: 96vw;
+  }
+
+  .foot-esc {
+    display: none;
+  }
+
+  .foot-tap {
+    display: inline;
+  }
+}
+
 /* ── 背包面板移动端：可点区域 ≥44px ───────── */
 @media (max-width: 880px) {
   .inv-tab {
@@ -1989,6 +2023,22 @@ button {
   position: relative;
 }
 
+/* 无交战目标：虚线舱位撑满敌人列，读作「预留插槽」，与 .side-empty 同语汇 */
+.combatant-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: var(--sp-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-hard);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  text-align: center;
+  color: var(--faint);
+}
+
 .combat-gauge .gauge-label {
   width: 20px;
 }
@@ -2092,7 +2142,7 @@ button {
 
 .combat-btn:disabled {
   opacity: 0.45;
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .combat-btn.primary {

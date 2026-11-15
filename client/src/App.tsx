@@ -23,7 +23,7 @@ import {
   StatKey,
   useItem,
 } from "./api";
-import CombatPanel, { detectCombatSignal } from "./panels/CombatPanel";
+import CombatPanel, { detectCombatGate } from "./panels/CombatPanel";
 import EndingPanel from "./panels/EndingPanel";
 import InventoryPanel from "./panels/InventoryPanel";
 import QuestPanel from "./panels/QuestPanel";
@@ -351,9 +351,13 @@ export default function App() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [log]);
 
-  // 战斗态没有服务端字段：日志里出现遭遇/回合/伤害等措辞时自动展开面板。
+  // 战斗态没有服务端字段：日志里出现明确交战信号（遭遇X / 第N回合）时
+  // 自动展开面板；最近一条结束语命中即收束关闭，之后不会因窗口内残留
+  // 旧战斗文本而闪回重开。null 态不干预手动开关。
   useEffect(() => {
-    if (detectCombatSignal(log)) setCombatOpen(true);
+    const gate = detectCombatGate(log);
+    if (gate === "engage") setCombatOpen(true);
+    else if (gate === "ended") setCombatOpen(false);
   }, [log]);
 
   const dispatch = useCallback(
@@ -667,6 +671,7 @@ export default function App() {
           <div className="side-foot">
             <span>面板 5–0</span>
             <span className="foot-esc">ESC 关闭</span>
+            <span className="foot-tap">点 × 关闭</span>
           </div>
         </div>
       </aside>
