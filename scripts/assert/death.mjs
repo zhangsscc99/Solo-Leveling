@@ -26,12 +26,14 @@ assert(s0 && s0.save, "fresh save fetch failed");
 
 let cur = null;
 let died = null;
-for (let i = 0; i < 120 && !died; i++) {
-  // 交战就打，否则前进——前进途中 HP 也会真掉，两条路都能到 0。
+// 交战就打到死，否则前进——交战中「前进」=撤离掷逃（失败也挨反击），
+// 击杀后同场景有移动冷却，但往前推进迟早撞上打不过的怪；前进途中
+// 体力消耗也在流血，两条路都能到 0。
+for (let i = 0; i < 400 && !died; i++) {
   cur = await act(cur && cur.save.combat ? "攻击" : "前进");
   if (cur.save.deaths > 0) died = cur;
 }
-assert(died, "120 actions never reached a death — hp is probably still floored at 1");
+assert(died, "400 actions never reached a death — hp is probably still floored at 1");
 assert(died.save.deaths >= 1, `deaths should increment, got ${died.save.deaths}`);
 
 // 归零那一击的回复必须带死亡/复活文案，且战斗已收敛。

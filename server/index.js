@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const express = require("express");
-const Database = require("better-sqlite3");
 const store = require("./db");
 const progression = require("./engine/progression");
 const chaptersEngine = require("./engine/chapters");
@@ -97,9 +96,12 @@ function combatView(combat) {
       max_hp: Math.max(1, Math.trunc(Number(e.maxHp ?? e.max_hp) || 1)),
       atk: Math.max(0, Math.trunc(Number(e.atk) || 0)),
       def: Math.max(0, Math.trunc(Number(e.def) || 0)),
+      boss: Boolean(e.boss),
     },
     turn: Math.max(1, Math.trunc(Number(combat.turn) || 1)),
     started_at: combat.started_at || null,
+    // 开战盐：连续两场战斗的 seq 必不同（断言可直接比对）。
+    seq: Number.isFinite(e.seq) ? e.seq : null,
   };
 }
 
@@ -193,12 +195,10 @@ function shadowLine(s) {
 // 任务数据走引擎加载器：quests.json 校验不过会在启动时直接抛错。
 const QUESTS = questEngine.loadQuests();
 
-// 与 db.js 同一个库文件：DB_PATH 覆盖时两边必须指向同一处，否则背包
-// 写入与存档读写会落进两个库。
-const INV_DB = process.env.DB_PATH
-  ? path.resolve(process.env.DB_PATH)
-  : path.join(__dirname, "..", "data", "game.db");
-const db = new Database(INV_DB);
+// 库存/奖励写操作必须与 store（db.js）共用同一条 better-sqlite3 连接：
+// applyOutcome 的事务只对单连接生效，另开连接会把发奖写出事务外
+// （且 WAL 下单写者会让事务内写互撞 SQLITE_BUSY）。
+const db = store.db;
 
 const invStmts = {
   get: db.prepare("SELECT qty FROM inventory WHERE save_id = ? AND item_id = ?"),
@@ -480,6 +480,7 @@ function settleDeath(saveId) {
     scene: first ? first.id : null,
     deaths: (Number(save.deaths) || 0) + 1,
     encounter_clock: 0,
+    encounter_cd: 0,
   });
   store.clearCombat(saveId);
   const title = chapter ? `「${chapter.title}」` : "";
@@ -489,27 +490,129 @@ function settleDeath(saveId) {
   ];
 }
 
-// F088 遭遇判定：boss 场景必遇本章 boss；否则按保底计数/章节遭遇率掷点
-// （种子 = 存档 + 场景 + 落空计数，确定性可复现）。
+// 击杀冷却：击杀后至少移动这么多次（换场景）才会再掷遭遇——原地连点
+// 「攻击」不再重复刷怪，刷怪必须付出移动成本。
+const KILL_COOLDOWN = 2;
+
+// 本章守关 boss 是否已被击杀（按章节 id 记档，死亡回溯不剥夺该标记——
+// 玩家已经证明过自己能赢，回溯只罚进度不没收战绩）。
+function bossCleared(save, chapterId) {
+  const cleared = Array.isArray(save && save.boss_cleared) ? save.boss_cleared : [];
+  return cleared.includes(chapterId);
+}
+
+// 主线奖励门槛：本章主线链上若带 boss 场景，守关者必须先被击杀；
+// 链上无 boss 时自动满足（数据上 8 章都带，逻辑仍按通用口径写）。
+function bossRequirementMet(save, chapter) {
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  if (!path.some((s) => s && s.kind === "boss")) return true;
+  return bossCleared(save, chapter.id);
+}
+
+// 遭遇种子盐：存档上单调递增的 encounter_seq，每次开战 +1——同档连续两场
+// 战斗的敌人与伤害 RNG 流必然不同（不再只由 存档+场景+落空计数 决定）。
+function nextEncounterSeq(save) {
+  return Math.max(0, Math.trunc(Number(save && save.encounter_seq) || 0)) + 1;
+}
+
+// 击杀冷却中的场景判定：cd 未归零且场景非 boss 时，随机遭遇被压制
+// （boss 是剧情编排的守关战，不吃小怪冷却——走到门口就必须打；
+// 但守关者已击杀的 boss 房按普通场景处理，照旧吃冷却）。
+function encounterBlockedByCooldown(save, scene) {
+  const cd = Math.max(0, Math.trunc(Number(save && save.encounter_cd) || 0));
+  if (cd <= 0 || !scene) return false;
+  if (scene.kind !== "boss") return true;
+  const sceneChapter = chaptersEngine.getChapterOfScene(scene.id);
+  return bossCleared(save, sceneChapter && sceneChapter.id);
+}
+
+// F088 遭遇判定：boss 场景必遇本章 boss（已击杀过的守关房按普通场景掷
+// 小怪，防止原地无限刷 boss 吃经验）；否则按保底计数/章节遭遇率掷点。
+// 种子 = 存档 + 场景 + 落空计数 + 开战盐 seq，确定性可复现但场场不同。
 function tryEncounter(save, sceneId) {
   const scene = chaptersEngine.getScene(sceneId);
   const chapter = chaptersEngine.getChapter(save.chapter);
   if (!scene || !chapter) return null;
+  const sceneChapter = chaptersEngine.getChapterOfScene(scene.id);
+  const effective =
+    scene.kind === "boss" && sceneChapter && bossCleared(save, sceneChapter.id)
+      ? { ...scene, kind: "dungeon" }
+      : scene;
   const clock = Math.max(0, Math.trunc(Number(save.encounter_clock) || 0));
-  const seed = `${save.id}:${scene.id}:${clock}`;
-  return encounterEngine.roll({ chapterIndex: chapter.index, scene, clock, seed });
+  const seq = nextEncounterSeq(save);
+  const seed = `${save.id}:${scene.id}:${clock}:${seq}`;
+  const enemy = encounterEngine.roll({ chapterIndex: chapter.index, scene: effective, clock, seed });
+  if (enemy) enemy.seq = seq;
+  return enemy;
 }
 
 // 「前进」结算 + 交战态收敛 + 遭遇判定（F074/F077/F088 交汇点）：
-//   1) 交战中前进 = 强行脱离：先甩开敌人再正常推进，撤离中不再掷遭遇；
+//   1) 交战中前进 = 撤离尝试：与「逃跑」同一判定（resolveTurn 的 flee
+//      回合），失败白挨一回合敌人反击、原地不动；成功才脱离并落点，
+//      脱离后本次落点不再掷遭遇；
 //   2) 正常推进落到新场景 → boss 场景必遇本章 boss，否则按保底/遭遇率掷点；
-//   3) 落到主线链尾 → grantMain，由调用方统一发章节奖励；
-//   4) 场景真正移动才产出 advance 事件喂每日任务，原地踏步不计。
+//      击杀冷却（encounter_cd）随每次真实移动递减，未归零不掷怪；
+//   3) 落到主线链尾 → grantMain，但本章守关 boss 未击杀时只给提示不发奖；
+//   4) 场景真正移动（patch.scene 与原 scene 不同）才产出 advance 事件喂
+//      每日任务，原地踏步不计；跨章时遭遇保底计数随地图归零。
 function advanceWithEncounter(save) {
   const cbt = store.getCombat(save.id);
+  const enemyName = cbt && cbt.enemy ? cbt.enemy.name : "敌人";
+
+  // 落到主线链尾时的奖励门槛：守关 boss 未击杀则只提示不结算；
+  // 本次落点本身开战（boss/小怪）时提示被遭遇播报盖过，不重复啰嗦。
+  const applyTailGate = (res, chapter, spawnedBoss) => {
+    const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+    if (!chapter || !path.length || res.patch.scene !== path[path.length - 1].id) return;
+    if (bossRequirementMet(save, chapter)) {
+      res.grantMain = chapter.id;
+    } else if (!spawnedBoss) {
+      res.content += `\n【主线】本章守关者仍未倒下，主线奖励未结算。`;
+    }
+  };
+
+  if (cbt) {
+    // 撤离掷逃：直接复用战斗回合的 flee 结算（同一概率/公式/反击），
+    // 失败回合照推（吃反击、turn+1、原地不动），死亡交由 settleDeath。
+    const fleeRes = combatTurn(save, cbt, "flee", "前进");
+    const fledOk =
+      fleeRes.combat &&
+      fleeRes.combat.op === "clear" &&
+      fleeRes.patch &&
+      fleeRes.patch.hp > 0;
+    if (!fledOk) {
+      return {
+        patch: fleeRes.patch,
+        content: `${fleeRes.content}\n【战斗】撤离失败，${enemyName}仍堵在面前——你寸步未移。`,
+        events: fleeRes.events || [],
+        combat: fleeRes.combat,
+        rewards: null,
+        grantMain: null,
+      };
+    }
+    // 撤离成功才推进：体力消耗按战后血量结算，落点不掷遭遇。
+    const fledSave = { ...save, hp: fleeRes.patch.hp, mp: fleeRes.patch.mp };
+    const out = advanceOutcome(fledSave);
+    const patch = { ...fleeRes.patch, ...(out.patch || {}) };
+    const moved = typeof patch.scene === "string" && patch.scene !== save.scene;
+    const res = {
+      patch,
+      content: `${fleeRes.content}\n你且战且退，甩开了${enemyName}的纠缠。\n${out.content}`,
+      events: moved ? ["advance"] : [],
+      combat: { op: "clear" },
+      rewards: null,
+      grantMain: null,
+    };
+    if (!moved) return res;
+    patch.encounter_cd = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
+    if (patch.chapter && patch.chapter !== save.chapter) patch.encounter_clock = 0;
+    applyTailGate(res, chaptersEngine.getChapter(patch.chapter || save.chapter), false);
+    return res;
+  }
+
   const out = advanceOutcome(save);
   const patch = out.patch ? { ...out.patch } : null;
-  const moved = Boolean(patch && typeof patch.scene === "string");
+  const moved = Boolean(patch && typeof patch.scene === "string" && patch.scene !== save.scene);
   const res = {
     patch,
     content: out.content,
@@ -520,28 +623,30 @@ function advanceWithEncounter(save) {
   };
   if (!moved) return res;
 
-  // 主线链尾 = 本章主线完成：无论是否带着敌人逃进来，奖励都照常入账。
-  const chapter = chaptersEngine.getChapter(patch.chapter || save.chapter);
-  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
-  if (chapter && path.length && patch.scene === path[path.length - 1].id) {
-    res.grantMain = chapter.id;
-  }
+  // 跨章换地图：遭遇保底计数随地图归零；击杀冷却每次真实移动递减一格。
+  if (patch.chapter && patch.chapter !== save.chapter) patch.encounter_clock = 0;
+  const cdNext = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
+  patch.encounter_cd = cdNext;
 
-  if (cbt) {
-    // 撤离推进：清掉旧交战态，落点不再掷遭遇（否则永远走不出战斗）。
-    res.combat = { op: "clear" };
-    res.content = `你且战且退，甩开了${cbt.enemy.name}的纠缠。\n${out.content}`;
-    return res;
+  const nextChapter = chaptersEngine.getChapter(patch.chapter || save.chapter);
+  const landedScene = chaptersEngine.getScene(patch.scene);
+  let enemy = null;
+  if (!encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, landedScene)) {
+    enemy = tryEncounter(
+      { ...save, chapter: patch.chapter || save.chapter, encounter_cd: cdNext },
+      patch.scene
+    );
   }
-
-  const enemy = tryEncounter({ ...save, chapter: patch.chapter || save.chapter }, patch.scene);
   if (enemy) {
     res.combat = { op: "set", enemy, turn: 1 };
-    res.patch.encounter_clock = 0;
+    patch.encounter_clock = 0;
+    patch.encounter_seq = enemy.seq;
     res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
-  } else {
-    res.patch.encounter_clock = (Math.max(0, Math.trunc(Number(save.encounter_clock) || 0))) + 1;
+  } else if (!(patch.chapter && patch.chapter !== save.chapter)) {
+    patch.encounter_clock = Math.max(0, Math.trunc(Number(save.encounter_clock) || 0)) + 1;
   }
+
+  applyTailGate(res, nextChapter, Boolean(enemy && enemy.boss));
   return res;
 }
 
@@ -572,16 +677,16 @@ function skillGate(save, input) {
 }
 
 // 交战中统一走 engine/combat.js resolveTurn 结算一回合。种子由存档 +
-// 开战时间 + 回合数构成，确定性可复现；事件文案全部由引擎产出，本函数
-// 只做落库参数与播报拼装（HP/MP 变化如实写出，不变不写）。
-function combatTurn(save, cbt, action, input) {
-  let itemNote = "";
+// 开战盐（enemy.seq，每场战斗唯一）+ 回合数构成，确定性可复现且场场
+// 不同；事件文案全部由引擎产出，本函数只做落库参数与播报拼装
+// （HP/MP 变化如实写出，不变不写）。
+function combatTurn(save, cbt, action, input, skill) {
+  let itemUse = null;
   if (action === "item") {
-    if (save.hp >= save.max_hp) {
-      return { patch: null, content: "【系统】生命值已满，无需使用补给。", events: [] };
-    }
-    // 道具必须真实消耗：玩家点名（「使用道具 低级治疗药水」）优先，
-    // 否则挑背包里回复量最低的一瓶可用补给先喝。
+    // 道具必须真实消耗且药效对版：玩家点名（「使用道具 低级治疗药水」）
+    // 优先；否则挑背包里对当前伤势/魔力真有帮助、回复量最低的一瓶先喝。
+    // 选中物的真实 { name, heal, mp } 会传进回合结算——MP 药剂真回 MP、
+    // 圣水真按 300 回，播报一律用物品本名。
     const usable = store
       .getInventory(save.id)
       .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
@@ -589,6 +694,9 @@ function combatTurn(save, cbt, action, input) {
     if (!usable.length) {
       return { patch: null, content: "【系统】背包里已没有可用的补给。", events: [] };
     }
+    const needHp = save.hp < save.max_hp;
+    const needMp = save.mp < save.max_mp;
+    const helps = (it) => (needHp && (it.heal || 0) > 0) || (needMp && (it.mp || 0) > 0);
     const named = String(input || "").match(/使用道具\s*[:：]?\s*(.+)$|道具\s*[:：]?\s*(.+)$/);
     const want = named ? (named.slice(1).find((g) => g) || "").trim() : "";
     let picked = want
@@ -597,14 +705,25 @@ function combatTurn(save, cbt, action, input) {
     if (want && !picked) {
       return { patch: null, content: `【系统】背包里没有名为「${want}」的可用补给。`, events: [] };
     }
+    if (picked && !helps(picked.item)) {
+      return {
+        patch: null,
+        content: `【系统】「${picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。`,
+        events: [],
+      };
+    }
     if (!picked) {
-      picked = usable.sort(
+      const helpful = usable.filter((x) => helps(x.item));
+      if (!helpful.length) {
+        return { patch: null, content: "【系统】背包里的补给此刻都派不上用场。", events: [] };
+      }
+      picked = helpful.sort(
         (a, b) => (a.item.heal || 0) + (a.item.mp || 0) - ((b.item.heal || 0) + (b.item.mp || 0))
       )[0];
     }
     if (picked.row.qty <= 1) invStmts.remove.run(save.id, picked.item.id);
     else invStmts.setQty.run(picked.row.qty - 1, save.id, picked.item.id);
-    itemNote = `你喝下「${picked.item.name}」。`;
+    itemUse = { name: picked.item.name, heal: picked.item.heal || 0, mp: picked.item.mp || 0 };
   }
 
   const equip = equipView(save.id);
@@ -614,7 +733,9 @@ function combatTurn(save, cbt, action, input) {
   stats.strength += (equip.atk || 0) / 1.6;
   stats.vitality += (equip.def || 0) / 0.8;
 
-  const seed = `combat:${save.id}:${cbt.started_at || "?"}:${cbt.turn}`;
+  // 回合种子：enemy.seq 是开战盐（每场唯一），旧战斗无 seq 时退回
+  // started_at。同一存档连续两场战斗的 RNG 流必然不同。
+  const seed = `combat:${save.id}:${cbt.enemy && cbt.enemy.seq !== undefined ? cbt.enemy.seq : cbt.started_at || "?"}:${cbt.turn}`;
   const { state, events } = combatEngine.resolveTurn(
     {
       turn: cbt.turn,
@@ -631,7 +752,14 @@ function combatTurn(save, cbt, action, input) {
       enemy: cbt.enemy,
     },
     action,
-    seed
+    seed,
+    {
+      item: itemUse,
+      skill:
+        action === "skill" && skill
+          ? { name: skill.name, mp_cost: skill.mp_cost, power: skill.power }
+          : null,
+    }
   );
 
   const p = state.player;
@@ -650,7 +778,6 @@ function combatTurn(save, cbt, action, input) {
 
   let content =
     `【战斗】第${cbt.turn}回合 · ` +
-    (itemNote ? `${itemNote} ` : "") +
     events.map((ev) => ev.text).join(" · ");
   if (vitals.length) content += `\n【战斗】${vitals.join(" · ")}`;
 
@@ -660,9 +787,23 @@ function combatTurn(save, cbt, action, input) {
   const fled = events.some((ev) => ev.type === "flee" && ev.side === "player");
   if (e.hp <= 0) {
     // 击杀：kills+1、掉落（loot 引擎同种子掷点）与 XP 入账，交战态收敛。
+    // 击杀后挂遭遇冷却（KILL_COOLDOWN 次真实移动内不再掷怪）——原地
+    // 连点「攻击」刷不出下一只；boss 击杀记 boss_cleared，解锁本章主线
+    // 奖励结算资格（走到链尾才发，见 advanceWithEncounter）。
     res.events.push("kill");
     patch.kills = (Number(save.kills) || 0) + 1;
+    patch.encounter_cd = KILL_COOLDOWN;
     res.combat = { op: "clear" };
+    const chapter = chaptersEngine.getChapter(save.chapter);
+    if (cbt.enemy.boss && chapter && !bossCleared(save, chapter.id)) {
+      patch.boss_cleared = [...(Array.isArray(save.boss_cleared) ? save.boss_cleared : []), chapter.id];
+      // boss 场景恰好是主线链尾（如 ch2 毒牙蛇）：击杀这一刻即完成主线，
+      // 就地发奖——否则玩家永远少一次「落点」触发。
+      const path = chaptersEngine.chapterPath(chapter);
+      if (path.length && save.scene === path[path.length - 1].id) {
+        res.grantMain = chapter.id;
+      }
+    }
     const loot = lootEngine.rollLoot(cbt.enemy.id, cbt.enemy.rank, `${seed}:loot`);
     const xp = Math.max(0, Math.trunc(Number(cbt.enemy.xp) || 0));
     res.rewards = {
@@ -675,6 +816,9 @@ function combatTurn(save, cbt, action, input) {
       parts.push(loot.items.map((i) => `${lootName(i.item_id)} ×${i.qty}`).join("、"));
     }
     res.content += `\n【战斗】击败 ${e.name}，获得 ${parts.join(" · ")}。`;
+    if (cbt.enemy.boss) {
+      res.content += `\n【主线】守关者已被击杀，本章主线奖励资格解锁。`;
+    }
   } else if (fled || patch.hp <= 0) {
     // 逃跑成功 / 玩家倒下：交战态都必须收敛。死亡由 settleDeath 统一结算。
     res.combat = { op: "clear" };
@@ -694,10 +838,19 @@ function peacefulCombatIntent(save, input, action) {
       if (!gate.ok) return { patch: null, content: gate.content, events: [] };
     }
     const scene = chaptersEngine.currentScene(save);
+    // 击杀冷却未走完：原地连点「攻击」刷不出怪——落空计数不涨
+    // （被冷却压制的空挥不该喂保底），只给诚实播报。
+    if (encounterBlockedByCooldown(save, scene)) {
+      return {
+        patch: null,
+        content: "【系统】刚结束的战斗把附近的魔物惊散了——这片区域暂时没有敌人敢靠近，往前走走再试。",
+        events: [],
+      };
+    }
     const enemy = tryEncounter(save, scene ? scene.id : null);
     if (enemy) {
       return {
-        patch: { encounter_clock: 0 },
+        patch: { encounter_clock: 0, encounter_seq: enemy.seq },
         content: `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`,
         events: [],
         combat: { op: "set", enemy, turn: 1 },
@@ -722,11 +875,13 @@ function peacefulCombatIntent(save, input, action) {
 function combatIntent(save, input, action) {
   const cbt = store.getCombat(save.id);
   if (!cbt) return peacefulCombatIntent(save, input, action);
+  let skill = null;
   if (action === "skill") {
     const gate = skillGate(save, input);
     if (!gate.ok) return { patch: null, content: gate.content, events: [] };
+    skill = gate.skill;
   }
-  return combatTurn(save, cbt, action, input);
+  return combatTurn(save, cbt, action, input, skill);
 }
 
 // Whitelisted intents. Each entry owns its log role, the
@@ -1019,6 +1174,23 @@ const PLACEHOLDER = {
   content: null, // filled per-request with the raw input
 };
 
+// 交战中允许执行的意图：五个战斗指令 + 「前进」（撤离掷逃）。
+// 其余白名单意图（休息/潜行/存档/状态/观察/影子编队……）在敌我面前一律
+// 改判为一条诚实播报——不占回合、不产生任何 HP/MP 收益，杜绝「交战中
+// 免费回血/回魔」的漏洞。
+const COMBAT_INTENTS = new Set(["attack", "skill", "defend", "item", "flee", "advance"]);
+const COMBAT_BLOCKED_VERB = {
+  rest: "休息",
+  sneak: "潜行",
+  save: "存档",
+  status: "检视状态",
+  help: "翻查指令",
+  observe: "分心观察",
+  shadow_deploy: "调动影子",
+  shadow_undeploy: "调动影子",
+  shadow_formation: "整备编队",
+};
+
 // 引擎执行：intent id → 服务端结算出参。/action 与 /ai-action 共用，
 // AI/客户端给的任何数值都不会走到这里，patch 只由白名单模板产出。
 // build 出参的 events/combat/rewards/grantMain 是真实结算事件与副作用
@@ -1027,6 +1199,25 @@ const PLACEHOLDER = {
 function executeIntent(save, intentId, input) {
   const intent = INTENTS.find((it) => it.id === intentId);
   if (!intent) return null;
+  if (!COMBAT_INTENTS.has(intentId)) {
+    const cbt = store.getCombat(save.id);
+    if (cbt) {
+      const verb = COMBAT_BLOCKED_VERB[intentId] || "执行该指令";
+      return {
+        intent: intent.id,
+        role: "system",
+        patch: null,
+        content:
+          `【战斗】${cbt.enemy.name}正堵在你面前，此刻无法${verb}——` +
+          `先解决眼前的敌人，或以「逃跑」/「前进」寻隙撤离。`,
+        shadows: undefined,
+        events: [],
+        combat: null,
+        rewards: null,
+        grantMain: null,
+      };
+    }
+  }
   const built = intent.build(save, input);
   return {
     intent: intent.id,
@@ -1044,25 +1235,30 @@ function executeIntent(save, intentId, input) {
 // 结算副作用统一管线（/action 与 /ai-action 共用）：
 //   patch → 战斗态写/删 → 死亡回溯 → 击杀/杂项奖励 → 主线奖励 → 每日任务。
 // 死亡优先于发奖：HP 归零先复活再走 XP 结算，「倒下」播报不被升级覆盖。
+// 整条管线包在一条 SQLite 事务里：奖励入账与主线去重标记同生共死，
+// 中途抛错整体回滚，绝不出现「奖发了标记没写」的重复发奖窗口。
 function applyOutcome(saveId, outcome) {
-  if (outcome.patch) store.updateSave(saveId, outcome.patch);
-  if (outcome.combat) {
-    if (outcome.combat.op === "set") {
-      store.setCombat(saveId, outcome.combat.enemy, outcome.combat.turn || 1);
-    } else if (outcome.combat.op === "turn") {
-      store.setCombatTurn(saveId, outcome.combat.enemy, outcome.combat.turn);
-    } else if (outcome.combat.op === "clear") {
-      store.clearCombat(saveId);
+  const run = store.transaction(() => {
+    if (outcome.patch) store.updateSave(saveId, outcome.patch);
+    if (outcome.combat) {
+      if (outcome.combat.op === "set") {
+        store.setCombat(saveId, outcome.combat.enemy, outcome.combat.turn || 1);
+      } else if (outcome.combat.op === "turn") {
+        store.setCombatTurn(saveId, outcome.combat.enemy, outcome.combat.turn);
+      } else if (outcome.combat.op === "clear") {
+        store.clearCombat(saveId);
+      }
     }
-  }
-  const lines = [];
-  const death = settleDeath(saveId);
-  if (death) lines.push(...death);
-  if (outcome.rewards) lines.push(...grantRewards(saveId, outcome.rewards));
-  if (outcome.grantMain) lines.push(...claimMainReward(saveId, outcome.grantMain));
-  const questNote = settleDailyQuests(saveId, outcome.events);
-  if (questNote) lines.push(questNote);
-  return lines;
+    const lines = [];
+    const death = settleDeath(saveId);
+    if (death) lines.push(...death);
+    if (outcome.rewards) lines.push(...grantRewards(saveId, outcome.rewards));
+    if (outcome.grantMain) lines.push(...claimMainReward(saveId, outcome.grantMain));
+    const questNote = settleDailyQuests(saveId, outcome.events);
+    if (questNote) lines.push(questNote);
+    return lines;
+  });
+  return run();
 }
 
 function resolveAction(save, input) {

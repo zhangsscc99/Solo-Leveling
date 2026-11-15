@@ -49,11 +49,11 @@ const CHAPTERS = [
   "济州岛",
 ];
 
-const ACTION_BUTTONS = [
+const ACTION_BUTTONS: { label: string; input: string; primary?: boolean; combatBlock?: boolean }[] = [
   { label: "探索前进", input: "前进", primary: true },
-  { label: "环顾四周", input: "观察" },
-  { label: "潜行", input: "潜行" },
-  { label: "休息", input: "休息" },
+  { label: "环顾四周", input: "观察", combatBlock: true },
+  { label: "潜行", input: "潜行", combatBlock: true },
+  { label: "休息", input: "休息", combatBlock: true },
 ];
 
 type TabKey = "inventory" | "skills" | "stats" | "map" | "quests" | "shadows" | "ending";
@@ -734,18 +734,24 @@ export default function App() {
           <div className="action-groups">
             <div className="btn-group">
               <span className="group-label">行动</span>
-              {ACTION_BUTTONS.map((b, i) => (
-                <button
-                  key={b.label}
-                  className={`btn${b.primary ? " primary" : ""}`}
-                  disabled={busy}
-                  onClick={() => dispatch(b.input)}
-                  title={`快捷键 ${i + 1}`}
-                >
-                  {b.label}
-                  <kbd>{i + 1}</kbd>
-                </button>
-              ))}
+              {ACTION_BUTTONS.map((b, i) => {
+                // 交战中的和平意图被服务端改判为提示且零收益——前台直接
+                // 禁用，避免玩家误以为「休息」能免费回血。「前进」保留：
+                // 交战中它是撤离掷逃。
+                const blocked = Boolean(b.combatBlock && save.combat);
+                return (
+                  <button
+                    key={b.label}
+                    className={`btn${b.primary ? " primary" : ""}`}
+                    disabled={busy || blocked}
+                    onClick={() => dispatch(b.input)}
+                    title={blocked ? "交战中无法使用" : `快捷键 ${i + 1}`}
+                  >
+                    {b.label}
+                    <kbd>{i + 1}</kbd>
+                  </button>
+                );
+              })}
             </div>
             <div className="btn-group btn-group-sys">
               <span className="group-label">系统</span>
@@ -767,7 +773,12 @@ export default function App() {
               >
                 战斗
               </button>
-              <button className="btn" disabled={busy} onClick={() => dispatch("存档")}>
+              <button
+                className="btn"
+                disabled={busy || Boolean(save.combat)}
+                title={save.combat ? "交战中无法存档" : undefined}
+                onClick={() => dispatch("存档")}
+              >
                 存档
               </button>
             </div>

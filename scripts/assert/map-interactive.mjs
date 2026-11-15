@@ -9,7 +9,7 @@ process.env.E2E_BASE_URL = BASE;
 process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
 
 const { run, createSave, assert } = await import("../e2e/lib.mjs");
-const { post } = await import("./_http.mjs");
+const { post, advanceOnce } = await import("./_http.mjs");
 
 const NAME = `e2e-map-${Date.now().toString(36)}`;
 
@@ -20,10 +20,11 @@ run("map-interactive", async ({ page }) => {
   );
   assert(saveId > 0, "save_id missing in localStorage");
 
-  // 走到第 2 章：ch1 主线 7 景 + 1 次过门，共 8 次「前进」（API 直推）。
-  for (let i = 0; i < 8; i++) {
-    const r = await post("/action", { save_id: saveId, input: "前进" });
-    assert(r.status === 200, `advance ${i + 1} failed (HTTP ${r.status})`);
+  // 走到第 2 章：ch1 主线 7 景 + 1 次过门。交战中「前进」=掷逃，
+  // advanceOnce 展开成真实操作序列直到 chapter 变 2。
+  for (let i = 0; i < 120; i++) {
+    const body = await advanceOnce(saveId, { fight: "none" });
+    if (body.save.chapter >= 2) break;
   }
 
   await page.locator(".btn-group-sys .btn", { hasText: "地图" }).first().click();
