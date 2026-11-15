@@ -17,6 +17,12 @@ const VALID_KINDS = ["story", "dungeon", "boss", "rest"];
 // The story arc is fixed at 8 chapters (SPEC §8). A mismatch is a hard error.
 const CHAPTER_COUNT = 8;
 
+// Optional per-choice gating (requires) and outcome payloads (effects).
+// Both are additive: scenes that omit them validate exactly as before, and
+// runtimes that don't understand them can ignore them safely.
+const VALID_REQUIRE_KEYS = ["min_level", "flag"];
+const VALID_EFFECT_KEYS = ["xp", "gold", "hp", "mp", "item", "flag"];
+
 let cached = null;
 let derived = null;
 
@@ -174,6 +180,49 @@ function validateChapters(data) {
             if (next !== null && !sceneIds.has(next)) {
               errors.push(`${cat}.next 指向不存在的场景: ${JSON.stringify(next)}`);
             }
+
+            if (choice.requires !== undefined) {
+              if (!isPlainObject(choice.requires) || Object.keys(choice.requires).length === 0) {
+                errors.push(`${cat}.requires 必须是非空对象`);
+              } else {
+                Object.keys(choice.requires).forEach((key) => {
+                  if (!VALID_REQUIRE_KEYS.includes(key)) {
+                    errors.push(`${cat}.requires 含未知字段: ${key}`);
+                  }
+                });
+                const { min_level, flag } = choice.requires;
+                if (min_level !== undefined && !isPositiveInt(min_level)) {
+                  errors.push(`${cat}.requires.min_level 必须是正整数`);
+                }
+                if (flag !== undefined && !isNonEmptyString(flag)) {
+                  errors.push(`${cat}.requires.flag 必须是非空字符串`);
+                }
+              }
+            }
+
+            if (choice.effects !== undefined) {
+              if (!isPlainObject(choice.effects) || Object.keys(choice.effects).length === 0) {
+                errors.push(`${cat}.effects 必须是非空对象`);
+              } else {
+                Object.entries(choice.effects).forEach(([key, value]) => {
+                  if (!VALID_EFFECT_KEYS.includes(key)) {
+                    errors.push(`${cat}.effects 含未知字段: ${key}`);
+                    return;
+                  }
+                  if (key === "xp" || key === "gold") {
+                    if (!Number.isInteger(value) || value <= 0 || value > 9999) {
+                      errors.push(`${cat}.effects.${key} 必须是 1–9999 的整数`);
+                    }
+                  } else if (key === "hp" || key === "mp") {
+                    if (!Number.isInteger(value) || value === 0 || Math.abs(value) > 9999) {
+                      errors.push(`${cat}.effects.${key} 必须是非零整数（绝对值 ≤ 9999）`);
+                    }
+                  } else if (!isNonEmptyString(value)) {
+                    errors.push(`${cat}.effects.${key} 必须是非空字符串`);
+                  }
+                });
+              }
+            }
           });
         }
       }
@@ -324,6 +373,8 @@ function currentScene(save) {
 module.exports = {
   DATA_PATH,
   VALID_KINDS,
+  VALID_REQUIRE_KEYS,
+  VALID_EFFECT_KEYS,
   CHAPTER_COUNT,
   loadChapters,
   clearCache,
