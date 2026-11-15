@@ -620,4 +620,197 @@ function assertSaneResult(r, input) {
   assert.ok(!/Date\.now|new Date\(/.test(src), "combat.js 不得依赖时间");
 }
 
+// --- F036 边界 1：0 HP 双方均不得行动，HP 不为负、不复活、回合不推进 ---
+{
+  // 攻方 hp=0：任何动作都被禁止（含治疗道具，倒下的人不能喝药复活）
+  for (const action of ["attack", "skill", "defend", "item", "flee"]) {
+    const s = baseState();
+    s.player.hp = 0;
+    const r = resolveTurn(s, action, "dead-" + action);
+    assert.deepStrictEqual(r.events.map((e) => e.type), ["defeat"], `hp=0 玩家用 ${action} 应只产生 defeat`);
+    assert.strictEqual(r.events[0].side, "player");
+    assert.strictEqual(r.state.player.hp, 0, "倒下后 hp 不得回到正数");
+    assert.strictEqual(r.state.enemy.hp, 60, "敌人不应受任何伤害");
+    assert.strictEqual(r.state.turn, 1, `hp=0 玩家用 ${action} 回合不得推进`);
+    assertSaneResult(r, s);
+  }
+  // 守方 hp=0：不产出伤害事件，守方 hp 停在 0，玩家也不被「尸体反击」
+  {
+    const s = baseState();
+    s.enemy.hp = 0;
+    const r = resolveTurn(s, "attack", "dead-enemy");
+    assert.deepStrictEqual(r.events.map((e) => e.type), ["defeat"]);
+    assert.strictEqual(r.events[0].side, "enemy");
+    assert.strictEqual(r.state.enemy.hp, 0, "守方 hp 不得为负或回正");
+    assert.strictEqual(r.state.player.hp, 100, "已倒下的敌人不得反击");
+    assert.strictEqual(r.state.turn, 1, "目标已死回合不得推进");
+  }
+  // 负 hp 输入被消毒为 0，同样走 defeat 分支而不是继续战斗
+  {
+    const s = baseState();
+    s.enemy.hp = -50;
+    const r = resolveTurn(s, "attack", "neg-enemy");
+    assert.strictEqual(r.state.enemy.hp, 0);
+    assert.deepStrictEqual(r.events.map((e) => e.type), ["defeat"]);
+    assert.strictEqual(r.state.turn, 1);
+  }
+}
+
+// --- F036 边界 2：满血不溢出、致死伤害不扣到负数 ---
+{
+  // hp == maxHp 时使用道具：heal 事件 value 必须为 0，hp 严格等于 maxHp
+  const full = baseState();
+  const rFull = resolveTurn(full, "item", "full-heal");
+  const heal0 = rFull.events.find((e) => e.type === "heal");
+  assert.ok(heal0, "满血用药仍应产生 heal 事件");
+  assert.strictEqual(heal0.value, 0, "满血治疗量必须为 0");
+  // 同回合敌人仍反击：hp = maxHp - 敌人伤害，且永不超过 maxHp
+  const takenFull = damageSum([rFull], "enemy");
+  assert.strictEqual(rFull.state.player.hp, full.player.maxHp - takenFull);
+  assert.ok(rFull.state.player.hp <= rFull.state.player.maxHp, "不得溢出 maxHp");
+
+  // hp = maxHp - 1：治疗量被夹到 1，先补满再被敌人打掉，全程不溢出
+  const almost = baseState();
+  almost.player.hp = almost.player.maxHp - 1;
+  const rAlmost = resolveTurn(almost, "item", "almost-heal");
+  const heal1 = rAlmost.events.find((e) => e.type === "heal");
+  assert.strictEqual(heal1.value, 1, `治疗量应被夹到 1，实际 ${heal1.value}`);
+  assert.strictEqual(rAlmost.state.player.hp, almost.player.maxHp - damageSum([rAlmost], "enemy"));
+
+  // 致死一击：事件伤害数值可以超过剩余 hp，但 hp 必须恰好停在 0 并给 defeat
+  const lethal = baseState();
+  lethal.enemy.stats.strength = 999;
+  lethal.enemy.stats.agility = 999; // 敌人先手，必杀
+  const rLethal = resolveTurn(lethal, "attack", "lethal");
+  const killing = rLethal.events.find((e) => (e.type === "hit" || e.type === "crit") && e.side === "enemy");
+  assert.ok(killing && killing.value >= 100, "需要先手必杀一击");
+  assert.strictEqual(rLethal.state.player.hp, 0, "hp 不得低于 0");
+  assert.ok(rLethal.events.some((e) => e.type === "defeat" && e.side === "player"), "致死必须紧跟 defeat");
+  // 击杀后倒下方不再行动：玩家没有出手事件
+  assert.ok(rLethal.events.every((e) => !((e.type === "hit" || e.type === "crit") && e.side === "player")));
+}
+
+// --- F036 边界 3：闪避（固定 seed）无伤害、dodge 标记、回合推进 ---
+{
+  const s = baseState();
+  s.enemy.stats.agility = 200; // 玩家命中被压到 HIT_MIN；该 seed 下必落空且判为 dodge
+  s.player.hp = s.player.maxHp = 10000; // 敌人先手，保证玩家活下来出手
+  const r = resolveTurn(s, "attack", "dodge-fix-0");
+  // 没有任何来自玩家的伤害事件
+  assert.ok(r.events.every((e) => !((e.type === "hit" || e.type === "crit") && e.side === "player")),
+    "闪避回合不得有玩家伤害事件");
+  const dodge = r.events.find((e) => e.type === "dodge");
+  assert.ok(dodge, "应产生 dodge 事件");
+  assert.strictEqual(dodge.side, "enemy", "闪避的是守方（敌人）");
+  assert.ok(!("value" in dodge), "dodge 事件不得携带伤害数值");
+  assert.strictEqual(r.state.enemy.hp, s.enemy.hp, "被闪避的敌人 hp 不变");
+  assert.strictEqual(r.state.turn, 2, "闪避回合仍应推进");
+  assert.ok(r.narration.includes("闪") || dodge.text.includes("闪"));
+}
+
+// --- F036 边界 4：暴击（固定 seed）伤害 = 非暴击 × critMultiplier，hp 扣减等于事件数值 ---
+{
+  const s = baseState();
+  s.enemy.hp = s.enemy.maxHp = 5000;
+  const r = resolveTurn(s, "attack", "crit-fix-6");
+  const crit = r.events.find((e) => e.type === "crit" && e.side === "player");
+  assert.ok(crit, "该 seed 应产生玩家暴击");
+
+  // 真实倍率取自实现：rankFactor("D","E")=1.05，critMultiplier(感知10)=1.55
+  const expected = S.physicalDamage(
+    s.player, S.defenseFor(s.enemy),
+    1.05 * S.critMultiplier(s.player)
+  );
+  assert.strictEqual(crit.value, expected, `暴击伤害应按实现公式结算：${crit.value} vs ${expected}`);
+  // hp 扣减与事件数值严格一致
+  assert.strictEqual(5000 - r.state.enemy.hp, crit.value, "hp 扣减必须等于事件 value");
+
+  // 同配置非暴击基准：hit-fix-0 下玩家普通命中，暴击 / 非暴击 ≈ critMultiplier
+  const rHit = resolveTurn(s, "attack", "hit-fix-0");
+  const hit = rHit.events.find((e) => e.type === "hit" && e.side === "player");
+  assert.ok(hit, "该 seed 应产生玩家普通命中");
+  const ratio = crit.value / hit.value;
+  const mult = S.critMultiplier(s.player);
+  assert.ok(Math.abs(ratio - mult) <= 0.05,
+    `暴击/普攻之比应约等于暴击倍率 ${mult}，实际 ${ratio}（${crit.value}/${hit.value}）`);
+}
+
+// --- F036 边界 5：MP 不足放技能 —— 报错、不耗 MP、敌人仍行动、回合推进 ---
+{
+  const s = baseState();
+  s.player.mp = 3; // 正数但低于实际消耗 7
+  const cost = S.skillCost(s.player, 8);
+  assert.ok(s.player.mp < cost, "用例前提：MP 不足");
+  const r = resolveTurn(s, "skill", "mp-short");
+  const err = r.events.find((e) => e.type === "error");
+  assert.ok(err, "MP 不足必须报 error 事件");
+  assert.ok(err.text.includes(String(cost)), "错误文案应包含所需 MP");
+  assert.ok(r.events.every((e) => e.type !== "hit" && e.type !== "crit" || e.side !== "player"),
+    "技能失败不得造成玩家伤害");
+  assert.strictEqual(r.state.player.mp, 3, "释放失败不得扣 MP");
+  assert.strictEqual(r.state.enemy.hp, 60, "敌人未受伤");
+  assert.strictEqual(r.state.turn, 2, "回合仍推进");
+  // 敌人回合未被跳过：error 之后仍有敌人的行动结算（hit/crit/miss/dodge 任一）
+  const errIdx = r.events.findIndex((e) => e.type === "error");
+  assert.ok(r.events.length > errIdx + 1, "技能失败后敌人仍应行动");
+}
+
+// --- F036 边界 6：防御动作回合语义 —— 自己不攻击、承伤减半、回合推进 ---
+{
+  const s = baseState();
+  const r = resolveTurn(s, "defend", "def-fix-0");
+  // 防御方本回合不产生任何伤害事件
+  assert.ok(r.events.every((e) => !((e.type === "hit" || e.type === "crit") && e.side === "player")),
+    "防御回合玩家不得有伤害事件");
+  // 敌人命中数值 = physicalDamage(enemy, def(player), DEFEND_MULT × rankFactor(E,D)=0.5×0.9)
+  const taken = r.events.find((e) => (e.type === "hit" || e.type === "crit") && e.side === "enemy");
+  assert.ok(taken, "该 seed 敌人应命中");
+  const expectedTaken = S.physicalDamage(s.enemy, S.defenseOf(s.player), 0.5 * 0.9);
+  assert.strictEqual(taken.value, expectedTaken, `防御承伤应按 0.5×rank 结算：${taken.value} vs ${expectedTaken}`);
+  assert.strictEqual(100 - r.state.player.hp, taken.value, "hp 扣减与事件一致");
+  assert.strictEqual(r.state.turn, 2, "防御回合仍推进");
+  assert.ok(r.narration.includes("防御姿态"));
+}
+
+// --- F036 边界 7：逃跑成败的回合语义（固定 seed） ---
+{
+  // 成功：flee 事件 side=player，敌人本回合不再行动，无任何伤害事件
+  const ok = resolveTurn(baseState(), "flee", "flee-fix-0");
+  assert.deepStrictEqual(ok.events.map((e) => e.type + ":" + e.side), ["flee:player"]);
+  assert.strictEqual(ok.state.enemy.hp, 60, "逃跑回合敌人未受伤");
+  assert.strictEqual(ok.state.player.hp, 100, "成功逃跑不被追击");
+  assert.strictEqual(ok.state.turn, 2, "逃跑成功回合仍推进");
+
+  // 失败：flee 事件 side=enemy，敌人仍完成一次行动结算
+  const fail = resolveTurn(baseState(), "flee", "flee-fix-1");
+  assert.strictEqual(fail.events[0].type, "flee");
+  assert.strictEqual(fail.events[0].side, "enemy", "被拦下的 flee 事件侧为 enemy");
+  assert.ok(fail.events.length >= 2, "拦下后敌人仍应行动");
+  assert.strictEqual(fail.state.turn, 2);
+}
+
+// --- F036 边界 8：rankFactor 全域夹紧（任意组合都在 [0.55, 1.15]） ---
+{
+  const { rankFactor, RANK_ORDER } = require("./combat");
+  for (const a of RANK_ORDER) {
+    for (const d of RANK_ORDER) {
+      const f = rankFactor(a, d);
+      assert.ok(f >= 0.55 && f <= 1.15, `${a} vs ${d} 系数越界：${f}`);
+    }
+  }
+  // 两个端点精确值
+  assert.strictEqual(rankFactor("S", "E"), 1.15);
+  assert.strictEqual(rankFactor("E", "S"), 0.55);
+  // E vs S 端到端：系数触底时伤害仍按 0.55 结算而非线性 0.50
+  const s = baseState();
+  s.player.rank = "E";
+  s.enemy.rank = "S";
+  s.enemy.hp = s.enemy.maxHp = 5000;
+  const r = resolveTurn(s, "attack", "hit-fix-0");
+  const hit = r.events.find((e) => e.type === "hit" && e.side === "player");
+  assert.ok(hit, "该 seed 玩家应命中");
+  const expected = S.physicalDamage(s.player, S.defenseFor(s.enemy), 0.55);
+  assert.strictEqual(hit.value, expected, `触底系数应参与结算：${hit.value} vs ${expected}`);
+}
+
 console.log("OK");
