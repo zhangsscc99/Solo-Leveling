@@ -35,10 +35,35 @@ interface InvItem {
   qty: number;
 }
 
+function RankEmblem({ rank, level }: { rank: string; level: number }) {
+  const R = 15.5;
+  const C = 2 * Math.PI * R;
+  const progress = Math.min(1, (((level - 1) % 10) + 1) / 10);
+  const arc = C * (0.12 + 0.88 * progress);
+  return (
+    <svg className="rank-emblem" viewBox="0 0 48 48" role="img" aria-label={`猎人等级 ${rank}`}>
+      <path className="re-diamond" d="M24 2.5 L45.5 24 L24 45.5 L2.5 24 Z" />
+      <path className="re-ticks" d="M24 6.5v3M41.5 24h-3M24 41.5v-3M6.5 24h3" />
+      <circle className="re-ring" cx="24" cy="24" r={R} />
+      <circle
+        className="re-arc"
+        cx="24"
+        cy="24"
+        r={R}
+        transform="rotate(-90 24 24)"
+        strokeDasharray={`${arc.toFixed(1)} ${C.toFixed(1)}`}
+      />
+      <text className="re-letter" x="24" y="30.5" textAnchor="middle">
+        {rank}
+      </text>
+    </svg>
+  );
+}
+
 function Gauge({ label, value, max, kind }: { label: string; value: number; max: number; kind: "hp" | "mp" }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div className={`gauge gauge-${kind}`}>
+    <div className={`gauge gauge-${kind}${pct <= 30 ? " gauge-low" : ""}`}>
       <span className="gauge-label">{label}</span>
       <div className="gauge-track">
         <div className="gauge-fill" style={{ width: `${pct}%` }} />
@@ -58,7 +83,7 @@ function StatusBar({ save, onOpenDrawer }: { save: Save; onOpenDrawer: () => voi
   return (
     <header className="status">
       <div className="status-id">
-        <span className="rank-badge">{save.rank}</span>
+        <RankEmblem rank={save.rank} level={save.level} />
         <div className="status-idbox">
           <span className="status-name">{save.player_name}</span>
           <span className="status-sub">
@@ -378,63 +403,74 @@ export default function App() {
 
       <div className={`drawer-veil${drawer ? " show" : ""}`} onClick={() => setDrawer(false)} />
       <aside className={`sidebar${drawer ? " open" : ""}`} aria-label="档案面板">
-        <nav className="side-tabs">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              className={`side-tab${tab === t.key ? " active" : ""}`}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+        <div className="side-head">
+          <div className="side-title">
+            <span>档案</span>
+            <i className="status-div" aria-hidden="true" />
+            <span className="cur">{TABS.find((t) => t.key === tab)?.label}</span>
+          </div>
+          <button className="side-close" onClick={() => setDrawer(false)} aria-label="关闭档案面板">
+            ×
+          </button>
+        </div>
         <div className="side-body">
-          <SidePanel tab={tab} save={save} inventory={inventory} />
+          <div className="side-scroll">
+            <SidePanel tab={tab} save={save} inventory={inventory} />
+          </div>
+          <div className="side-foot">
+            <span>面板 5–9</span>
+            <span className="foot-esc">ESC 关闭</span>
+          </div>
         </div>
       </aside>
 
       <footer className="actions">
-        <div className="action-groups">
-          <div className="btn-group">
-            <span className="group-label">行动</span>
-            {ACTION_BUTTONS.map((b, i) => (
-              <button
-                key={b.label}
-                className={`btn${b.primary ? " primary" : ""}`}
-                disabled={busy}
-                onClick={() => dispatch(b.input)}
-                title={`快捷键 ${i + 1}`}
-              >
-                {b.label}
-                <kbd>{i + 1}</kbd>
+        <div className="actions-main">
+          <div className="action-groups">
+            <div className="btn-group">
+              <span className="group-label">行动</span>
+              {ACTION_BUTTONS.map((b, i) => (
+                <button
+                  key={b.label}
+                  className={`btn${b.primary ? " primary" : ""}`}
+                  disabled={busy}
+                  onClick={() => dispatch(b.input)}
+                  title={`快捷键 ${i + 1}`}
+                >
+                  {b.label}
+                  <kbd>{i + 1}</kbd>
+                </button>
+              ))}
+            </div>
+            <div className="btn-group btn-group-sys">
+              <span className="group-label">系统</span>
+              {TABS.map((t, i) => (
+                <button key={t.key} className="btn" onClick={() => openTab(t.key)} title={`快捷键 ${i + 5}`}>
+                  {t.label}
+                  <kbd>{i + 5}</kbd>
+                </button>
+              ))}
+              <button className="btn" disabled={busy} onClick={() => dispatch("存档")}>
+                存档
               </button>
-            ))}
+            </div>
           </div>
-          <div className="btn-group">
-            <span className="group-label">系统</span>
-            {TABS.map((t, i) => (
-              <button key={t.key} className="btn" onClick={() => openTab(t.key)} title={`快捷键 ${i + 5}`}>
-                {t.label}
-                <kbd>{i + 5}</kbd>
-              </button>
-            ))}
-            <button className="btn" disabled={busy} onClick={() => dispatch("存档")}>
-              存档
+          <form className="input-row" onSubmit={onSend}>
+            <span className="input-prompt" aria-hidden="true">
+              &gt;
+            </span>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="做点别的……（自由行动）"
+              aria-label="自由行动输入"
+            />
+            <button type="submit" className="input-send" disabled={busy || !input.trim()} aria-label="发送">
+              ↵ Enter
             </button>
-          </div>
+          </form>
         </div>
-        <form className="input-row" onSubmit={onSend}>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="做点别的……（自由行动）"
-            aria-label="自由行动输入"
-          />
-          <button type="submit" className="btn primary" disabled={busy || !input.trim()}>
-            发送
-          </button>
-        </form>
+        <div className="actions-side" aria-hidden="true" />
       </footer>
     </div>
   );

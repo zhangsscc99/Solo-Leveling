@@ -106,6 +106,20 @@ function getSave(id) {
   return toSave(stmts.getSave.get(id));
 }
 
+// Whitelisted column writes for state mutation (the narrative engine only ever
+// changes these through the action endpoint, which clamps values first).
+const MUTABLE_COLUMNS = ["hp", "mp", "max_hp", "max_mp", "xp", "gold", "level", "chapter", "rank"];
+
+function updateSave(id, patch) {
+  if (!patch) return getSave(id);
+  const cols = MUTABLE_COLUMNS.filter((c) => patch[c] !== undefined);
+  if (!cols.length) return getSave(id);
+  const sets = cols.map((c) => `${c} = ?`).join(", ");
+  const values = cols.map((c) => patch[c]);
+  db.prepare(`UPDATE saves SET ${sets}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
+  return getSave(id);
+}
+
 function getInventory(saveId) {
   return stmts.getInventory.all(saveId);
 }
@@ -120,4 +134,4 @@ function getLog(saveId, limit) {
   return stmts.getLog.all(saveId, limit);
 }
 
-module.exports = { createSave, getSave, getInventory, appendLog, getLog };
+module.exports = { createSave, getSave, getInventory, appendLog, getLog, updateSave };
