@@ -1097,6 +1097,61 @@ api.get("/skills", (req, res) => {
   res.json({ skills: SKILLS });
 });
 
+// F090 地图面板数据源：章节静态信息（标题/副标题/简介/解锁条件/景数）+
+// 按存档推导的三态（cleared/current/locked）与本章主线进度。
+// 只读：不写库、不产出日志；save_id 缺省时只回静态部分。
+// 逐景全文（scenes[].text）不出接口——summary 是章节级简介，
+// 景数给主线链长（main_total）与含支线总景数（scene_count）两条口径。
+api.get("/chapters", (req, res) => {
+  const rawId = req.query.save_id;
+  const save = rawId === undefined ? null : store.getSave(Number(rawId));
+  if (rawId !== undefined && !save) {
+    return res.status(404).json({ error: "save not found" });
+  }
+  // 已通关章节数：与 endingEngine.buildStats 同一口径——抵达结局场景 = 8，
+  // 否则按 save.chapter 推导（当前章不算已通关）。
+  const clearedThrough = save
+    ? endingEngine.hasCleared(save)
+      ? chaptersEngine.CHAPTER_COUNT
+      : Math.max(0, Math.trunc(Number(save.chapter) || 1) - 1)
+    : 0;
+  const chapters = chaptersEngine.listChapters().map((chapter) => {
+    const mainTotal = chaptersEngine.chapterPath(chapter).length;
+    const view = {
+      id: chapter.id,
+      index: chapter.index,
+      title: chapter.title,
+      subtitle: chapter.subtitle,
+      summary: chapter.summary,
+      unlock: {
+        level:
+          chapter.unlock && Number.isInteger(chapter.unlock.level) ? chapter.unlock.level : null,
+        chapter:
+          chapter.unlock && Number.isInteger(chapter.unlock.chapter)
+            ? chapter.unlock.chapter
+            : null,
+      },
+      scene_count: chapter.scenes.length,
+      main_total: mainTotal,
+    };
+    if (!save) return view;
+    const state =
+      chapter.index <= clearedThrough
+        ? "cleared"
+        : chapter.index === Math.trunc(Number(save.chapter) || 1)
+          ? "current"
+          : "locked";
+    let steps = state === "cleared" ? mainTotal : 0;
+    if (state === "current") {
+      const scene = chaptersEngine.currentScene(save);
+      const idx = scene ? chaptersEngine.pathIndexOf(chapter, scene.id) : -1;
+      steps = idx >= 0 ? idx + 1 : 0;
+    }
+    return { ...view, state, progress: { current: steps, target: mainTotal } };
+  });
+  res.json({ chapters });
+});
+
 api.post("/saves", (req, res) => {
   const playerName = String((req.body && req.body.player_name) || "").trim();
   if (!playerName) {

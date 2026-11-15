@@ -301,6 +301,18 @@ function buildMainQuests(chapterList, save, mainRewards) {
       const scene = chaptersEngine.currentScene(save);
       const idx = scene ? chaptersEngine.pathIndexOf(chapter, scene.id) : -1;
       done = idx >= 0 ? idx + 1 : 0;
+      // 终章收束（F091）：站在最后一章主线链尾（ch8_epilogue，与
+      // saveView.chapter_completed / hasCleared 同口径）时，本条主线从
+      // 「进行中」翻成 done——否则终章 5/5 永远标「进行中」。
+      // 中途章节在链尾仍保持 active：过门穿章是玩家尚未完成的动作，
+      // 且 chapter-gate 契约要求当前章主线维持 active 到跨章。
+      if (
+        chapter.index === chaptersEngine.CHAPTER_COUNT &&
+        idx >= 0 &&
+        idx === target - 1
+      ) {
+        status = "done";
+      }
     }
     const reward = rewards[chapter.id] || {
       xp: DEFAULT_MAIN_REWARD.xp * chapter.index,
