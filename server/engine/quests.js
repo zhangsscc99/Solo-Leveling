@@ -12,6 +12,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const chaptersEngine = require("./chapters");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "quests.json");
 
@@ -275,23 +276,23 @@ function mergeRewards(defs) {
 const DEFAULT_MAIN_REWARD = { xp: 100, "gold": 50 };
 
 // One main quest per chapter: done before save.chapter, active on it,
-// locked after. Progress counts cleared scenes (save.scene position inside
-// the chapter, 0 when the chapter was never entered or scene isn't tracked).
+// locked after. Progress shares the scene runtime's main-chain semantics —
+// target = 本章主线链长度（支线场景不计入），current = 当前场景在链中的
+// 位置 + 1，与 saveView.chapter_steps / chapter_total 同一口径（双源一致）。
 function buildMainQuests(chapterList, save, mainRewards) {
   const current = Math.max(1, Math.trunc(Number(save && save.chapter) || 1));
-  const saveScene = save && typeof save.scene === "string" ? save.scene : null;
   const rewards = mainRewards || {};
 
   return (chapterList || []).map((chapter) => {
     const status =
       chapter.index < current ? "done" : chapter.index === current ? "active" : "locked";
-    const scenes = Array.isArray(chapter.scenes) ? chapter.scenes : [];
-    const target = Math.max(1, scenes.length);
+    const target = Math.max(1, chaptersEngine.chapterPath(chapter).length);
     let done = 0;
     if (status === "done") done = target;
-    else if (status === "active" && saveScene) {
-      const idx = scenes.findIndex((s) => s.id === saveScene);
-      done = idx >= 0 ? idx : 0;
+    else if (status === "active") {
+      const scene = chaptersEngine.currentScene(save);
+      const idx = scene ? chaptersEngine.pathIndexOf(chapter, scene.id) : -1;
+      done = idx >= 0 ? idx + 1 : 0;
     }
     const reward = rewards[chapter.id] || {
       xp: DEFAULT_MAIN_REWARD.xp * chapter.index,

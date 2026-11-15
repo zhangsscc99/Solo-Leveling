@@ -355,7 +355,8 @@ function getChapterOfScene(sceneId) {
 }
 
 // Entry scene for a save. Uses save.scene when it still belongs to save.chapter,
-// otherwise falls back to the chapter's first scene (null = ending of the run).
+// otherwise falls back to the first scene of the chapter's main chain — the
+// same landing spot the 「前进」self-heal writes (chapterPath(chapter)[0]).
 function currentScene(save) {
   if (!isPlainObject(save)) return null;
 
@@ -367,17 +368,17 @@ function currentScene(save) {
     if (scene && chapter.scenes.some((s) => s.id === scene.id)) return scene;
   }
 
-  return chapter.scenes[0];
+  return firstSceneOf(chapter);
 }
 
 // ---------------------------------------------------------------------------
 // 场景运行时（F074/F075）
 // ---------------------------------------------------------------------------
 
-// 本章首个场景（数组首项）。
+// 本章首个场景：主线链首（currentScene 兜底 / 首推自愈 / 章节门落点同源）。
 function firstSceneOf(chapter) {
-  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
-  return scenes[0] || null;
+  const path = chapterPath(chapter);
+  return path[0] || null;
 }
 
 // scene.id 在本章 scenes[] 的下标（0 基；-1 = 不属于本章）。
@@ -396,10 +397,11 @@ function nextSceneOf(scene) {
   return pick ? pick.next : null;
 }
 
-// 本章主线遍历序（覆盖全部场景，含支线）：从首场景沿 next_scene
-// （缺失取首个未到访的 choices[].next）前进；断链、回环或跨界时按数组
-// 顺序补入最早未到访场景，直至本章场景用尽。
-// 「本章已到达场景数」= 当前场景在遍历序中的位置 + 1，故遍历序即主线步序。
+// 本章主线链：从首场景出发，只沿 next_scene（缺失时取首个指向本章内
+// 未到访场景的 choices[].next，如 ch8_beru.final -> ch8_aftermath）前进，
+// 到链尾即止。绝不用数组顺序补位：支线场景（如 ch1_watch / ch1_death）
+// 只能通过对应 choice 进入，不计入主线进度；链长度即 chapter_total
+// （ch1 = 7，不是 scenes.length = 9）。
 function chapterPath(chapter) {
   const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
   const byId = new Map(scenes.map((s) => [s && s.id, s]));
@@ -419,32 +421,35 @@ function chapterPath(chapter) {
       );
       nextId = pick ? pick.next : null;
     }
-    if (!nextId) {
-      const fill = scenes.find((s) => s && !seen.has(s.id));
-      nextId = fill ? fill.id : null;
-    }
     cur = nextId ? byId.get(nextId) : null;
   }
   return path;
 }
 
-// scene.id 在主线遍历序中的位置（0 基；-1 = 不属于本章）。
+// scene.id 在主线链中的位置（0 基；-1 = 不在链上：支线场景/错章/悬空）。
 function pathIndexOf(chapter, sceneId) {
   return chapterPath(chapter).findIndex((s) => s && s.id === sceneId);
 }
 
-// 下一章准入（章节门）：unlock.chapter（已抵达前置章节）与 unlock.level
-// （推荐等级）满足其一即可进入；线性推进时前置章节必然已满足，等级门槛
-// 用于拦截跳章/异常进度。返回 { ok, level }，level 为展示用推荐等级。
+// 下一章准入（章节门）：当前是软门——unlock.chapter（已抵达前置章节）与
+// unlock.level（推荐等级）满足其一即可进入。返回 { ok, level, chapter,
+// level_ok, chapter_ok }：ok 是放行结论，level_ok / chapter_ok 分别暴露
+// 两条腿的判定，供结算播报与 saveView.chapter_unlock 显性化（等级不足也
+// 放行，但必须写明压制提示，不得静默）。
+// TODO(F088): F082 升级闭环落地后，此处改回 AND 语义（等级是硬门）；现在 AND 会让 Lv1 存档永久卡在 1 章，因为服务端尚无升级路径。
 function unlockedFor(save, chapter) {
   const req = chapter && chapter.unlock;
   const levelReq = req && Number.isInteger(req.level) ? req.level : null;
   const chapterReq = req && Number.isInteger(req.chapter) ? req.chapter : null;
-  if (levelReq === null && chapterReq === null) return { ok: true, level: null };
   const level = Math.trunc(Number(save && save.level) || 0);
   const ch = Math.trunc(Number(save && save.chapter) || 0);
-  const ok = (levelReq !== null && level >= levelReq) || (chapterReq !== null && ch >= chapterReq);
-  return { ok, level: levelReq };
+  const levelOk = levelReq === null ? true : level >= levelReq;
+  const chapterOk = chapterReq === null ? true : ch >= chapterReq;
+  const ok =
+    (levelReq !== null && level >= levelReq) ||
+    (chapterReq !== null && ch >= chapterReq) ||
+    (levelReq === null && chapterReq === null);
+  return { ok, level: levelReq, chapter: chapterReq, level_ok: levelOk, chapter_ok: chapterOk };
 }
 
 module.exports = {

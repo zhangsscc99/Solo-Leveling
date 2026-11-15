@@ -152,13 +152,23 @@ test("buildMainQuests：按 save.chapter 推导 done/active/locked", () => {
   assert.equal(main[3].progress.current, 0);
 });
 
-test("buildMainQuests：save.scene 落在章节内时计入已过场景", () => {
+test("buildMainQuests：save.scene 落在主线链上时按链位次计进度", () => {
   const list = chapters.listChapters();
   const main = quests.buildMainQuests(list, { chapter: 1, scene: "ch1_worship" }, {});
   const active = main[0];
   assert.equal(active.status, "active");
-  assert.equal(active.progress.current, 4); // ch1_worship 是第 5 个场景，已过 4 个
-  assert.equal(active.progress.target, list[0].scenes.length);
+  assert.equal(active.progress.current, 3); // ch1_worship 是主线链第 3 景
+  assert.equal(active.progress.target, 7); // 主线链长度，不是 scenes.length(9)
+});
+
+test("buildMainQuests：支线场景与缺省场景不与主线进度混淆", () => {
+  const list = chapters.listChapters();
+  // 支线场景（ch1_watch）不在主线链上 → current 归零
+  const side = quests.buildMainQuests(list, { chapter: 1, scene: "ch1_watch" }, {});
+  assert.equal(side[0].progress.current, 0);
+  // 无 scene 的新档按主线链首场景显示 → current = 1（与 saveView 口径一致）
+  const fresh = quests.buildMainQuests(list, { chapter: 1 }, {});
+  assert.equal(fresh[0].progress.current, 1);
 });
 
 test("buildMainQuests：main_rewards 按章节 id 命中，否则按 index 放大", () => {
