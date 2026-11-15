@@ -5,6 +5,10 @@
 //       F095 再入冷却穿过），直到站上 ch1 主线链尾；再点「前进」→
 //       save.chapter 仍为 1、chapter_progress 不变、正文含守关者真名
 //       「石像守卫」（数据独立推导，非「守关者」占位）。
+//   (a2) 收尾补丁：站链尾守关者未击杀连点 6 次「前进」= 零消耗拒绝——
+//       hp/mp 逐位不变、chapter/scene/deaths 不变、日志零增长、正文每次
+//       都含「本次没有消耗体力」且不含「体力消耗」。拒绝不再扣血，
+//       「门口点前进直到死」这条死路被封死。
 //   (b) 交战中「前进」不得推进：推进到 boss 房触发守关战，交战态连点
 //       「前进」——每次响应 save.chapter 不变、save.scene 绝不越过
 //       boss 房（只能停在本景或退到上一主线场景/回溯章首）、正文含
@@ -17,11 +21,12 @@
 //
 //   变异敏感性：把 server 里 bossRequirementMet 短路成 true → (a)(d) 的
 //   章节门断言必 FAIL；给交战中「前进」重新接上 advanceOutcome → (b) 的
-//   「scene 不得越过 boss 房 / 不得出现开启播报」必 FAIL。
+//   「scene 不得越过 boss 房 / 不得出现开启播报」必 FAIL；把任一拒绝分支
+//   改回扣体力（patch: vit.patch）→ (a2) 的 hp/mp 不变断言必 FAIL。
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, fail, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, fail, makeSave, act, fetchSaveView, get } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -128,6 +133,39 @@ async function fightOut(id, { max = 60 } = {}) {
     `(a) refusal must give an actionable next step (击败…): ${r.reply.content.slice(-200)}`
   );
   assert(!GATE_OPEN.test(r.reply.content), `(a) refusal leaked a chapter-open broadcast`);
+
+  // ── (a2) 收尾补丁：拒绝零消耗——连点 6 次不得扣血、不得写日志 ──
+  // 旧口径每次点击 HP-3/MP-2，连点 ~12 次即死亡回溯清空主线进度
+  // （「门锁了还扣你血」死路）。新口径 patch 为 null、路由短路不写日志。
+  const logLen = async () => {
+    const { status, body } = await get(`/saves/${id}/log`);
+    assert(status === 200 && body && Array.isArray(body.log), `(a2) log fetch failed (HTTP ${status})`);
+    return body.log.length;
+  };
+  const log0 = await logLen();
+  for (let i = 0; i < 6; i++) {
+    const before = (await fetchSaveView(id)).save;
+    const rr = await act(id, "前进");
+    const s = rr.save;
+    assert(s.hp === before.hp, `(a2) refusal drained hp on click ${i + 1}: ${before.hp} -> ${s.hp}`);
+    assert(s.mp === before.mp, `(a2) refusal drained mp on click ${i + 1}: ${before.mp} -> ${s.mp}`);
+    assert(s.chapter === before.chapter, `(a2) refusal moved chapter: ${before.chapter} -> ${s.chapter}`);
+    assert(s.scene === before.scene, `(a2) refusal moved scene: ${before.scene} -> ${s.scene}`);
+    assert(s.deaths === before.deaths, `(a2) refusal killed the player: deaths ${before.deaths} -> ${s.deaths}`);
+    assert(
+      rr.reply.content.includes("没有消耗体力"),
+      `(a2) refusal reply missing 没有消耗体力 on click ${i + 1}: ${rr.reply.content.slice(-200)}`
+    );
+    assert(
+      !rr.reply.content.includes("体力消耗"),
+      `(a2) refusal reply leaked 体力消耗 wording: ${rr.reply.content.slice(-200)}`
+    );
+    assert(!GATE_OPEN.test(rr.reply.content), `(a2) refusal leaked a chapter-open broadcast`);
+  }
+  assert(
+    (await logLen()) === log0,
+    `(a2) refusal wrote log rows: ${log0} -> ${await logLen()}（没发生的事不写）`
+  );
 }
 
 // ── (b) 交战中「前进」= 撤离，绝不推进主线 ────────────────────────

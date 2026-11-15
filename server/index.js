@@ -373,29 +373,35 @@ function chapterBossName(chapter) {
 // 但播报必须显性写出压制提示，不得静默（见 chapters.js 的 TODO(F088)）。
 // F096 守关者硬门：unlockedFor 通过之后，本章守关者还必须已被击杀
 // （bossRequirementMet —— 与主线奖励同一口径：链上无 boss 场景的章
-// 自动满足）。未击杀时 patch 不动 chapter/scene，只扣本次推进的体力，
-// 正文给出可执行的下一步（击败守关者，附当前进度）。
+// 自动满足）。未击杀时 patch 不动 chapter/scene，正文给出可执行的
+// 下一步（击败守关者，附当前进度）。
+// F096 收尾补丁：两条拒绝分支一律零消耗——patch 为 null（HP/MP 原样），
+// 正文显性写「本次没有消耗体力」，并挂 refused 标记让路由短路：
+// 用户输入与播报都不进日志、不产 advance 事件（账本不写没发生的事）。
+// 否则章尾连点「前进」会把玩家原地耗死——门锁了还扣血是死路。
 function chapterGate(save, chapter, nextChapter, vit) {
   const gate = chaptersEngine.unlockedFor(save, nextChapter);
   if (!gate.ok) {
     const need =
       gate.level !== null ? `需 Lv.${gate.level}` : `需先抵达第${gate.chapter}章`;
     return {
-      patch: vit.patch,
+      patch: null,
+      refused: true,
       content:
         `【主线】通往第${nextChapter.index}章的门没有开启——${need} 才能进入第${nextChapter.index}章。\n` +
-        vit.note,
+        `（本次没有消耗体力）`,
     };
   }
   if (!bossRequirementMet(save, chapter)) {
     const path = chaptersEngine.chapterPath(chapter);
     const steps = Math.max(0, chaptersEngine.pathIndexOf(chapter, save.scene) + 1);
     return {
-      patch: vit.patch,
+      patch: null,
+      refused: true,
       content:
         `【主线】第${chapter.index}章的守关者仍守在那扇门前——` +
         `必须击败「${chapterBossName(chapter)}」才能通过（当前进度 ${steps}/${path.length}）。\n` +
-        vit.note,
+        `（本次没有消耗体力）`,
     };
   }
   const first = chaptersEngine.firstSceneOf(nextChapter);
@@ -723,6 +729,7 @@ function advanceWithEncounter(save) {
     combat: null,
     rewards: null,
     grantMain: null,
+    refused: out.refused === true,
   };
   if (!moved) return res;
 
@@ -1497,6 +1504,7 @@ function executeIntent(save, intentId, input) {
     combat: built.combat || null,
     rewards: built.rewards || null,
     grantMain: built.grantMain || null,
+    refused: built.refused === true,
   };
 }
 
@@ -1995,11 +2003,24 @@ api.post("/action", (req, res) => {
     });
   }
 
-  store.appendLog(save.id, "user", input);
-
   // Server-side authority: the resolved intent's own delta is applied and the
   // result is clamped, so any numbers in the client payload are ignored.
   const outcome = resolveAction(save, input);
+  // F096 章节门拒绝：没发生的事不进账本——用户输入与播报都不写日志、
+  // 不产 advance 事件（与 F089 终章拒绝同口径）。refused 只压日志，
+  // 结算管线照跑：patch 本应为 null，谁把它改回带消耗谁就在响应里现形。
+  if (outcome.refused) {
+    const extra = applyOutcome(save.id, outcome);
+    return res.json({
+      reply: {
+        id: --epilogueReplySeq,
+        role: outcome.role || "system",
+        content: extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content,
+      },
+      save: saveView(store.getSave(save.id) || save),
+    });
+  }
+  store.appendLog(save.id, "user", input);
   // 真实结算事件随动作入账：战斗态/奖励/死亡回溯/每日任务都在
   // applyOutcome 里收敛，播报并进本条回复，不重开日志行。
   const extra = applyOutcome(save.id, outcome);
@@ -2067,8 +2088,6 @@ api.post("/ai-action", async (req, res) => {
       });
     }
 
-    store.appendLog(save.id, "user", input);
-
     let intentId = null;
     let degraded = false;
     try {
@@ -2113,6 +2132,23 @@ api.post("/ai-action", async (req, res) => {
     // outcome.patch 基于新快照产出，不再做旧快照增量回算。
     const fresh = store.getSave(save.id) || save;
     const outcome = executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
+    // F096 章节门拒绝：与 /action 同口径——零消耗、零日志、零事件，
+    // 连用户输入都不入账（没发生的事不写）。此时才补写用户输入日志：
+    // 拒绝态必须在此之前短路返回，日志表才真的零增长。
+    if (outcome.refused) {
+      const extra = applyOutcome(save.id, outcome);
+      return res.json({
+        reply: {
+          id: --epilogueReplySeq,
+          role: outcome.role || "system",
+          content: extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content,
+        },
+        intent: outcome.intent,
+        save: saveView(store.getSave(save.id) || fresh),
+        degraded,
+      });
+    }
+    store.appendLog(save.id, "user", input);
     const extra = applyOutcome(save.id, outcome);
     const reply = store.appendLog(
       save.id,
