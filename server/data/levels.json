@@ -1,0 +1,307 @@
+[
+  {
+    "level": 1,
+    "xpToNext": 70,
+    "freePoints": 3
+  },
+  {
+    "level": 2,
+    "xpToNext": 110,
+    "freePoints": 3
+  },
+  {
+    "level": 3,
+    "xpToNext": 160,
+    "freePoints": 3
+  },
+  {
+    "level": 4,
+    "xpToNext": 210,
+    "freePoints": 3
+  },
+  {
+    "level": 5,
+    "xpToNext": 270,
+    "freePoints": 3
+  },
+  {
+    "level": 6,
+    "xpToNext": 340,
+    "freePoints": 3
+  },
+  {
+    "level": 7,
+    "xpToNext": 410,
+    "freePoints": 3
+  },
+  {
+    "level": 8,
+    "xpToNext": 490,
+    "freePoints": 3
+  },
+  {
+    "level": 9,
+    "xpToNext": 570,
+    "freePoints": 3
+  },
+  {
+    "level": 10,
+    "xpToNext": 660,
+    "freePoints": 3,
+    "rank": "D"
+  },
+  {
+    "level": 11,
+    "xpToNext": 750,
+    "freePoints": 3
+  },
+  {
+    "level": 12,
+    "xpToNext": 850,
+    "freePoints": 3
+  },
+  {
+    "level": 13,
+    "xpToNext": 950,
+    "freePoints": 3
+  },
+  {
+    "level": 14,
+    "xpToNext": 1060,
+    "freePoints": 3
+  },
+  {
+    "level": 15,
+    "xpToNext": 1170,
+    "freePoints": 3
+  },
+  {
+    "level": 16,
+    "xpToNext": 1280,
+    "freePoints": 3
+  },
+  {
+    "level": 17,
+    "xpToNext": 1400,
+    "freePoints": 3
+  },
+  {
+    "level": 18,
+    "xpToNext": 1530,
+    "freePoints": 3
+  },
+  {
+    "level": 19,
+    "xpToNext": 1650,
+    "freePoints": 3
+  },
+  {
+    "level": 20,
+    "xpToNext": 1780,
+    "freePoints": 3,
+    "rank": "C"
+  },
+  {
+    "level": 21,
+    "xpToNext": 1920,
+    "freePoints": 3
+  },
+  {
+    "level": 22,
+    "xpToNext": 2060,
+    "freePoints": 3
+  },
+  {
+    "level": 23,
+    "xpToNext": 2200,
+    "freePoints": 3
+  },
+  {
+    "level": 24,
+    "xpToNext": 2340,
+    "freePoints": 3
+  },
+  {
+    "level": 25,
+    "xpToNext": 2490,
+    "freePoints": 3
+  },
+  {
+    "level": 26,
+    "xpToNext": 2650,
+    "freePoints": 3
+  },
+  {
+    "level": 27,
+    "xpToNext": 2800,
+    "freePoints": 3
+  },
+  {
+    "level": 28,
+    "xpToNext": 2960,
+    "freePoints": 3
+  },
+  {
+    "level": 29,
+    "xpToNext": 3130,
+    "freePoints": 3
+  },
+  {
+    "level": 30,
+    "xpToNext": 3300,
+    "freePoints": 5,
+    "rank": "B"
+  },
+  {
+    "level": 31,
+    "xpToNext": 3470,
+    "freePoints": 5
+  },
+  {
+    "level": 32,
+    "xpToNext": 3640,
+    "freePoints": 5
+  },
+  {
+    "level": 33,
+    "xpToNext": 3820,
+    "freePoints": 5
+  },
+  {
+    "level": 34,
+    "xpToNext": 4000,
+    "freePoints": 5
+  },
+  {
+    "level": 35,
+    "xpToNext": 4180,
+    "freePoints": 5
+  },
+  {
+    "level": 36,
+    "xpToNext": 4370,
+    "freePoints": 5
+  },
+  {
+    "level": 37,
+    "xpToNext": 4560,
+    "freePoints": 5
+  },
+  {
+    "level": 38,
+    "xpToNext": 4760,
+    "freePoints": 5
+  },
+  {
+    "level": 39,
+    "xpToNext": 4950,
+    "freePoints": 5
+  },
+  {
+    "level": 40,
+    "xpToNext": 5150,
+    "freePoints": 5,
+    "rank": "A"
+  },
+  {
+    "level": 41,
+    "xpToNext": 5360,
+    "freePoints": 5
+  },
+  {
+    "level": 42,
+    "xpToNext": 5560,
+    "freePoints": 5
+  },
+  {
+    "level": 43,
+    "xpToNext": 5770,
+    "freePoints": 5
+  },
+  {
+    "level": 44,
+    "xpToNext": 5980,
+    "freePoints": 5
+  },
+  {
+    "level": 45,
+    "xpToNext": 6200,
+    "freePoints": 5
+  },
+  {
+    "level": 46,
+    "xpToNext": 6420,
+    "freePoints": 5
+  },
+  {
+    "level": 47,
+    "xpToNext": 6640,
+    "freePoints": 5
+  },
+  {
+    "level": 48,
+    "xpToNext": 6870,
+    "freePoints": 5
+  },
+  {
+    "level": 49,
+    "xpToNext": 7090,
+    "freePoints": 5
+  },
+  {
+    "level": 50,
+    "xpToNext": 7320,
+    "freePoints": 5,
+    "rank": "S"
+  },
+  {
+    "level": 51,
+    "xpToNext": 7560,
+    "freePoints": 5
+  },
+  {
+    "level": 52,
+    "xpToNext": 7800,
+    "freePoints": 5
+  },
+  {
+    "level": 53,
+    "xpToNext": 8040,
+    "freePoints": 5
+  },
+  {
+    "level": 54,
+    "xpToNext": 8280,
+    "freePoints": 5
+  },
+  {
+    "level": 55,
+    "xpToNext": 8520,
+    "freePoints": 5
+  },
+  {
+    "level": 56,
+    "xpToNext": 8770,
+    "freePoints": 5
+  },
+  {
+    "level": 57,
+    "xpToNext": 9020,
+    "freePoints": 5
+  },
+  {
+    "level": 58,
+    "xpToNext": 9280,
+    "freePoints": 5
+  },
+  {
+    "level": 59,
+    "xpToNext": 9530,
+    "freePoints": 5
+  },
+  {
+    "level": 60,
+    "xpToNext": 9800,
+    "freePoints": 5
+  }
+]
