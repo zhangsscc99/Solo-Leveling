@@ -44,7 +44,15 @@
   "growth": {
     "maxLevel": 50,
     "xp": { "base": 100, "exponent": 1.5 },
-    "perLevel": { "atk": 2, "def": 1, "hp": 10 },
+    "perLevel": { "strength": 2, "agility": 1, "vitality": 1, "intelligence": 1, "perception": 1 },
+    "baseStats": {
+      "E": { "strength": 6,  "agility": 5,  "vitality": 6,  "intelligence": 3,  "perception": 4 },
+      "D": { "strength": 9,  "agility": 8,  "vitality": 9,  "intelligence": 5,  "perception": 6 },
+      "C": { "strength": 13, "agility": 12, "vitality": 13, "intelligence": 7,  "perception": 9 },
+      "B": { "strength": 18, "agility": 17, "vitality": 18, "intelligence": 10, "perception": 12 },
+      "A": { "strength": 24, "agility": 23, "vitality": 24, "intelligence": 14, "perception": 16 },
+      "S": { "strength": 32, "agility": 30, "vitality": 32, "intelligence": 18, "perception": 21 }
+    },
     "inherit": { "slots": 2, "chance": 0.6, "levelDiscount": 0.5 }
   }
 }
