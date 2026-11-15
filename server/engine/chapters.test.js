@@ -155,3 +155,116 @@ test("listChapters 返回副本，改动不影响缓存", () => {
   list.pop();
   assert.equal(chapters.listChapters().length, 8);
 });
+
+// --- Ch1 双地下城（F041） ---------------------------------------------------
+
+test("真数据：Ch1 从首个场景可达全部节点，无孤立场景", () => {
+  chapters.listChapters().forEach((chapter) => {
+    const byId = new Map(chapter.scenes.map((s) => [s.id, s]));
+    const seen = new Set([chapter.scenes[0].id]);
+    const queue = [chapter.scenes[0].id];
+
+    while (queue.length) {
+      const scene = byId.get(queue.shift());
+      if (!scene) continue;
+      const outs = [];
+      if (typeof scene.next_scene === "string") outs.push(scene.next_scene);
+      (scene.choices || []).forEach((c) => {
+        if (c.next !== null && c.next !== undefined) outs.push(c.next);
+      });
+      outs.forEach((id) => {
+        if (!seen.has(id)) {
+          seen.add(id);
+          queue.push(id);
+        }
+      });
+    }
+
+    chapter.scenes.forEach((scene) => {
+      assert.ok(seen.has(scene.id), `${chapter.id} 存在孤立场景: ${scene.id}`);
+    });
+  });
+});
+
+test("真数据：Ch1 覆盖双地下城关键剧情节点", () => {
+  const ch1 = chapters.getChapter(1);
+  const ids = ch1.scenes.map((s) => s.id);
+  [
+    "ch1_double_gate",
+    "ch1_law",
+    "ch1_death",
+    "ch1_worship",
+    "ch1_statues",
+    "ch1_system",
+    "ch1_awaken",
+    "ch1_surface",
+  ].forEach((id) => assert.ok(ids.includes(id), `Ch1 缺少场景 ${id}`));
+
+  // 石像守卫必须仍是 boss 场景，觉醒后的收尾必须收束到地面结局。
+  assert.equal(chapters.getScene("ch1_statues").kind, "boss");
+  assert.equal(chapters.getScene("ch1_surface").next_scene, null);
+});
+
+test("真数据：Ch1 存在错误选择→濒死/死亡分支与观察/潜行分支", () => {
+  const ch1 = chapters.getChapter(1);
+  const choices = ch1.scenes.flatMap((s) => (s.choices || []).map((c) => ({ scene: s.id, ...c })));
+
+  const toDeath = choices.filter((c) => c.next === "ch1_death");
+  assert.ok(toDeath.length >= 1, "缺少指向濒死节点的错误选择");
+
+  const deathEnding = ch1.scenes
+    .find((s) => s.id === "ch1_death")
+    .choices.some((c) => c.next === null);
+  assert.ok(deathEnding, "濒死节点缺少死亡结局选项");
+
+  const observe = ch1.scenes
+    .find((s) => s.id === "ch1_law")
+    .choices.find((c) => c.next === "ch1_watch");
+  assert.ok(observe, "ch1_law 缺少观察分支");
+  assert.equal(observe.effects.flag, "read_the_law");
+});
+
+test("真数据：Ch1 的 requires/effects 写法被现有校验接受", () => {
+  const result = chapters.validateChapters(chapters.loadChapters());
+  assert.equal(result.ok, true, errorText(result.errors));
+
+  const stare = chapters
+    .getScene("ch1_worship")
+    .choices.find((c) => c.id === "stare");
+  assert.deepEqual(stare.requires, { flag: "saw_statue_eyes" });
+
+  const accept = chapters
+    .getScene("ch1_system")
+    .choices.find((c) => c.id === "accept");
+  assert.deepEqual(accept.effects, { xp: 30, flag: "system_bound" });
+});
+
+test("篡改：非法 requires / effects 被捕获", () => {
+  const badRequireKey = brokenCopy();
+  badRequireKey.chapters[0].scenes[4].choices[0].requires = { luck: 5 };
+  assert.ok(
+    errorText(chapters.validateChapters(badRequireKey).errors).includes("requires 含未知字段")
+  );
+
+  const badRequireValue = brokenCopy();
+  badRequireValue.chapters[0].scenes[4].choices[0].requires = { min_level: 0 };
+  assert.ok(
+    errorText(chapters.validateChapters(badRequireValue).errors).includes("min_level")
+  );
+
+  const badEffectKey = brokenCopy();
+  badEffectKey.chapters[0].scenes[0].choices[1].effects = { karma: 1 };
+  assert.ok(
+    errorText(chapters.validateChapters(badEffectKey).errors).includes("effects 含未知字段")
+  );
+
+  const badEffectValue = brokenCopy();
+  badEffectValue.chapters[0].scenes[0].choices[1].effects = { xp: -10 };
+  assert.ok(errorText(chapters.validateChapters(badEffectValue).errors).includes("effects.xp"));
+
+  const emptyEffects = brokenCopy();
+  emptyEffects.chapters[0].scenes[0].choices[1].effects = {};
+  assert.ok(
+    errorText(chapters.validateChapters(emptyEffects).errors).includes("effects 必须是非空对象")
+  );
+});
