@@ -20,10 +20,11 @@ run("map-interactive", async ({ page }) => {
   );
   assert(saveId > 0, "save_id missing in localStorage");
 
-  // 走到第 2 章：ch1 主线 7 景 + 1 次过门。交战中「前进」=掷逃，
-  // advanceOnce 展开成真实操作序列直到 chapter 变 2。
+  // 走到第 2 章：ch1 主线 7 景 + 1 次过门。F096 收尾后守关者是硬门，
+  // 掷逃穿房已封死——见敌就打的驱动（fight:"all"）展开成真实操作序列
+  // 直到 chapter 变 2。
   for (let i = 0; i < 120; i++) {
-    const body = await advanceOnce(saveId, { fight: "none" });
+    const body = await advanceOnce(saveId, { fight: "all" });
     if (body.save.chapter >= 2) break;
   }
 

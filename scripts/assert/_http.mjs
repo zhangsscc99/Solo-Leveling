@@ -147,6 +147,8 @@ export async function advanceOnce(id, { fight = "mobs", restAt = 0.45, max = 400
 // 首），Lv1 纯掷逃在高章数学上走不通。打法：低章只打「打得动」的小怪
 // 攒级（自由点全堆体力撑血池、穿新手装备、残血嗑药、满血再动），
 // 练级到 fightCap 后纯掷逃。章节软门断言需要压级时把 fightCap 调低。
+// F096 收尾：守关者是硬门——冷却期掷逃穿房已封死，守关战一律真打
+// （打不过就阵亡回溯，靠累积 XP 再战），驱动不再对 boss 掷逃。
 const _geared = new Set();
 export async function advanceTraverse(id, { fightCap = 8, max = 600 } = {}) {
   const watch = makeStallWatch("advanceTraverse");
@@ -172,7 +174,7 @@ export async function advanceTraverse(id, { fightCap = 8, max = 600 } = {}) {
       const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
       let input;
       if (lowHp && hasHealer) input = "使用道具";
-      else if (farmable) input = castable ? `释放技能 ${castable.name}` : "攻击";
+      else if (isBoss || farmable) input = castable ? `释放技能 ${castable.name}` : "攻击";
       else input = "前进";
       const r = await act(id, input);
       if (r.save.scene !== s.scene || r.save.chapter !== s.chapter) return r;

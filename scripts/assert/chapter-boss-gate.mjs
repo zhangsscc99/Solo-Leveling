@@ -1,28 +1,39 @@
 #!/usr/bin/env node
-// F096 章节门守关者校验 + 交战中「前进」=撤离不推进 契约（全是行为断言）：
+// F096 章节门守关者校验 + 交战中「前进」=撤离不推进 + 收尾折返契约
+// （全是行为断言）：
 //
-//   (a) 纯前进不可通章：新档只点「前进」（交战自动=撤离掷逃，守关房靠
-//       F095 再入冷却穿过），直到站上 ch1 主线链尾；再点「前进」→
-//       save.chapter 仍为 1、chapter_progress 不变、正文含守关者真名
-//       「石像守卫」（数据独立推导，非「守关者」占位）。
-//   (a2) 收尾补丁：站链尾守关者未击杀连点 6 次「前进」= 零消耗拒绝——
-//       hp/mp 逐位不变、chapter/scene/deaths 不变、日志零增长、正文每次
-//       都含「本次没有消耗体力」且不含「体力消耗」。拒绝不再扣血，
-//       「门口点前进直到死」这条死路被封死。
+//   (a) 纯前进不可越过守关者：守关者未击杀时玩家位置不得越过 boss
+//       场景（收尾等价口径）——新档只点「前进」（交战自动=撤离掷逃，
+//       冷却期进房被出口挡回），60 步内 scene 永不落在守关房之后、
+//       chapter 恒 1、守关战必然被触发过。
 //   (b) 交战中「前进」不得推进：推进到 boss 房触发守关战，交战态连点
 //       「前进」——每次响应 save.chapter 不变、save.scene 绝不越过
 //       boss 房（只能停在本景或退到上一主线场景/回溯章首）、正文含
 //       「撤离」、不含跨章开启播报；撤离成功后 boss 房再入冷却
 //       （save.encounter_clock < 0，F095 逃生阀）照旧生效。
-//   (c) 击杀后放行：真实打死 ch1 守关者（save.boss_cleared 含 ch1）后
-//       站到链尾再推 → chapter === 2 且落到 ch2 主线链首场景。
-//   (d) ch2 同口径：ch2 守关者未击杀时站上链尾（逃跑冷却穿房）再推 →
-//       chapter 仍 2，正文点名「毒牙蛇」。
+//   (c)/(h) 击杀后放行：真实打死 ch1 守关者（save.boss_cleared 含 ch1）
+//       后站到链尾再推 → chapter === 2 且落到 ch2 主线链首场景。
+//   (d) ch2 同口径：ch2 boss 房即链尾——房内守关者未击杀时「前进」
+//       被出口挡回上一景，再进房冷却已尽被守关战重新截停。
+//   (f) 章尾折返再战：save.scene 在本章主线链尾且守关者未击杀时，
+//       「前进」不再只拒绝——折返回本章 boss 场景，落地即真打
+//       （combat.enemy.name = 守关者真名）、encounter_clock 清零、
+//       正常移动体力代价照付、saveView.advance_mode ===
+//       "retreat_to_boss" 驱动前端换标「折返守关者」。
+//   (g) 不再允许「穿过守关者」：boss 房撤离成功后再连点 3 次「前进」，
+//       每次落点都不得越过 boss 场景（①冷却期进房不强制重遇=F095
+//       逃生阀照旧；②房内出口被守关者封住只能退回上一景；③冷却
+//       走尽再进房被守关战重新截停）——怎么走都绕不过守关者。
 //
-//   变异敏感性：把 server 里 bossRequirementMet 短路成 true → (a)(d) 的
-//   章节门断言必 FAIL；给交战中「前进」重新接上 advanceOutcome → (b) 的
-//   「scene 不得越过 boss 房 / 不得出现开启播报」必 FAIL；把任一拒绝分支
-//   改回扣体力（patch: vit.patch）→ (a2) 的 hp/mp 不变断言必 FAIL。
+//   (f)/(g) 注：收尾口径下「章尾+守关者未击杀」已无法由真实路径构造
+//   ——「进 boss 房→撤离→继续前进」只能走到房内就被出口挡回，此状态
+//   仅存于线上旧档（save 550 死路），故 (f)(d) 用 DB 落点复刻并在此注明。
+//
+//   变异敏感性：把 (1) 折返分支改回旧「拒绝」→ (f) 必 FAIL（scene 不动、
+//   无 combat）；去掉 (2) 房内/越线拦截 → (a)(d)(g) 必 FAIL（位置越过
+//   boss 场景）；给交战中「前进」重新接上 advanceOutcome → (b) 的
+//   「scene 不得越过 boss 房」必 FAIL；折返分支不给 encounter_clock=0
+//   或不传 forceBoss → (f) 的 combat/clock 断言必 FAIL。
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +42,10 @@ import { assert, ok, fail, makeSave, act, fetchSaveView, get } from "./_http.mjs
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHAPTERS = require(path.join(ROOT, "server", "data", "chapters.json"));
+const Database = require("better-sqlite3");
+const dbPath =
+  process.env.DB_PATH || process.env.SL_GAME_DB || path.join(ROOT, "data", "game.db");
+const db = new Database(dbPath);
 
 // ── 独立 oracle：主线链与 boss 名只从数据文件推导，不调被测引擎 ──
 function deriveMainPath(chapter) {
@@ -103,69 +118,31 @@ async function fightOut(id, { max = 60 } = {}) {
   fail("fightOut: combat did not converge");
 }
 
-// ── (a) 纯前进不可通章 ────────────────────────────────────────────
+// ── (a) 纯前进不可越过守关者 ────────────────────────────────────
+// 收尾等价口径：守关者未击杀时位置不得越过 boss 场景——纯「前进」的
+// 落点序列永远在守关房及其之前（撤离撤回上一景 / 冷却期进房被出口
+// 挡回 / 冷却走尽被守关战截停），链尾只存在于守关者被击杀之后。
 {
   const id = await makeSave("f096-no-kill");
-  const { save: atTail } = await advanceUntil(id, (s) => s.scene === CH1_TAIL && !s.combat, {
-    tag: "(a) reach ch1 tail",
-  });
-  assert(atTail.chapter === 1, `(a) chapter drifted before gate: ${atTail.chapter}`);
-  const r = await act(id, "前进");
-  assert(
-    r.save.chapter === 1,
-    `(a) gate let an unkilled-guardian save through: chapter ${r.save.chapter}`
-  );
-  assert(r.save.scene === CH1_TAIL, `(a) gate refusal moved scene: ${r.save.scene}`);
-  assert(
-    r.save.chapter_progress === atTail.chapter_progress,
-    `(a) chapter_progress changed ${atTail.chapter_progress} -> ${r.save.chapter_progress}`
-  );
-  assert(
-    r.reply.content.includes("守关者"),
-    `(a) refusal missing 守关者 wording: ${r.reply.content.slice(-200)}`
-  );
-  assert(
-    r.reply.content.includes(CH1_BOSS_NAME),
-    `(a) refusal missing real boss name「${CH1_BOSS_NAME}」: ${r.reply.content.slice(-200)}`
-  );
-  assert(
-    r.reply.content.includes("击败"),
-    `(a) refusal must give an actionable next step (击败…): ${r.reply.content.slice(-200)}`
-  );
-  assert(!GATE_OPEN.test(r.reply.content), `(a) refusal leaked a chapter-open broadcast`);
-
-  // ── (a2) 收尾补丁：拒绝零消耗——连点 6 次不得扣血、不得写日志 ──
-  // 旧口径每次点击 HP-3/MP-2，连点 ~12 次即死亡回溯清空主线进度
-  // （「门锁了还扣你血」死路）。新口径 patch 为 null、路由短路不写日志。
-  const logLen = async () => {
-    const { status, body } = await get(`/saves/${id}/log`);
-    assert(status === 200 && body && Array.isArray(body.log), `(a2) log fetch failed (HTTP ${status})`);
-    return body.log.length;
-  };
-  const log0 = await logLen();
-  for (let i = 0; i < 6; i++) {
-    const before = (await fetchSaveView(id)).save;
-    const rr = await act(id, "前进");
-    const s = rr.save;
-    assert(s.hp === before.hp, `(a2) refusal drained hp on click ${i + 1}: ${before.hp} -> ${s.hp}`);
-    assert(s.mp === before.mp, `(a2) refusal drained mp on click ${i + 1}: ${before.mp} -> ${s.mp}`);
-    assert(s.chapter === before.chapter, `(a2) refusal moved chapter: ${before.chapter} -> ${s.chapter}`);
-    assert(s.scene === before.scene, `(a2) refusal moved scene: ${before.scene} -> ${s.scene}`);
-    assert(s.deaths === before.deaths, `(a2) refusal killed the player: deaths ${before.deaths} -> ${s.deaths}`);
+  let sawBoss = false;
+  for (let i = 0; i < 60; i++) {
+    const r = await act(id, "前进");
+    const s = r.save;
+    assert(s.chapter === 1, `(a) advance crossed the chapter: ${s.chapter}`);
+    const idx = idxIn(CH1_PATH, s.scene);
     assert(
-      rr.reply.content.includes("没有消耗体力"),
-      `(a2) refusal reply missing 没有消耗体力 on click ${i + 1}: ${rr.reply.content.slice(-200)}`
+      idx === -1 || idx <= CH1_BOSS_IDX,
+      `(a) advance slipped past the guardian: ${s.scene} (idx ${idx} > ${CH1_BOSS_IDX})`
     );
+    if (s.combat && s.combat.enemy && s.combat.enemy.boss) sawBoss = true;
+    assert(!GATE_OPEN.test(r.reply.content), `(a) leaked a chapter-open broadcast`);
+    const cleared = Array.isArray(s.boss_cleared) ? s.boss_cleared : [];
     assert(
-      !rr.reply.content.includes("体力消耗"),
-      `(a2) refusal reply leaked 体力消耗 wording: ${rr.reply.content.slice(-200)}`
+      !cleared.includes("ch1"),
+      "(a) pure 前进 must never kill the guardian (combat-advance is flee-only)"
     );
-    assert(!GATE_OPEN.test(rr.reply.content), `(a2) refusal leaked a chapter-open broadcast`);
   }
-  assert(
-    (await logLen()) === log0,
-    `(a2) refusal wrote log rows: ${log0} -> ${await logLen()}（没发生的事不写）`
-  );
+  assert(sawBoss, "(a) 60 advances never met the guardian — the wall wasn't exercised");
 }
 
 // ── (b) 交战中「前进」= 撤离，绝不推进主线 ────────────────────────
@@ -215,7 +192,7 @@ async function fightOut(id, { max = 60 } = {}) {
   assert(fledOk, "(b) never observed a successful 撤离 within the retry budget");
 }
 
-// ── (c) 击杀 ch1 守关者后放行 ─────────────────────────────────────
+// ── (c)/(h) 击杀 ch1 守关者后放行 ───────────────────────────────
 {
   const id = await makeSave("f096-kill-pass");
   let cleared = null;
@@ -239,41 +216,190 @@ async function fightOut(id, { max = 60 } = {}) {
   );
   assert(GATE_OPEN.test(r.reply.content), `(c) missing chapter-open broadcast: ${r.reply.content.slice(-160)}`);
 
-  // ── (d) ch2 同口径：未击杀守关者站链尾 → 不放行 ──────────────────
-  // ch2 boss 房即链尾：进房强制开战 → 「前进」撤离撤回 penalty_gate →
-  // 冷却期再进房不遇敌站上链尾 → 再推被门拦下。
-  await advanceUntil(id, (s) => s.scene === CH2_PATH[CH2_BOSS_IDX] && Boolean(s.combat), {
-    tag: "(d) reach ch2 boss combat",
-  });
-  // 撤离直到脱战（撤回上一场景）。
-  for (let i = 0; i < 30; i++) {
-    const { save: s } = await fetchSaveView(id);
-    if (!s.combat) break;
-    const r = await act(id, "前进");
-    assert(r.save.chapter === 2, `(d) combat-advance changed chapter: ${r.save.chapter}`);
-    const newIdx = idxIn(CH2_PATH, r.save.scene);
+  // ── (d) ch2 同口径：守关房即链尾，房内被出口挡回 ──────────────
+  // ch2 boss 房即链尾：守关者未击杀时人站在房内（DB 落点——该状态经
+  // 冷却期穿房而来，收尾口径下真实路径已不可达）再推「前进」必须被
+  // 守关者挡回上一景；冷却走尽再进房则被守关战重新截停。
+  db.prepare("UPDATE saves SET scene = ?, encounter_clock = -1 WHERE id = ?").run(
+    CH2_PATH[CH2_PATH.length - 1],
+    id
+  );
+  // 过门落地可能掷出小怪遭遇——清掉交战态，复刻「冷却期穿房停在房内」的落点。
+  db.prepare("DELETE FROM combat WHERE save_id = ?").run(id);
+  {
+    const s0 = (await fetchSaveView(id)).save;
     assert(
-      newIdx === -1 || newIdx <= CH2_BOSS_IDX,
-      `(d) combat-advance moved forward: ${s.scene} -> ${r.save.scene}`
+      s0.scene === CH2_PATH[CH2_PATH.length - 1] && s0.chapter === 2 && !s0.combat,
+      `(d) setup broken: ${s0.scene} ch${s0.chapter}`
     );
-    assert(r.reply.content.includes("撤离"), `(d) missing 撤离 wording`);
-    assert(!GATE_OPEN.test(r.reply.content), `(d) leaked chapter-open broadcast`);
   }
-  // 冷却期内再进 boss 房（不遇敌），站上链尾。
-  await advanceUntil(id, (s) => s.scene === CH2_PATH[CH2_PATH.length - 1] && !s.combat, {
-    tag: "(d) stand on ch2 tail",
-  });
-  const d = await act(id, "前进");
+  const d1 = await act(id, "前进");
+  assert(d1.save.chapter === 2, `(d) in-room push changed chapter: ${d1.save.chapter}`);
   assert(
-    d.save.chapter === 2,
-    `(d) ch2 gate let an unkilled-guardian save through: chapter ${d.save.chapter}`
+    d1.save.scene === CH2_PATH[CH2_BOSS_IDX - 1],
+    `(d) guardian-sealed exit should push back to ${CH2_PATH[CH2_BOSS_IDX - 1]}, got ${d1.save.scene}`
   );
-  assert(d.save.scene === CH2_PATH[CH2_PATH.length - 1], `(d) refusal moved scene: ${d.save.scene}`);
   assert(
-    d.reply.content.includes("守关者") && d.reply.content.includes(CH2_BOSS_NAME),
-    `(d) refusal must name「${CH2_BOSS_NAME}」: ${d.reply.content.slice(-200)}`
+    d1.reply.content.includes("守关者") || d1.reply.content.includes(CH2_BOSS_NAME),
+    `(d) sealed-exit reply must name the guardian「${CH2_BOSS_NAME}」: ${d1.reply.content.slice(-200)}`
   );
-  assert(!GATE_OPEN.test(d.reply.content), `(d) refusal leaked a chapter-open broadcast`);
+  assert(!GATE_OPEN.test(d1.reply.content), `(d) leaked a chapter-open broadcast`);
+  // 冷却走尽后再度推进：每步位置不得越过守关者，直到守关战当面成形。
+  let reengaged = null;
+  for (let i = 0; i < 15 && !reengaged; i++) {
+    const rr = await act(id, "前进");
+    const idx = idxIn(CH2_PATH, rr.save.scene);
+    assert(
+      rr.save.chapter === 2 && (idx === -1 || idx <= CH2_BOSS_IDX),
+      `(d) follow-up slipped past the guardian: ${rr.save.scene} ch=${rr.save.chapter}`
+    );
+    if (rr.save.combat && rr.save.combat.enemy && rr.save.combat.enemy.boss) reengaged = rr;
+  }
+  assert(reengaged, "(d) ch2 guardian never re-engaged — the wall has a hole");
+  assert(
+    reengaged.save.scene === CH2_PATH[CH2_BOSS_IDX],
+    `(d) re-engagement should happen inside ${CH2_PATH[CH2_BOSS_IDX]}, got ${reengaged.save.scene}`
+  );
+  assert(
+    reengaged.save.combat.enemy.name === CH2_BOSS_NAME,
+    `(d) re-engaged enemy should be「${CH2_BOSS_NAME}」, got ${reengaged.save.combat.enemy.name}`
+  );
 }
 
+// ── (f) 章尾折返再战 ────────────────────────────────────────────
+// save.scene 在 ch1 主线链尾且守关者未击杀：DB 落点复刻线上 save 550
+// 死路（收尾口径下真实路径不可达，见文件头注）。
+{
+  const id = await makeSave("f096-tail-retreat");
+  db.prepare(
+    "UPDATE saves SET scene = ?, boss_cleared_json = '[]', encounter_clock = -1 WHERE id = ?"
+  ).run(CH1_TAIL, id);
+  const view = await fetchSaveView(id);
+  assert(
+    view.save.scene === CH1_TAIL && !view.save.combat,
+    `(f) setup broken: ${view.save.scene} combat=${JSON.stringify(view.save.combat)}`
+  );
+  // 主按钮模式由服务端按主线链位置下发——章尾守关者未击杀时必须给
+  // retreat_to_boss（前端据此换标「折返守关者」，不猜场景）。
+  assert(
+    view.save.advance_mode === "retreat_to_boss",
+    `(f) advance_mode should be "retreat_to_boss" at guarded tail, got ${view.save.advance_mode}`
+  );
+  const before = view.save;
+  const r = await act(id, "前进");
+  const s = r.save;
+  assert(s.chapter === 1, `(f) retreat changed chapter: ${s.chapter}`);
+  assert(
+    s.scene === CH1_BOSS_SCENE.id,
+    `(f) retreat should land on boss scene ${CH1_BOSS_SCENE.id}, got ${s.scene}`
+  );
+  assert(
+    s.combat && s.combat.enemy && s.combat.enemy.boss === true,
+    `(f) retreat landing must start the real guardian fight: ${JSON.stringify(s.combat)}`
+  );
+  assert(
+    s.combat.enemy.name === CH1_BOSS_NAME,
+    `(f) landing enemy should be「${CH1_BOSS_NAME}」, got ${s.combat.enemy && s.combat.enemy.name}`
+  );
+  assert(
+    s.encounter_clock >= 0,
+    `(f) boss-room re-entry cooldown must be cleared on landing, got ${s.encounter_clock}`
+  );
+  assert(
+    r.reply.content.includes("折返") && r.reply.content.includes(`「${CH1_BOSS_SCENE.title}」`),
+    `(f) retreat reply missing 折返/落点名: ${r.reply.content.slice(-200)}`
+  );
+  // 正常移动代价照付——折返是真走回去，不得是零消耗拒绝。
+  assert(
+    s.hp === before.hp - 3 && s.mp === before.mp - 2,
+    `(f) retreat should cost normal movement vitals: ${before.hp}/${before.mp} -> ${s.hp}/${s.mp}`
+  );
+  assert(
+    r.reply.content.includes("体力消耗"),
+    `(f) retreat reply missing 体力消耗: ${r.reply.content.slice(-200)}`
+  );
+}
+
+// ── (g) 不再允许「穿过守关者」────────────────────────────────────
+// 真实路径：进 boss 房触发守关战 → 「前进」撤离成功（撤回上一景、挂
+// 再入冷却）→ 再连点 3 次「前进」+ 持续跟进——每一步落点都不得越过
+// 守关者，守关战必然再度当面成形。
+{
+  const id = await makeSave("f096-no-bypass");
+  let fled = false;
+  for (let round = 0; round < 6 && !fled; round++) {
+    await advanceUntil(id, (s) => Boolean(s.combat && s.combat.enemy && s.combat.enemy.boss), {
+      tag: "(g) reach boss combat",
+    });
+    for (let i = 0; i < 25 && !fled; i++) {
+      const before = (await fetchSaveView(id)).save;
+      if (!before.combat) break;
+      const r = await act(id, "前进");
+      const s = r.save;
+      assert(
+        s.chapter === 1,
+        `(g) combat-advance changed chapter: ${s.chapter}`
+      );
+      if (!s.combat && s.hp > 0 && s.deaths === before.deaths) fled = true;
+    }
+  }
+  assert(fled, "(g) never observed a successful boss flee within the retry budget");
+  {
+    const s = (await fetchSaveView(id)).save;
+    assert(s.encounter_clock < 0, `(g) F095 escape valve lost: clock ${s.encounter_clock}`);
+    assert(
+      s.scene === CH1_PATH[CH1_BOSS_IDX - 1],
+      `(g) boss flee should retreat to ${CH1_PATH[CH1_BOSS_IDX - 1]}, got ${s.scene}`
+    );
+  }
+  // ① 冷却期再进 boss 房：F095 逃生阀照旧，不强制重遇同一守关者。
+  const step1 = await act(id, "前进");
+  assert(step1.save.chapter === 1, `(g) step1 changed chapter: ${step1.save.chapter}`);
+  assert(
+    step1.save.scene === CH1_BOSS_SCENE.id,
+    `(g) step1 should land inside the boss room ${CH1_BOSS_SCENE.id}, got ${step1.save.scene}`
+  );
+  assert(
+    !step1.save.combat || !step1.save.combat.enemy || !step1.save.combat.enemy.boss,
+    `(g) step1: cooldown re-entry must not force the same boss`
+  );
+  // ② 房内再前进：出口被守关者封住，只能被挡回守关房之前。
+  const step2 = await act(id, "前进");
+  assert(step2.save.chapter === 1, `(g) step2 changed chapter: ${step2.save.chapter}`);
+  const idx2 = idxIn(CH1_PATH, step2.save.scene);
+  assert(
+    idx2 === -1 || idx2 <= CH1_BOSS_IDX - 1,
+    `(g) step2: advance inside the boss room must be pushed back, got ${step2.save.scene}`
+  );
+  // ③ 再前进：位置同样不得越过守关者。
+  const step3 = await act(id, "前进");
+  assert(step3.save.chapter === 1, `(g) step3 changed chapter: ${step3.save.chapter}`);
+  const idx3 = idxIn(CH1_PATH, step3.save.scene);
+  assert(
+    idx3 === -1 || idx3 <= CH1_BOSS_IDX,
+    `(g) step3 slipped past the guardian: ${step3.save.scene}`
+  );
+  // 持续跟进：守关者未击杀时怎么走都越不过去——直到守关战当面成形。
+  let reengaged = null;
+  for (let i = 0; i < 20 && !reengaged; i++) {
+    const r = await act(id, "前进");
+    const idx = idxIn(CH1_PATH, r.save.scene);
+    assert(
+      r.save.chapter === 1 && (idx === -1 || idx <= CH1_BOSS_IDX),
+      `(g) follow-up slipped past the guardian: ${r.save.scene} ch=${r.save.chapter}`
+    );
+    if (r.save.combat && r.save.combat.enemy && r.save.combat.enemy.boss) reengaged = r;
+  }
+  assert(reengaged, "(g) the guardian never re-engaged — the wall has a hole");
+  assert(
+    reengaged.save.scene === CH1_BOSS_SCENE.id,
+    `(g) re-engagement should happen inside ${CH1_BOSS_SCENE.id}, got ${reengaged.save.scene}`
+  );
+  assert(
+    reengaged.save.combat.enemy.name === CH1_BOSS_NAME,
+    `(g) re-engaged enemy should be「${CH1_BOSS_NAME}」, got ${reengaged.save.combat.enemy.name}`
+  );
+}
+
+db.close();
 ok("OK");
