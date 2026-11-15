@@ -66,6 +66,17 @@ export interface InventoryRow {
   qty: number;
 }
 
+export interface Skill {
+  id: string;
+  name: string;
+  desc: string;
+  mp_cost: number;
+  cooldown: number;
+  power: number;
+  rarity: ItemRarity;
+  learn_level: number;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -98,6 +109,9 @@ export const getLog = (id: number, limit = 50) =>
   req<{ log: LogEntry[] }>(`/saves/${id}/log?limit=${limit}`).then((r) => r.log);
 
 export const getItems = () => req<{ items: Item[] }>("/items").then((r) => r.items);
+
+// 技能目录与物品目录同为纯数据，只读；习得/解锁由 learn_level 与存档等级判定。
+export const getSkills = () => req<{ skills: Skill[] }>("/skills").then((r) => r.skills);
 
 // 背包操作：只传 item_id 与 op，所有数值（回复量、装备加成、qty）由服务端决定。
 export const useItem = (save_id: number, item_id: string, op: ItemOp) =>

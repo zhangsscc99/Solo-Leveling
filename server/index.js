@@ -36,6 +36,8 @@ const OPS = ["use", "equip", "discard"];
 const SLOT_OF = { weapon: "weapon", armor: "armor" };
 const SLOT_LABEL = { weapon: "武器", armor: "防具" };
 
+const SKILLS = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "skills.json"), "utf8"));
+
 const db = new Database(path.join(__dirname, "..", "data", "game.db"));
 
 const invStmts = {
@@ -271,6 +273,10 @@ api.get("/health", (req, res) => {
 
 api.get("/items", (req, res) => {
   res.json({ items: CATALOG });
+});
+
+api.get("/skills", (req, res) => {
+  res.json({ skills: SKILLS });
 });
 
 api.post("/saves", (req, res) => {

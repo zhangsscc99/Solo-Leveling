@@ -5,15 +5,18 @@ import {
   getItems,
   getLog,
   getSave,
+  getSkills,
   InventoryRow,
   Item,
   ItemOp,
   sendAction,
   LogEntry,
   Save,
+  Skill,
   useItem,
 } from "./api";
 import InventoryPanel from "./panels/InventoryPanel";
+import SkillsPanel from "./panels/SkillsPanel";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
@@ -174,6 +177,10 @@ function SidePanel({
   itemBusy,
   itemNotice,
   onItemOp,
+  skills,
+  skillsError,
+  busy,
+  onRelease,
 }: {
   tab: TabKey;
   save: Save;
@@ -183,6 +190,10 @@ function SidePanel({
   itemBusy: boolean;
   itemNotice: string | null;
   onItemOp: (itemId: string, op: ItemOp) => void;
+  skills: Skill[];
+  skillsError: boolean;
+  busy: boolean;
+  onRelease: (skill: Skill) => void;
 }) {
   switch (tab) {
     case "inventory":
@@ -198,7 +209,15 @@ function SidePanel({
         />
       );
     case "skills":
-      return <p className="side-empty">尚未习得技能。系统的馈赠尚未到来。</p>;
+      return (
+        <SkillsPanel
+          save={save}
+          skills={skills}
+          catalogError={skillsError}
+          busy={busy}
+          onRelease={onRelease}
+        />
+      );
     case "stats": {
       const s = save.stats;
       const rows: [string, number][] = [
@@ -260,6 +279,8 @@ export default function App() {
   const [equipment, setEquipment] = useState<Equipment | null>(null);
   const [itemBusy, setItemBusy] = useState(false);
   const [itemNotice, setItemNotice] = useState<string | null>(null);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillsError, setSkillsError] = useState(false);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -273,6 +294,12 @@ export default function App() {
     getItems()
       .then(setItems)
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    getSkills()
+      .then(setSkills)
+      .catch(() => setSkillsError(true));
   }, []);
 
   useEffect(() => {
@@ -346,6 +373,14 @@ export default function App() {
       }
     },
     [save, itemBusy]
+  );
+
+  // 技能释放只发文本指令，MP 扣减与冷却结算交给服务端；冷却倒计时在面板本地起表。
+  const onRelease = useCallback(
+    (skill: Skill) => {
+      dispatch(`释放技能 ${skill.name}`);
+    },
+    [dispatch]
   );
 
   useEffect(() => {
@@ -492,6 +527,10 @@ export default function App() {
               itemBusy={itemBusy}
               itemNotice={itemNotice}
               onItemOp={onItemOp}
+              skills={skills}
+              skillsError={skillsError}
+              busy={busy}
+              onRelease={onRelease}
             />
           </div>
           <div className="side-foot">
