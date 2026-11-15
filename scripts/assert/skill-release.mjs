@@ -157,4 +157,46 @@ assert(cur && cur.save.combat, "setup: no encounter within 10 攻击");
   cur = mpFail;
 }
 
+// ── 防回归：交战中放到冷却，冷却期「攻击」仍正常结算回合 ─────────
+// 冷却门禁只拒技能本身——普攻必须照常推进回合（或一刀收掉敌人），
+// 不被冷却误伤。中途把怪打死/被打死都按状态续推（重引/回溯后 MP 回蓝再战）。
+{
+  let onCd = null;
+  for (let i = 0; i < 120 && !onCd; i++) {
+    const { save: s } = await fetchSaveView(id);
+    const meta = skillMeta(s, "tiger_fury");
+    if (s.combat && meta && meta.cooldown_remaining > 0) {
+      onCd = s;
+      break;
+    }
+    if (s.combat) {
+      if (meta && meta.can_cast) {
+        cur = await doAct("释放技能 猛虎猛击"); // 真放：扣 MP、挂冷却（miss 也挂）
+      } else if (meta && meta.reason === "MP 不足") {
+        const r = await doAct("使用道具 魔力药剂");
+        // 没药可喝（MP 没动）则强行撤离，靠脱战「休息」回蓝再战。
+        cur = r.save.mp > s.mp ? r : await doAct("前进");
+      } else {
+        cur = await doAct("攻击"); // 兜底推进一回合
+      }
+    } else if (s.mp < 12) {
+      cur = await doAct("休息"); // 脱战回蓝 +8/次
+    } else {
+      cur = await doAct("攻击");
+      if (!cur.save.combat) cur = await doAct("前进"); // 击杀冷却压制时走一步再引
+    }
+  }
+  assert(onCd, "setup: never got tiger_fury onto cooldown in combat");
+  const turnBefore = onCd.combat.turn;
+  const r = await doAct("攻击");
+  if (r.save.combat) {
+    assert(r.save.combat.turn === turnBefore + 1,
+      `attack during skill cooldown must still settle a turn: ${turnBefore} -> ${r.save.combat.turn}`);
+  } else {
+    assert(/击败/.test(r.reply.content),
+      `cooldown-period attack ended combat without a kill line: ${r.reply.content.slice(-160)}`);
+  }
+  cur = r;
+}
+
 ok("OK");

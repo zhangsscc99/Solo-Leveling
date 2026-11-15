@@ -149,7 +149,8 @@ export async function clearCombat(id, { max = 120 } = {}) {
     if (!s.combat) return s;
     const hasHealer = (inventory || []).some((r) => r.qty > 0 && HEAL_ITEM_IDS.has(r.item_id));
     const lowHp = s.hp > 0 && s.hp <= Math.max(25, s.max_hp * 0.35);
-    await act(id, lowHp && hasHealer ? "使用道具" : s.mp >= 12 ? "释放技能 猛虎猛击" : "攻击");
+    const castable = Array.isArray(s.skills) ? s.skills.find((k) => k.can_cast) : null;
+    await act(id, lowHp && hasHealer ? "使用道具" : castable ? `释放技能 ${castable.name}` : "攻击");
   }
   fail(`clearCombat: ${max} actions and combat still active`);
 }

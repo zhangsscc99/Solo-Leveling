@@ -761,7 +761,7 @@ function skillViews(save, cbt) {
 // 判定顺序与 skillCastView 相同：未知技能 → 等级不足 → 冷却 → MP → 目标。
 function skillGate(save, input, engaged) {
   const m = String(input || "").match(
-    /释放技能\s*[:：]?\s*(.+)$|施放技能\s*[:：]?\s*(.+)$|使用技能\s*[:：]?\s*(.+)$|施放\s*[:：]?\s*(.+)$|释放\s*[:：]?\s*(.+)$/
+    /释放技能\s*[:：]?\s*(.*)$|施放技能\s*[:：]?\s*(.*)$|使用技能\s*[:：]?\s*(.*)$|施放\s*[:：]?\s*(.*)$|释放\s*[:：]?\s*(.*)$/
   );
   const name = m ? (m.slice(1).find((g) => g) || "").trim() : "";
   if (!name) {

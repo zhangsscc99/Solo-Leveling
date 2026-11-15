@@ -50,18 +50,25 @@ export default function SkillsPanel({
     [skills, save.level]
   );
 
-  if (catalogError) {
-    return <p className="side-empty">技能目录不可用。与系统的连接中断，请稍后重试。</p>;
-  }
-
+  // 目录接口失败不整页硬退：调用方已把 save.skills 合并进 skills，
+  // 有可渲染行就降级展示存档视图 + 非阻塞提示；什么都没有时才兜底文案。
   if (skills.length === 0) {
-    return <p className="side-empty">尚未习得技能。系统的馈赠尚未到来。</p>;
+    return catalogError ? (
+      <p className="side-empty">技能目录不可用。与系统的连接中断，请稍后重试。</p>
+    ) : (
+      <p className="side-empty">尚未习得技能。系统的馈赠尚未到来。</p>
+    );
   }
 
   const lockedCount = skills.length - learnedCount;
 
   return (
     <div className="skill">
+      {catalogError && (
+        <p className="skill-notice" role="status">
+          技能目录连接中断——当前展示的是随存档下发的技能视图。
+        </p>
+      )}
       <div className="skill-meters">
         <div className="skill-meter">
           <span className="skill-meter-label">MP</span>
