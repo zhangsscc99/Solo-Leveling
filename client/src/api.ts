@@ -10,6 +10,18 @@ export interface Stats {
 
 export type StatKey = keyof Stats;
 
+export interface ChapterUnlockView {
+  level: number | null;
+  chapter: number | null;
+  level_ok: boolean;
+  hint: string | null;
+}
+
+export interface SceneChoice {
+  id: string;
+  label: string;
+}
+
 export interface Save {
   id: number;
   player_name: string;
@@ -27,6 +39,17 @@ export interface Save {
   kills: number;
   chapter: number;
   cleared: boolean;
+  // F074 场景运行时字段（saveView 派生，服务端结算）：
+  // 当前场景 + 本章主线进度 steps/total + 本章 unlock 软门判定。
+  scene: string | null;
+  scene_title: string | null;
+  scene_index: number;
+  chapter_steps: number;
+  chapter_total: number;
+  chapter_progress: string;
+  chapter_completed: boolean;
+  chapter_unlock: ChapterUnlockView | null;
+  next_choices: SceneChoice[];
 }
 
 export interface LogEntry {
@@ -187,6 +210,27 @@ export const getItems = () => req<{ items: Item[] }>("/items").then((r) => r.ite
 
 // 技能目录与物品目录同为纯数据，只读；习得/解锁由 learn_level 与存档等级判定。
 export const getSkills = () => req<{ skills: Skill[] }>("/skills").then((r) => r.skills);
+
+// ── 地图面板（F090）──
+// 章节静态信息 + 按存档推导的三态/主线进度，全部服务端结算，面板只渲染。
+
+export type ChapterState = "cleared" | "current" | "locked";
+
+export interface ChapterView {
+  id: string;
+  index: number;
+  title: string;
+  subtitle: string;
+  summary: string;
+  unlock: { level: number | null; chapter: number | null };
+  scene_count: number;
+  main_total: number;
+  state: ChapterState;
+  progress: QuestProgress;
+}
+
+export const getChapters = (saveId: number) =>
+  req<{ chapters: ChapterView[] }>(`/chapters?save_id=${saveId}`).then((r) => r.chapters);
 
 // 任务视图：主线由章节推导，每日进度与惩罚倒计时全部服务端结算。
 export const getQuests = (id: number) => req<QuestsView>(`/saves/${id}/quests`);

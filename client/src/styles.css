@@ -231,6 +231,30 @@ button {
   font-size: var(--fs-xs);
   color: var(--dim);
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 章内进度（第N章 章名 x/y）：章名可省略，进度数字永不裁半。 */
+.status-chapter {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.status-chname {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-chprog {
+  flex: none;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--tick);
 }
 
 .status-div {
@@ -1171,13 +1195,36 @@ button {
   padding: 0;
 }
 
+/* F090：节点本体 = 整行 <button>（键盘可达、focus ring 走全局
+   :focus-visible），点击展开/收起章详情；详情只读，不写存档。 */
 .map-node {
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.map-btn {
   display: flex;
   align-items: baseline;
   gap: var(--sp-3);
-  padding: var(--sp-2) 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--fs-sm);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-1);
+  background: none;
+  border: 0;
+  border-radius: var(--r-hard);
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.map-btn:hover {
+  background: var(--system-veil);
+}
+
+/* 焦点环收进按钮内，避免被侧栏滚动容器裁掉右缘 */
+.map-btn:focus-visible {
+  outline-offset: -2px;
 }
 
 .map-ch {
@@ -1190,11 +1237,66 @@ button {
 
 .map-name {
   flex: 1;
+  min-width: 0;
+}
+
+/* 锁定节点的前置条件：行内直写，不藏进详情 */
+.map-req {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: var(--fs-xs);
+  color: var(--gate);
 }
 
 .map-state {
+  flex: none;
   font-size: var(--fs-xs);
   color: var(--faint);
+}
+
+/* 展开指示：右指三角，展开时旋转向下 */
+.map-caret {
+  align-self: center;
+  flex: none;
+  width: 0;
+  height: 0;
+  border: 4px solid transparent;
+  border-left-color: var(--faint);
+  transition: transform 0.15s ease;
+}
+
+.map-open .map-caret {
+  transform: rotate(90deg);
+}
+
+/* 章详情：副标题 / 简介 / 状态行，左缘对齐章名列 */
+.map-detail {
+  padding: 0 var(--sp-2) var(--sp-3) calc(34px + var(--sp-3) + var(--sp-1));
+}
+
+.map-sub {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.map-summary {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.75;
+  color: var(--dim);
+}
+
+.map-meta {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--tick);
+}
+
+.map-locked .map-meta {
+  color: var(--gate);
 }
 
 .map-now .map-name {
@@ -1204,6 +1306,10 @@ button {
 
 .map-now .map-state {
   color: var(--system);
+}
+
+.map-now .map-caret {
+  border-left-color: var(--system);
 }
 
 .map-locked .map-name,
@@ -1581,16 +1687,21 @@ button {
     gap: var(--sp-2);
   }
 
-  /* 移动端两行各自横滚，组间分隔线撤掉 */
+  /* F085：两组按钮改等宽栅格、行内折行——全部落在视口内。
+     旧版 nowrap+overflow-x 因 flex 子项 min-width:auto 缩不进容器，
+     按钮被推出视口且页面不可横滑，等于功能消失。 */
   .btn-group {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: var(--sp-1);
-    scrollbar-width: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    align-items: stretch;
+    gap: var(--sp-2);
+    width: 100%;
+    padding-top: var(--sp-2);
   }
 
-  .btn-group::-webkit-scrollbar {
-    display: none;
+  .btn-group .group-label {
+    grid-column: 1 / -1;
+    margin-right: 0;
   }
 
   .btn-group-sys {
@@ -1599,13 +1710,12 @@ button {
     border-left: 0;
   }
 
-  .group-label {
-    flex: none;
-  }
-
+  /* 不裁 overflow：kbd 快捷键键帽探出按钮上缘，需要可见。 */
   .btn {
-    flex: none;
+    min-width: 0;
     min-height: 44px;
+    padding: 0 var(--sp-2);
+    white-space: nowrap;
   }
 }
 

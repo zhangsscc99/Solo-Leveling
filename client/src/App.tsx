@@ -2,8 +2,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import {
   baseAttack,
   baseDefense,
+  ChapterView,
   createSave,
   Equipment,
+  getChapters,
   getItems,
   getLog,
   getQuests,
@@ -28,6 +30,7 @@ import {
 import CombatPanel, { detectCombatGate } from "./panels/CombatPanel";
 import EndingPanel from "./panels/EndingPanel";
 import InventoryPanel from "./panels/InventoryPanel";
+import MapPanel from "./panels/MapPanel";
 import QuestPanel from "./panels/QuestPanel";
 import ShadowsPanel from "./panels/ShadowsPanel";
 import SkillsPanel from "./panels/SkillsPanel";
@@ -131,8 +134,15 @@ function StatusBar({
           <span className="status-sub">
             <span>Lv.{save.level}</span>
             <i className="status-div" />
-            <span>
-              第{save.chapter}章 {chapterName}
+            <span className="status-chapter">
+              <span className="status-chname">
+                第{save.chapter}章 {chapterName}
+              </span>
+              {save.chapter_total > 0 && (
+                <i className="status-chprog">
+                  {save.chapter_steps}/{save.chapter_total}
+                </i>
+              )}
             </span>
           </span>
         </div>
@@ -222,6 +232,8 @@ function SidePanel({
   onSpendStat,
   quests,
   questsError,
+  chapters,
+  chaptersError,
   shadows,
   shadowsError,
   shadowBusy,
@@ -245,6 +257,8 @@ function SidePanel({
   onSpendStat: (stat: StatKey) => void;
   quests: QuestsView | null;
   questsError: boolean;
+  chapters: ChapterView[] | null;
+  chaptersError: boolean;
   shadows: ShadowFormation | null;
   shadowsError: boolean;
   shadowBusy: boolean;
@@ -285,21 +299,7 @@ function SidePanel({
         />
       );
     case "map":
-      return (
-        <ol className="map-list">
-          {CHAPTERS.map((name, i) => {
-            const ch = i + 1;
-            const state = ch < save.chapter ? "done" : ch === save.chapter ? "now" : "locked";
-            return (
-              <li key={ch} className={`map-node map-${state}`}>
-                <span className="map-ch">Ch.{ch}</span>
-                <span className="map-name">{name}</span>
-                <span className="map-state">{state === "done" ? "已踏破" : state === "now" ? "当前位置" : "未解锁"}</span>
-              </li>
-            );
-          })}
-        </ol>
-      );
+      return <MapPanel data={chapters} error={chaptersError} save={save} />;
     case "quests":
       return <QuestPanel data={quests} error={questsError} />;
     case "shadows":
@@ -331,6 +331,8 @@ export default function App() {
   const [skillsError, setSkillsError] = useState(false);
   const [quests, setQuests] = useState<QuestsView | null>(null);
   const [questsError, setQuestsError] = useState(false);
+  const [chapters, setChapters] = useState<ChapterView[] | null>(null);
+  const [chaptersError, setChaptersError] = useState(false);
   const [shadows, setShadows] = useState<ShadowFormation | null>(null);
   const [shadowsError, setShadowsError] = useState(false);
   const [shadowBusy, setShadowBusy] = useState(false);
@@ -501,6 +503,17 @@ export default function App() {
         setQuestsError(false);
       })
       .catch(() => setQuestsError(true));
+  }, [tab, save]);
+
+  // 地图面板打开时拉取章节视图；save 每次动作后变化 → 三态与章内进度顺带刷新。
+  useEffect(() => {
+    if (tab !== "map" || !save) return;
+    getChapters(save.id)
+      .then((list) => {
+        setChapters(list);
+        setChaptersError(false);
+      })
+      .catch(() => setChaptersError(true));
   }, [tab, save]);
 
   // 影子面板打开时拉取编队视图；出战态持久化在服务端，重开面板自动回灌。
@@ -692,6 +705,8 @@ export default function App() {
               onSpendStat={onSpendStat}
               quests={quests}
               questsError={questsError}
+              chapters={chapters}
+              chaptersError={chaptersError}
               shadows={shadows}
               shadowsError={shadowsError}
               shadowBusy={shadowBusy}
