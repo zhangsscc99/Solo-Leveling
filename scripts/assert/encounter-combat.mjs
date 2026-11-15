@@ -121,22 +121,42 @@ for (let i = 1; i < fights.length; i++) {
 
 // 4) 交战中「使用道具」：点名魔力药剂——MP 真回、播报本名、库存减 1；
 //    点名未持有的生命圣水——诚实拒绝、回合不动。
+//    专用存档跑本段：setup 必须确定性地拿到「交战中 + hp<max + mp<max」。
+//    hp 缺口用「防御」磨——防御不杀伤敌人，零击杀风险；mp 缺口用技能烧，
+//    技能若把敌人打死就换场景重逼遭遇（同场景有击杀冷却），MP/HP 缺口
+//    跨场战斗不回填，循环必然收敛。
 {
-  if (!cur.save.combat) {
-    for (let i = 0; i < 10 && !cur.save.combat; i++) cur = await doAct("攻击");
-    assert(cur.save.combat, "setup: no combat for item checks");
+  const sid = await makeSave("encounter-combat-item");
+  const act2 = (input) => act(sid, input);
+  let c2 = null;
+  const forceEncounter = async () => {
+    for (let i = 0; i < 10 && !(c2 && c2.save.combat); i++) c2 = await act2("攻击");
+    assert(c2 && c2.save.combat, "setup: no encounter for item checks");
+  };
+  await forceEncounter();
+  for (let i = 0; i < 20 && c2.save.combat && c2.save.hp >= c2.save.max_hp; i++) {
+    c2 = await act2("防御");
   }
-  // 先烧一截 MP，保证药剂「真有帮助」。
-  if (cur.save.mp >= 12) cur = await doAct("释放技能 猛虎猛击");
-  if (!cur.save.combat) {
-    for (let i = 0; i < 10 && !cur.save.combat; i++) cur = await doAct("攻击");
+  assert(c2.save.combat, "setup: lost combat while defending");
+  assert(c2.save.hp < c2.save.max_hp, `setup: never got hurt while defending (${c2.save.hp}/${c2.save.max_hp})`);
+  for (let i = 0; i < 10 && (!c2.save.combat || c2.save.mp >= c2.save.max_mp); i++) {
+    if (!c2.save.combat) {
+      c2 = await act2("前进"); // 击杀冷却：换场景才有新遭遇
+      await forceEncounter();
+    } else {
+      c2 = await act2("释放技能 猛虎猛击"); // MP 在命中判定前扣除，必出缺口
+    }
   }
-  assert(cur.save.combat, "setup: lost combat before potion check");
-  const invBefore = (await fetchSaveView(id)).inventory.find((r) => r.item_id === "mana_potion");
+  assert(c2.save.combat, "setup: lost combat before potion check");
+  assert(
+    c2.save.mp < c2.save.max_mp && c2.save.hp < c2.save.max_hp,
+    `setup: want hp/mp below max, got ${c2.save.hp}/${c2.save.max_hp} hp, ${c2.save.mp}/${c2.save.max_mp} mp`
+  );
+  const invBefore = (await fetchSaveView(sid)).inventory.find((r) => r.item_id === "mana_potion");
   assert(invBefore && invBefore.qty >= 1, "setup: no mana_potion in starter kit");
-  const mpBefore = cur.save.mp;
-  cur = await doAct("使用道具 魔力药剂");
-  const r = cur;
+  const mpBefore = c2.save.mp;
+  const r = await act2("使用道具 魔力药剂");
+  c2 = r;
   assert(
     r.reply.content.includes("魔力药剂"),
     `item reply must name 魔力药剂, got: ${r.reply.content.slice(0, 160)}`
@@ -146,25 +166,25 @@ for (let i = 1; i < fights.length; i++) {
     `reply names a different item: ${r.reply.content.slice(0, 160)}`
   );
   assert(
-    r.save.mp === Math.min(cur.save.max_mp, mpBefore + 30),
-    `mana potion must restore 30 MP: ${mpBefore} -> ${r.save.mp} (max ${cur.save.max_mp})`
+    r.save.mp === Math.min(r.save.max_mp, mpBefore + 30),
+    `mana potion must restore 30 MP: ${mpBefore} -> ${r.save.mp} (max ${r.save.max_mp})`
   );
-  const invAfter = (await fetchSaveView(id)).inventory.find((r) => r.item_id === "mana_potion");
+  const invAfter = (await fetchSaveView(sid)).inventory.find((r) => r.item_id === "mana_potion");
   assert(
     (invAfter ? invAfter.qty : 0) === invBefore.qty - 1,
     `mana_potion qty ${invBefore.qty} -> ${invAfter ? invAfter.qty : 0}`
   );
 
   // 未持有物品：诚实拒绝，不占回合、不动数值。
-  if (cur.save.combat) {
-    const t = cur.save.combat.turn;
-    cur = await doAct("使用道具 生命圣水");
+  if (c2.save.combat) {
+    const t = c2.save.combat.turn;
+    c2 = await act2("使用道具 生命圣水");
     assert(
-      cur.reply.content.includes("生命圣水") && /没有|无法/.test(cur.reply.content),
-      `unknown item must be refused honestly, got: ${cur.reply.content.slice(0, 140)}`
+      c2.reply.content.includes("生命圣水") && /没有|无法/.test(c2.reply.content),
+      `unknown item must be refused honestly, got: ${c2.reply.content.slice(0, 140)}`
     );
-    if (cur.save.combat) {
-      assert(cur.save.combat.turn === t, `refused item consumed a turn: ${t} -> ${cur.save.combat.turn}`);
+    if (c2.save.combat) {
+      assert(c2.save.combat.turn === t, `refused item consumed a turn: ${t} -> ${c2.save.combat.turn}`);
     }
   }
 }
