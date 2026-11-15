@@ -28,6 +28,7 @@ export default function StatsPanel({
   onSpend: (stat: StatKey) => void;
 }) {
   const points = save.free_points ?? 0;
+  const inCombat = Boolean(save.combat);
   const top = Math.max(...STATS.map((s) => save.stats[s.key] || 0), 1);
   const need = save.xp_to_next ?? 0;
   const capped = need <= 0;
@@ -40,7 +41,13 @@ export default function StatsPanel({
         <span className="stat-points-label">剩余属性点</span>
         <span className={`stat-points-num${points > 0 ? " on" : ""}`}>{points}</span>
         <span className="stat-points-hint" aria-live="polite">
-          {busy ? "分配中…" : points > 0 ? "点击 +1 分配" : "升级可获得属性点"}
+          {busy
+            ? "分配中…"
+            : inCombat
+              ? "交战中无法分配属性点"
+              : points > 0
+                ? "点击 +1 分配"
+                : "升级可获得属性点"}
         </span>
       </div>
 
@@ -59,8 +66,10 @@ export default function StatsPanel({
             <span className="stat-line-num">{save.stats[key] || 0}</span>
             <button
               className="stat-add"
-              disabled={busy || points <= 0}
+              disabled={busy || points <= 0 || inCombat}
+              aria-disabled={busy || points <= 0 || inCombat}
               aria-label={`${label}加 1 点`}
+              title={inCombat ? "交战中无法分配属性点" : undefined}
               onClick={() => onSpend(key)}
             >
               +1

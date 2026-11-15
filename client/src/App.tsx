@@ -56,6 +56,19 @@ const ACTION_BUTTONS: { label: string; input: string; primary?: boolean; combatB
   { label: "休息", input: "休息", combatBlock: true },
 ];
 
+// F094 战斗操作入口：行动栏常驻战斗四键。交战（save.combat，服务端真实
+// 交战态）时整组只留这四键——探索组在敌我面前全被服务端门禁改判，
+// 「撤离」语义与「逃跑」同一结算（flee + retreatOnFlee），不再单列。
+// 无交战时四键常驻 disabled + 可见提示，给玩家明确的「待激活」状态。
+// 快捷键沿用 1–4 槽位：键位永远指向当前组内同位置按钮，与系统组 5–9 不冲突。
+// 「释放技能」不是指令本身——展开/收起行动栏技能列表（input=null 哨兵）。
+const COMBAT_BUTTONS: { label: string; input: string | null }[] = [
+  { label: "攻击", input: "攻击" },
+  { label: "释放技能", input: null },
+  { label: "防御", input: "防御" },
+  { label: "逃跑", input: "逃跑" },
+];
+
 type TabKey = "inventory" | "skills" | "stats" | "map" | "quests" | "shadows" | "ending";
 const TABS: { key: TabKey; label: string }[] = [
   { key: "inventory", label: "背包" },
@@ -345,6 +358,7 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("inventory");
   const [drawer, setDrawer] = useState(false);
   const [combatOpen, setCombatOpen] = useState(false);
+  const [barSkillOpen, setBarSkillOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
 
@@ -391,6 +405,10 @@ export default function App() {
   useEffect(() => {
     if (liveCombat && !liveRef.current) setCombatOpen(true);
     liveRef.current = liveCombat;
+  }, [liveCombat]);
+  // 行动栏技能列表只在交战态存在：脱战（含死亡回溯/逃跑成功）自动收起。
+  useEffect(() => {
+    if (!liveCombat) setBarSkillOpen(false);
   }, [liveCombat]);
   useEffect(() => {
     const gate = detectCombatGate(log);
@@ -561,16 +579,22 @@ export default function App() {
       if (e.key === "Escape") {
         setDrawer(false);
         setCombatOpen(false);
+        setBarSkillOpen(false);
         return;
       }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const n = Number(e.key);
-      if (n >= 1 && n <= ACTION_BUTTONS.length) {
+      if (n >= 1 && n <= COMBAT_BUTTONS.length && liveCombat) {
+        // 交战态：1–4 槽位指向战斗四键，与按钮上的键帽提示一致。
+        // 「释放技能」键只开合技能列表，不发指令。
+        const b = COMBAT_BUTTONS[n - 1];
+        if (b.input === null) setBarSkillOpen((v) => !v);
+        else dispatch(b.input);
+      } else if (n >= 1 && n <= ACTION_BUTTONS.length && !liveCombat) {
         const b = ACTION_BUTTONS[n - 1];
         // 终章态快捷键 1 与按钮同义：不再发「前进」，直接开结算。
-        // 交战态除外——此时「前进」是撤离掷逃，必须照常发出。
-        if (b.input === "前进" && cleared && !liveCombat) openTab("ending");
+        if (b.input === "前进" && cleared) openTab("ending");
         else dispatch(b.input);
       } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
@@ -753,30 +777,22 @@ export default function App() {
           <div className="action-groups">
             <div className="btn-group">
               <span className="group-label">行动</span>
-              {ACTION_BUTTONS.map((b, i) => {
-                // 交战中的和平意图被服务端改判为提示且零收益——前台直接
-                // 禁用，避免玩家误以为「休息」能免费回血。「前进」保留：
-                // 交战中它是撤离掷逃。休息另吃 F086 配额口径：满状态/次数
-                // 用尽时禁用，原因文案由服务端 save.rest 下发，不硬编码。
-                const blocked = Boolean(b.combatBlock && save.combat);
+              {/* F094：探索组只在非交战渲染；交战中整组换为下方战斗四键，
+                  服务端对和平意图的门禁（改判提示、零收益）与前台隐藏一致。 */}
+              {!liveCombat &&
+                ACTION_BUTTONS.map((b, i) => {
+                // 休息吃 F086 配额口径：满状态/次数用尽时禁用，原因文案由
+                // 服务端 save.rest 下发，不硬编码。
                 const restInfo = b.input === "休息" ? save.rest : null;
                 const restBlocked = Boolean(restInfo && !restInfo.available);
-                const reason = blocked
-                  ? "交战中无法使用"
-                  : restBlocked
-                    ? restInfo?.reason || "暂时无法休息"
-                    : null;
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
-                // 不再发这条必拒指令。F096：交战态下「前进」是撤离掷逃且
-                // 不再推进主线，主按钮改标「撤离」并写明不推进，照常发出；
-                // 守关者未击杀而人站在 boss 场景之后（含章尾）时「前进」的
-                // 真实语义是折返回守关房再战——主按钮按服务端 advance_mode
-                // 换标「折返守关者」，不在前端猜场景。
-                const fleeing = b.input === "前进" && Boolean(save.combat);
+                // 不再发这条必拒指令。F096：守关者未击杀而人站在 boss 场景
+                // 之后（含章尾）时「前进」的真实语义是折返回守关房再战——
+                // 主按钮按服务端 advance_mode 换标，不在前端猜场景。
                 const retreatToBoss =
-                  b.input === "前进" && !save.combat && save.advance_mode === "retreat_to_boss";
-                if (b.input === "前进" && save.at_epilogue && !save.combat) {
+                  b.input === "前进" && save.advance_mode === "retreat_to_boss";
+                if (b.input === "前进" && save.at_epilogue) {
                   return (
                     <button
                       key={b.label}
@@ -793,24 +809,52 @@ export default function App() {
                   <button
                     key={b.label}
                     className={`btn${b.primary ? " primary" : ""}`}
-                    disabled={busy || blocked || restBlocked}
+                    disabled={busy || restBlocked}
                     onClick={() => dispatch(b.input)}
                     title={
-                      reason ||
-                      (fleeing
-                        ? `撤离不会推进主线 · 快捷键 ${i + 1}`
-                        : retreatToBoss
-                          ? `守关者未击杀 · 折返再战 · 快捷键 ${i + 1}`
-                          : `快捷键 ${i + 1}`)
+                      (restBlocked && (restInfo?.reason || "暂时无法休息")) ||
+                      (retreatToBoss
+                        ? `守关者未击杀 · 折返再战 · 快捷键 ${i + 1}`
+                        : `快捷键 ${i + 1}`)
                     }
-                    aria-disabled={busy || blocked || restBlocked}
+                    aria-disabled={busy || restBlocked}
                   >
-                    {fleeing ? "撤离" : retreatToBoss ? "折返守关者" : b.label}
+                    {retreatToBoss ? "折返守关者" : b.label}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>
                 );
               })}
+              {/* F094 战斗四键常驻：交战中可用（键帽 1–4），无交战 disabled
+                  + 可见提示——玩家不必靠战斗面板/快捷键猜入口。 */}
+              {COMBAT_BUTTONS.map((b, i) => {
+                const disabled = busy || !liveCombat;
+                return (
+                  <button
+                    key={b.label}
+                    className={`btn${liveCombat && i === 0 ? " primary" : ""}${
+                      b.input === null && barSkillOpen ? " on" : ""
+                    }`}
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    aria-expanded={b.input === null ? barSkillOpen : undefined}
+                    title={
+                      liveCombat
+                        ? b.input === null
+                          ? `展开技能列表 · 快捷键 ${i + 1}`
+                          : `快捷键 ${i + 1}`
+                        : "当前没有可攻击的目标"
+                    }
+                    onClick={() =>
+                      b.input === null ? setBarSkillOpen((v) => !v) : dispatch(b.input as string)
+                    }
+                  >
+                    {b.label}
+                    {liveCombat && <kbd>{i + 1}</kbd>}
+                  </button>
+                );
+              })}
+              {!liveCombat && <span className="bar-combat-hint">当前没有可攻击的目标</span>}
             </div>
             <div className="btn-group btn-group-sys">
               <span className="group-label">系统</span>
@@ -842,6 +886,44 @@ export default function App() {
               </button>
             </div>
           </div>
+          {/* F094 行动栏技能列表：只在交战态由「释放技能」开合。MP 消耗 /
+              冷却 / 可释放性全部读服务端 save.skills 视图（与技能面板、
+              /action 门禁同一口径），点击指令原样发出，MP/伤害由服务端结算。 */}
+          {barSkillOpen && liveCombat && (
+            <ul className="bar-skills" aria-label="战斗技能">
+              {(save.skills ?? skills).map((s) => {
+                const unlocked = s.unlocked ?? s.learn_level <= save.level;
+                const cd = s.cooldown_remaining ?? 0;
+                const mpOk = s.mp_enough ?? save.mp >= s.mp_cost;
+                const canCast = s.can_cast ?? (unlocked && cd === 0 && mpOk && liveCombat);
+                const disabled = busy || !canCast;
+                const reason = !unlocked
+                  ? `需 Lv.${s.learn_level}`
+                  : cd > 0
+                    ? `冷却中 ${cd} 回合`
+                    : !mpOk
+                      ? "MP 不足"
+                      : null;
+                return (
+                  <li key={s.id}>
+                    <button
+                      className="bar-skill"
+                      disabled={disabled}
+                      aria-disabled={disabled}
+                      title={reason ?? `${s.desc}`}
+                      onClick={() => dispatch(`释放技能 ${s.name}`)}
+                    >
+                      <span className="bar-skill-name">{s.name}</span>
+                      <span className="bar-skill-meta">
+                        MP {s.mp_cost} · 冷却 {s.cooldown}
+                      </span>
+                      {reason && <span className="bar-skill-reason">{reason}</span>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           <form className="input-row" onSubmit={onSend}>
             <span className="input-prompt" aria-hidden="true">
               &gt;

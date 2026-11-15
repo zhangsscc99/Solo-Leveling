@@ -1448,6 +1448,20 @@ button {
   border-color: var(--system-dim);
 }
 
+/* F094 「释放技能」展开态：与 .combat-btn.on 同一记号（系统青内描边） */
+.btn.on {
+  color: var(--system);
+  box-shadow: inset 0 -2px 0 var(--system);
+}
+
+/* F094 无交战时战斗四键的常驻提示：与键帽同级的小字，不抢层级 */
+.bar-combat-hint {
+  align-self: center;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  white-space: nowrap;
+}
+
 /* 数字快捷键：右上角小键帽 */
 .btn kbd {
   position: absolute;
@@ -1465,6 +1479,68 @@ button {
   background: var(--hull);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-hard);
+}
+
+/* F094 行动栏技能列表：发丝线行 + 硬件方角按钮，与 .combat-sub 同一语言。
+   技能数据（MP/冷却/可释放原因）全部服务端下发，此处只做呈现。 */
+.bar-skills {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.bar-skills > li {
+  min-width: 0;
+}
+
+.bar-skill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: 0 var(--sp-3);
+  background: var(--hull-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.bar-skill:hover:not(:disabled) {
+  border-color: var(--system-dim);
+  color: #fff;
+}
+
+.bar-skill:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.bar-skill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bar-skill-meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--tick);
+}
+
+.bar-skill-reason {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--dim);
 }
 
 /* 终端式单行输入：> 提示符 + 仅底部发丝线，聚焦才亮 */
@@ -1740,6 +1816,18 @@ button {
     min-height: 44px;
     padding: 0 var(--sp-2);
     white-space: nowrap;
+  }
+
+  /* F094：战斗提示在按钮栅格里独占一行，技能列表按钮同为 ≥44px 触控。 */
+  .btn-group .bar-combat-hint {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .bar-skill {
+    min-height: 44px;
+    flex-wrap: wrap;
+    row-gap: 0;
   }
 }
 

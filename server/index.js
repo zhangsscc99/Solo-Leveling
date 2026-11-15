@@ -1594,8 +1594,8 @@ const PLACEHOLDER = {
 
 // 交战中允许执行的意图：五个战斗指令 + 「前进」（撤离掷逃）。
 // 其余白名单意图（休息/潜行/存档/状态/观察/影子编队……）在敌我面前一律
-// 改判为一条诚实播报——不占回合、不产生任何 HP/MP 收益，杜绝「交战中
-// 免费回血/回魔」的漏洞。
+// 改判为一条诚实播报并挂 refused——不占回合、不产生任何 HP/MP 收益、
+// 不进账本（与章节门/终章拒绝同口径），杜绝「交战中免费回血/回魔」的漏洞。
 const COMBAT_INTENTS = new Set(["attack", "skill", "defend", "item", "flee", "advance"]);
 const COMBAT_BLOCKED_VERB = {
   rest: "休息",
@@ -1633,6 +1633,9 @@ function executeIntent(save, intentId, input) {
         combat: null,
         rewards: null,
         grantMain: null,
+        // F094：交战拒绝与章节门/终章同挂 refused——零消耗、零日志、
+        // 零事件；回包显性带 refused 标记，前端按回复播报不必等账本。
+        refused: true,
       };
     }
   }
@@ -1859,6 +1862,14 @@ api.post("/saves/:id/spend", (req, res) => {
   if (!progression.VALID_STATS.includes(stat)) {
     return res.status(400).json({ error: `stat must be one of ${progression.VALID_STATS.join(", ")}` });
   }
+  // F094 交战门禁：交战中属性面板冻结——战中零回合成本加点与免费换装
+  // 同是一类口子（即时攻防加成）。拒绝不扣点、不占回合，回包带 refused。
+  if (store.getCombat(save.id)) {
+    return res.status(400).json({
+      error: "交战中无法分配属性点——先解决眼前的敌人，或脱离战斗再加点。",
+      refused: true,
+    });
+  }
   if ((Number(save.free_points) || 0) <= 0) {
     return res.status(400).json({ error: "没有剩余的自由属性点" });
   }
@@ -1922,7 +1933,7 @@ api.post("/saves/:id/item", (req, res) => {
     // F088：交战中补给必须占一回合（敌人会反击），走 /action 的
     // 「使用道具」战斗指令，不走这条免回合的直接补给通道。
     if (store.getCombat(save.id)) {
-      return res.status(400).json({ error: "交战中请用「使用道具」战斗指令" });
+      return res.status(400).json({ error: "交战中请用「使用道具」战斗指令", refused: true });
     }
     // 数值只取目录 + 当前存档，客户端不可覆盖；HP/MP 一律夹紧到 0..max。
     const hp = item.heal ? clamp(save.hp + item.heal, 0, save.max_hp) : save.hp;
@@ -1943,6 +1954,14 @@ api.post("/saves/:id/item", (req, res) => {
     const slot = SLOT_OF[item.category];
     if (!slot) {
       return res.status(400).json({ error: "该物品无法装备" });
+    }
+    // F094 交战门禁：交战中装备位冻结——免费换装是零回合成本的即时
+    // 攻防加成。拒绝不动装备、不占回合，回包带 refused。
+    if (store.getCombat(save.id)) {
+      return res.status(400).json({
+        error: "交战中无法更换装备——先解决眼前的敌人，或脱离战斗再换装。",
+        refused: true,
+      });
     }
     equipment[save.id] = equipment[save.id] || {};
     const previous = equipment[save.id][slot];
@@ -2160,6 +2179,7 @@ api.post("/action", (req, res) => {
     return res.json({
       reply: { id: --epilogueReplySeq, role: "system", content: EPILOGUE_REFUSAL },
       save: saveView(save),
+      refused: true,
       ending_ready: true,
     });
   }
@@ -2179,6 +2199,9 @@ api.post("/action", (req, res) => {
         content: extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content,
       },
       save: saveView(store.getSave(save.id) || save),
+      // F094：回包显性带拒绝标记——交战门禁/章节门/终章同一口径，
+      // 前端与断言不必从文案反推「这次动作被拒了」。
+      refused: true,
     });
   }
   store.appendLog(save.id, "user", input);
@@ -2245,6 +2268,7 @@ api.post("/ai-action", async (req, res) => {
         reply: { id: --epilogueReplySeq, role: "system", content: EPILOGUE_REFUSAL },
         intent: "advance",
         save: saveView(save),
+        refused: true,
         ending_ready: true,
       });
     }
@@ -2306,6 +2330,7 @@ api.post("/ai-action", async (req, res) => {
         },
         intent: outcome.intent,
         save: saveView(store.getSave(save.id) || fresh),
+        refused: true,
         degraded,
       });
     }
