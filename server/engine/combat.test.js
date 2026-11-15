@@ -495,4 +495,129 @@ function assertSaneResult(r, input) {
   }
 }
 
+// --- F034 等级压制系数：rankFactor 纯函数（同级 / 攻高 / 攻低 / 夹紧 / 未知） ---
+{
+  const { rankFactor, rankIndex, RANK_ORDER } = require("./combat");
+
+  // 序号表 E=0 … S=5，大小写与首尾空白归一
+  assert.deepStrictEqual(RANK_ORDER.map(rankIndex), [0, 1, 2, 3, 4, 5]);
+  assert.strictEqual(rankIndex(" s "), 5);
+  assert.strictEqual(rankIndex("e"), 0);
+
+  // 同级恒为 1
+  for (const r of RANK_ORDER) {
+    assert.strictEqual(rankFactor(r, r), 1, `同级 ${r} 的系数必须为 1`);
+    assert.strictEqual(rankFactor(r.toLowerCase(), r), 1);
+  }
+
+  // 攻方等级更高：小幅增益，严格 >1，封顶 1.15
+  const higher = RANK_ORDER.map((_, i) => rankFactor(RANK_ORDER[i], "E"));
+  for (let i = 1; i < higher.length; i++) {
+    assert.ok(higher[i] > 1, `攻方高 ${i} 级应 >1，实际 ${higher[i]}`);
+    assert.ok(higher[i] <= 1.15 + 1e-9, `增益越过上限：${higher[i]}`);
+    assert.ok(higher[i] >= higher[i - 1], "增益应随级差单调不降");
+  }
+  assert.strictEqual(rankFactor("S", "E"), 1.15); // 5 级差仍封顶 1.15
+  assert.strictEqual(rankFactor("A", "E"), 1.15); // 4 级差也已封顶
+  assert.strictEqual(rankFactor("D", "E"), 1.05);
+  assert.strictEqual(rankFactor("C", "E"), 1.1);
+
+  // 攻方等级更低：按差值递减（每级 -10%），硬下限 0.55
+  assert.strictEqual(rankFactor("E", "D"), 0.9);
+  assert.strictEqual(rankFactor("E", "C"), 0.8);
+  assert.strictEqual(rankFactor("E", "B"), 0.7);
+  assert.strictEqual(rankFactor("E", "A"), 0.6);
+  // 5 级差（E vs S）线性值为 0.50，低于硬下限，必须被夹到 0.55
+  assert.strictEqual(rankFactor("E", "S"), 0.55);
+  assert.ok(1 - 5 * 0.1 < 0.55, "用例前提：线性值应低于下限");
+  for (const r of RANK_ORDER) {
+    const f = rankFactor("E", r);
+    assert.ok(f >= 0.55 && f <= 1, `跨级系数越界：${f}`);
+  }
+  // 级差越大系数越低（未触底区间严格递减）
+  const lower = ["E", "D", "C", "B", "A", "S"].map((r) => rankFactor("E", r));
+  for (let i = 2; i < lower.length; i++) {
+    assert.ok(lower[i] < lower[i - 1], `级差 ${i - 1} 的系数应严格下降：${lower[i - 1]} → ${lower[i]}`);
+  }
+
+  // 未知 rank：回退 1，且不抛错
+  const weirdRanks = ["Z", "", "  ", "S+", "SS", "E级", "1", undefined, null, 5, NaN, {}, [], true];
+  for (const bad of weirdRanks) {
+    assert.strictEqual(rankIndex(bad), -1, `非法 rank ${String(bad)} 的序号应为 -1`);
+    assert.strictEqual(rankFactor(bad, "S"), 1, `未知攻方 rank ${String(bad)} 应回退 1`);
+    assert.strictEqual(rankFactor("E", bad), 1, `未知守方 rank ${String(bad)} 应回退 1`);
+    assert.strictEqual(rankFactor(bad, bad), 1);
+    assert.strictEqual(rankFactor(bad), 1, "缺省守方 rank 应回退 1");
+  }
+}
+
+// --- F034 端到端：rank 系数真的作用在 resolveTurn 的伤害上 ---
+{
+  const { rankFactor } = require("./combat");
+
+  // 同一 seed 下 RNG 抽取序列一致（rank 不消耗随机数），可直接比较单回合伤害。
+  const playerHitDamage = (playerRank, enemyRank) => {
+    const s = baseState();
+    s.player.rank = playerRank;
+    s.enemy.rank = enemyRank;
+    s.enemy.hp = s.enemy.maxHp = 5000; // 避免击杀影响后续
+    const r = resolveTurn(s, "attack", "rank-seed-1");
+    return hitEvents([r], "player").reduce((sum, e) => sum + e.value, 0);
+  };
+
+  const vsE = playerHitDamage("D", "E");
+  const vsD = playerHitDamage("D", "D");
+  const vsC = playerHitDamage("D", "C");
+  const vsS = playerHitDamage("D", "S");
+
+  assert.ok(vsD > 0, "同级对攻应造成伤害");
+  assert.ok(vsE > vsD, `攻方等级更高应伤害更高：D→E ${vsE} vs D→D ${vsD}`);
+  assert.ok(vsD > vsC, `攻方低 1 级应伤害更低：${vsD} vs ${vsC}`);
+  assert.ok(vsC > vsS, `差距更大应伤害更低：${vsC} vs ${vsS}`);
+  // 同级时绝对值 rank 不影响结果（只有级差生效）
+  assert.strictEqual(playerHitDamage("E", "E"), playerHitDamage("S", "S"));
+  // 未触底的级差下，伤害与系数同向
+  assert.ok(vsD / vsC > 1.08 && vsD / vsC < 1.15, `D/C 伤害比应接近 1/0.9，实际 ${vsD / vsC}`);
+
+  // 下限夹紧：E 打 S 仍按 0.55 结算，且伤害不小于 1
+  const floored = playerHitDamage("E", "S");
+  assert.strictEqual(rankFactor("E", "S"), 0.55);
+  assert.ok(floored >= 1, `被压制的伤害仍应 >=1，实际 ${floored}`);
+
+  // 敌方出手同样受压制：低级敌人打高级玩家伤害更低
+  const takenFrom = (enemyRank, playerRank) => {
+    const s = baseState();
+    s.player.rank = playerRank;
+    s.enemy.rank = enemyRank;
+    s.enemy.hp = s.enemy.maxHp = 5000;
+    s.player.hp = s.player.maxHp = 5000;
+    s.player.stats.agility = 999; // 玩家先手，确保敌人一定会反击
+    const r = resolveTurn(s, "attack", "rank-seed-2");
+    return hitEvents([r], "enemy").reduce((sum, e) => sum + e.value, 0);
+  };
+  const enemyLowVsHigh = takenFrom("E", "B");
+  const enemySameVsHigh = takenFrom("B", "B");
+  assert.ok(enemySameVsHigh > 0, "同级敌人应能造成伤害");
+  assert.ok(enemyLowVsHigh < enemySameVsHigh, `低阶敌人打高阶玩家应更弱：${enemyLowVsHigh} vs ${enemySameVsHigh}`);
+
+  // 确定性：同 (state, action, seed) 两次调用完全一致（含 rank 分支）
+  for (const [a, b] of [["S", "E"], ["E", "S"], ["B", "B"], ["E", "Z"]]) {
+    const s = baseState();
+    s.player.rank = a;
+    s.enemy.rank = b;
+    const x = resolveTurn(s, "attack", "rank-det");
+    const y = resolveTurn(s, "attack", "rank-det");
+    assert.deepStrictEqual(x.events, y.events, `rank ${a}/${b} 事件不确定`);
+    assert.deepStrictEqual(x.state, y.state, `rank ${a}/${b} 状态不确定`);
+    assert.strictEqual(x.narration, y.narration);
+  }
+
+  // 源码不得引入随机 / 时间依赖（确定性红线）
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const src = fs.readFileSync(path.join(__dirname, "combat.js"), "utf8");
+  assert.ok(!/Math\.random/.test(src), "combat.js 不得使用 Math.random");
+  assert.ok(!/Date\.now|new Date\(/.test(src), "combat.js 不得依赖时间");
+}
+
 console.log("OK");

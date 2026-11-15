@@ -18,6 +18,39 @@ function clamp(v, lo, hi) {
   return S.clamp(v, lo, hi);
 }
 
+// ============================================================================
+// F034 猎人等级压制系数（E..S 跨级惩罚）
+//
+//   rankIndex(rank)  E=0 D=1 C=2 B=3 A=4 S=5，未知 / 缺省 / 非字符串 -> -1
+//   rankFactor(attackerRank, defenderRank) -> 伤害系数（纯函数，永不抛错）
+//
+//   同级            1.00
+//   攻方每高 1 级   +5%，上限 1.15（S 打 E 也只到 1.15）
+//   攻方每低 1 级   -10%，硬下限 0.55（E 打 S 线性值 0.50 被夹到 0.55）
+//   任一 rank 未知   回退 1（不惩罚、不奖励）
+// ============================================================================
+const RANK_ORDER = ["E", "D", "C", "B", "A", "S"];
+const RANK_UP_STEP = 0.05;
+const RANK_UP_MAX = 1.15;
+const RANK_DOWN_STEP = 0.1;
+const RANK_DOWN_MIN = 0.55;
+
+// rank -> 序号；非法输入一律 -1，由 rankFactor 统一回退。
+function rankIndex(rank) {
+  if (typeof rank !== "string") return -1;
+  return RANK_ORDER.indexOf(rank.trim().toUpperCase());
+}
+
+function rankFactor(attackerRank, defenderRank) {
+  const a = rankIndex(attackerRank);
+  const d = rankIndex(defenderRank);
+  if (a < 0 || d < 0) return 1;
+  const diff = a - d;
+  if (diff === 0) return 1;
+  if (diff > 0) return Math.min(RANK_UP_MAX, 1 + diff * RANK_UP_STEP);
+  return Math.max(RANK_DOWN_MIN, 1 + diff * RANK_DOWN_STEP);
+}
+
 // 实体消毒：属性/HP/MP 全部夹进合法区间，NaN 与负值安全降级。
 function sanitizeEntity(entity) {
   const src = entity && typeof entity === "object" ? entity : {};
@@ -51,7 +84,10 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
     return;
   }
   const crit = rng.chance(S.critChance(attacker));
-  const multTotal = crit ? mult * S.critMultiplier(attacker) : mult;
+  // F034：等级压制系数乘进最终倍率。只用双方 rank，不消耗任何随机数，
+  // 因此不改变同 seed 下的 RNG 抽取序列，确定性保持不变。
+  const rankMul = rankFactor(attacker.rank, defender.rank);
+  const multTotal = crit ? mult * rankMul * S.critMultiplier(attacker) : mult * rankMul;
   const dmg = S.physicalDamage(attacker, def, multTotal);
   defender.hp = clamp(defender.hp - dmg, 0, defender.maxHp);
   events.push({
@@ -185,4 +221,4 @@ function resolveTurn(state, action, seed) {
   return { state: next, events, narration };
 }
 
-module.exports = { resolveTurn };
+module.exports = { resolveTurn, rankFactor, rankIndex, RANK_ORDER };
