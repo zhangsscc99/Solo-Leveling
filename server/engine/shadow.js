@@ -16,10 +16,10 @@
 //   combatProfile(shadow)                → { stats, atk, def, maxHp, initiative }（五项→战斗折算）
 //
 // F052 成长设计理由：影子是玩家军团的长期投资，数值取保守曲线 ——
-// xp 需求 base*level^1.5（前期几十经验一级、后期明显放缓），每级 strength+2、
-// 其余四项 +1，与 rank baseStats（Lv.1 初始属性）同量级，50 级封顶防止单个影子
-// 碾压主线；技能继承限制 2 槽 + 60% 概率 + 技能等级减半，保证「提取强怪仍有收益
-// 但不如原生」。
+// xp 需求 base*level^1.5（前期几十经验一级、后期明显放缓），每级合计 +4 点
+// 五项属性（玩家每级 3 自由点的同量级；影子无装备/加点，略高作补偿），
+// 50 级封顶防止单个影子碾压主线；技能继承限制 2 槽 + 60% 概率 + 技能等级减半，
+// 保证「提取强怪仍有收益但不如原生」。
 //
 // F072：成长落到全项目统一的五项属性（strength/agility/vitality/intelligence/
 // perception，即 stats.js STAT_KEYS）。战斗折算不在此重写系数，统一调 stats.js：
@@ -77,7 +77,7 @@ const DEFAULT_CONFIG = {
   growth: {
     maxLevel: 50,
     xp: { base: 100, exponent: 1.5 },
-    perLevel: { strength: 2, agility: 1, vitality: 1, intelligence: 1, perception: 1 },
+    perLevel: { strength: 1.5, agility: 1, vitality: 0.5, intelligence: 0.5, perception: 0.5 },
     baseStats: {
       E: { strength: 6, agility: 5, vitality: 6, intelligence: 3, perception: 4 },
       D: { strength: 9, agility: 8, vitality: 9, intelligence: 5, perception: 6 },
@@ -509,6 +509,23 @@ function baseStatsFor(rank, cfg) {
   return stats;
 }
 
+// 影子当前生效的五项属性：sanitizeStats 消毒后若五项缺失或全为 0
+// （含 F072 前落库的老版 {atk,def,hp} 影子），按 rank 的 baseStats 兜底
+// —— 老影子得到与同 rank 新影子一致的起点，而不是静默清零退化成 atk=1。
+// rank 未知 / 缺失回退 E 档。部分缺失（至少一项 > 0）不触发兜底，按原值消毒。
+function effectiveStats(shadow, cfg) {
+  const src = isPlainObject(shadow) && isPlainObject(shadow.stats) ? shadow.stats : {};
+  const stats = {};
+  let total = 0;
+  for (const key of STAT_KEYS) {
+    stats[key] = Math.max(0, num(src[key], 0));
+    total += stats[key];
+  }
+  if (total > 0) return stats;
+  const rank = normalizeRank(isPlainObject(shadow) ? shadow.rank : "E", cfg.rankOrder);
+  return baseStatsFor(rank, cfg);
+}
+
 // 技能按敌人原样带入（浅拷贝，不做成长/重算）。非法值一律空数组。
 function copySkills(skills) {
   if (!Array.isArray(skills)) return [];
@@ -544,10 +561,9 @@ function grantXp(shadow, xp, config) {
 
   let level = Math.min(shadowLevel(src), cfg.growth.maxLevel);
   let pool = Math.max(0, Math.floor(num(src.xp, 0))) + amount;
-  // stats 只保留五项属性：旧影子数据里的 atk/def/hp 等杂键不再携带。
-  const srcStats = isPlainObject(src.stats) ? src.stats : {};
-  const stats = {};
-  for (const key of STAT_KEYS) stats[key] = num(srcStats[key], 0);
+  // stats 只保留五项属性：旧影子数据里的 atk/def/hp 等杂键不再携带；
+  // 五项缺失/全 0 时按 rank baseStats 兜底（老影子不被静默清零）。
+  const stats = effectiveStats(src, cfg);
 
   while (level < cfg.growth.maxLevel) {
     const need = xpForLevel(level, cfg);
@@ -614,11 +630,11 @@ function inheritSkills(shadow, defeatedEnemy, rng, config) {
 //   def        = 0.8 × vitality
 //   maxHp      = 80 + 4 × level + 10 × vitality
 //   initiative = agility + 0.5 × perception
-// 纯函数；null / NaN / 负数输入经 sanitizeStats 安全降级，不抛异常。
-// config 仅为与其它接口签名一致而保留（折算系数不在 shadow.json，统一走 stats.js）。
+// 纯函数；null / NaN / 负数输入安全降级，不抛异常。
+// config 用于缺 stats 时定位 growth.baseStats（折算系数不在 shadow.json，统一走 stats.js）。
 function combatProfile(shadow, config) {
-  void config;
-  const stats = statsLib.sanitizeStats(shadow);
+  const cfg = configOr(config);
+  const stats = effectiveStats(shadow, cfg);
   const holder = { stats };
   return {
     stats,

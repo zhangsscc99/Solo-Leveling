@@ -533,3 +533,52 @@ test("rollExtraction: 成功影子携带 growth.baseStats 初始五项属性", (
     perception: 4,
   });
 });
+
+// ---------------------------------------------------------------------------
+// 老影子兜底：五项 stats 缺失 / 全 0 → 按 rank baseStats，不静默清零
+// ---------------------------------------------------------------------------
+
+test("combatProfile: 老版 {atk,def,hp} / 缺 stats 影子按 rank baseStats 兜底", () => {
+  const fresh = shadow.combatProfile({
+    rank: "E",
+    level: 1,
+    stats: { strength: 6, agility: 5, vitality: 6, intelligence: 3, perception: 4 },
+  });
+  for (const legacy of [
+    { rank: "E", level: 1, stats: { atk: 20, def: 9, hp: 160 } },
+    { rank: "E", level: 1 },
+    { rank: "E", level: 1, stats: null },
+    { rank: "E", level: 1, stats: { strength: 0, agility: 0, vitality: 0, intelligence: 0, perception: 0 } },
+  ]) {
+    assert.deepEqual(shadow.combatProfile(legacy), fresh);
+    assert.ok(shadow.combatProfile(legacy).atk > 1, "不得退化为 atk=1");
+  }
+
+  // rank 未知 / 缺失 → 回退 E 档；非 E 档用各自的 baseStats
+  const rankD = shadow.combatProfile({ rank: "D", level: 1, stats: { hp: 50 } });
+  assert.deepEqual(rankD.stats, shadow.DEFAULT_CONFIG.growth.baseStats.D);
+  assert.deepEqual(
+    shadow.combatProfile({ rank: "Z", level: 1 }).stats,
+    shadow.DEFAULT_CONFIG.growth.baseStats.E,
+  );
+});
+
+test("combatProfile: 五项部分存在（至少一项 > 0）不触发兜底", () => {
+  const p = shadow.combatProfile({ rank: "S", level: 1, stats: { strength: 3 } });
+  assert.equal(p.stats.strength, 3);
+  assert.equal(p.stats.vitality, 0, "其余缺失项按 0，不套 S 档 baseStats");
+});
+
+test("grantXp: 老影子五项缺失时从 baseStats[rank] 起点成长", () => {
+  const legacy = { rank: "E", level: 1, xp: 0, stats: { atk: 20, def: 9, hp: 160 } };
+  const res = shadow.grantXp(legacy, shadow.xpForLevel(1, GROWTH_CFG), GROWTH_CFG);
+  assert.equal(res.shadow.level, 2);
+  // baseStats.E（默认配置）+ GROWTH_CFG.perLevel × 1
+  const base = shadow.DEFAULT_CONFIG.growth.baseStats.E;
+  for (const key of statsLib.STAT_KEYS) {
+    assert.equal(res.shadow.stats[key], base[key] + GROWTH_CFG.growth.perLevel[key]);
+  }
+  for (const k of ["atk", "def", "hp"]) {
+    assert.ok(!(k in res.shadow.stats), `旧键 ${k} 不再产出`);
+  }
+});

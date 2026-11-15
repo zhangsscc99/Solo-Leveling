@@ -44,7 +44,7 @@
   "growth": {
     "maxLevel": 50,
     "xp": { "base": 100, "exponent": 1.5 },
-    "perLevel": { "strength": 2, "agility": 1, "vitality": 1, "intelligence": 1, "perception": 1 },
+    "perLevel": { "strength": 1.5, "agility": 1, "vitality": 0.5, "intelligence": 0.5, "perception": 0.5 },
     "baseStats": {
       "E": { "strength": 6,  "agility": 5,  "vitality": 6,  "intelligence": 3,  "perception": 4 },
       "D": { "strength": 9,  "agility": 8,  "vitality": 9,  "intelligence": 5,  "perception": 6 },

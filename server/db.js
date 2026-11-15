@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS shadows (
   level INTEGER NOT NULL DEFAULT 1,
   source TEXT,
   skills TEXT,
+  stats_json TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -75,6 +76,11 @@ CREATE TABLE IF NOT EXISTS quest_daily (
 const saveCols = db.prepare("PRAGMA table_info(saves)").all().map((c) => c.name);
 if (!saveCols.includes("free_points")) {
   db.exec("ALTER TABLE saves ADD COLUMN free_points INTEGER NOT NULL DEFAULT 0");
+}
+
+const shadowCols = db.prepare("PRAGMA table_info(shadows)").all().map((c) => c.name);
+if (!shadowCols.includes("stats_json")) {
+  db.exec("ALTER TABLE shadows ADD COLUMN stats_json TEXT");
 }
 
 const DEFAULT_STATS = {
@@ -109,16 +115,16 @@ const stmts = {
     ) ORDER BY id ASC
   `),
   insertShadow: db.prepare(`
-    INSERT INTO shadows (save_id, shadow_id, name, rank, level, source, skills)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO shadows (save_id, shadow_id, name, rank, level, source, skills, stats_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `),
   getShadows: db.prepare(`
-    SELECT shadow_id, name, rank, level, source, skills, created_at
+    SELECT shadow_id, name, rank, level, source, skills, stats_json, created_at
     FROM shadows WHERE save_id = ? ORDER BY id ASC
   `),
   countShadows: db.prepare(`SELECT COUNT(*) AS n FROM shadows WHERE save_id = ?`),
   getShadow: db.prepare(`
-    SELECT shadow_id, name, rank, level, source, skills, created_at
+    SELECT shadow_id, name, rank, level, source, skills, stats_json, created_at
     FROM shadows WHERE save_id = ? AND shadow_id = ?
   `),
   getDailyQuests: db.prepare(`
@@ -200,7 +206,7 @@ function getLog(saveId, limit) {
 
 function toShadow(row) {
   if (!row) return null;
-  const { skills, created_at: createdAt, shadow_id: id, ...rest } = row;
+  const { skills, stats_json, created_at: createdAt, shadow_id: id, ...rest } = row;
   let parsed = [];
   try {
     const value = JSON.parse(skills || "[]");
@@ -208,11 +214,25 @@ function toShadow(row) {
   } catch {
     parsed = [];
   }
-  return { id, ...rest, skills: parsed, createdAt };
+  // stats_json 非法 / 非对象 / 缺失 → 不挂 stats，读侧由引擎按 rank baseStats 兜底。
+  let stats;
+  try {
+    const value = JSON.parse(stats_json || "null");
+    if (value && typeof value === "object" && !Array.isArray(value)) stats = value;
+  } catch {
+    stats = undefined;
+  }
+  const shadow = { id, ...rest, skills: parsed, createdAt };
+  if (stats) shadow.stats = stats;
+  return shadow;
 }
 
 function addShadow(saveId, shadow) {
   if (!saveId || !shadow || !shadow.id) return null;
+  const statsJson =
+    shadow.stats && typeof shadow.stats === "object" && !Array.isArray(shadow.stats)
+      ? JSON.stringify(shadow.stats)
+      : null;
   stmts.insertShadow.run(
     saveId,
     shadow.id,
@@ -221,6 +241,7 @@ function addShadow(saveId, shadow) {
     Number.isFinite(Number(shadow.level)) ? Math.max(1, Math.floor(Number(shadow.level))) : 1,
     shadow.source || null,
     JSON.stringify(Array.isArray(shadow.skills) ? shadow.skills : []),
+    statsJson,
   );
   stmts.touchSave.run(saveId);
   return toShadow(stmts.getShadow.get(saveId, shadow.id));
