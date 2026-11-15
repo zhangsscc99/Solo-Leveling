@@ -6,6 +6,7 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "sim": "node scripts/sim.js",
     "build": "npm --prefix client run build"
   },
   "dependencies": {
