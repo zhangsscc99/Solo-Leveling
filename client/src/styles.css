@@ -2421,3 +2421,30 @@ button {
   font-size: var(--fs-xs);
   color: var(--faint);
 }
+
+/* ── 影子面板（F051）──────────────────────────
+   出战态只给 gate 紫徽记与淡描边，沿用 skill-row 骨架不加新色。 */
+.shadow-badge {
+  display: inline-block;
+  margin-right: var(--sp-2);
+  padding: 0 var(--sp-1);
+  border: 1px solid var(--gate);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--gate);
+}
+
+.shadow-row.shadow-on {
+  border-left-color: var(--gate);
+}
+
+.shadow-rank {
+  color: var(--gate);
+}
+
+.shadow-full {
+  margin: var(--sp-2) 0;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--dim);
+}

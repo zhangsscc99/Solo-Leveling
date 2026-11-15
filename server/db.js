@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS shadows (
   level INTEGER NOT NULL DEFAULT 1,
   source TEXT,
   skills TEXT,
+  deployed INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -75,6 +76,12 @@ CREATE TABLE IF NOT EXISTS quest_daily (
 const saveCols = db.prepare("PRAGMA table_info(saves)").all().map((c) => c.name);
 if (!saveCols.includes("free_points")) {
   db.exec("ALTER TABLE saves ADD COLUMN free_points INTEGER NOT NULL DEFAULT 0");
+}
+
+// F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
+const shadowCols = db.prepare("PRAGMA table_info(shadows)").all().map((c) => c.name);
+if (!shadowCols.includes("deployed")) {
+  db.exec("ALTER TABLE shadows ADD COLUMN deployed INTEGER NOT NULL DEFAULT 0");
 }
 
 const DEFAULT_STATS = {
@@ -113,13 +120,16 @@ const stmts = {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
   getShadows: db.prepare(`
-    SELECT shadow_id, name, rank, level, source, skills, created_at
+    SELECT shadow_id, name, rank, level, source, skills, deployed, created_at
     FROM shadows WHERE save_id = ? ORDER BY id ASC
   `),
   countShadows: db.prepare(`SELECT COUNT(*) AS n FROM shadows WHERE save_id = ?`),
   getShadow: db.prepare(`
-    SELECT shadow_id, name, rank, level, source, skills, created_at
+    SELECT shadow_id, name, rank, level, source, skills, deployed, created_at
     FROM shadows WHERE save_id = ? AND shadow_id = ?
+  `),
+  setShadowDeployed: db.prepare(`
+    UPDATE shadows SET deployed = ? WHERE save_id = ? AND shadow_id = ?
   `),
   getDailyQuests: db.prepare(`
     SELECT quest_id, progress, done FROM quest_daily
@@ -200,7 +210,7 @@ function getLog(saveId, limit) {
 
 function toShadow(row) {
   if (!row) return null;
-  const { skills, created_at: createdAt, shadow_id: id, ...rest } = row;
+  const { skills, created_at: createdAt, shadow_id: id, deployed, ...rest } = row;
   let parsed = [];
   try {
     const value = JSON.parse(skills || "[]");
@@ -208,7 +218,7 @@ function toShadow(row) {
   } catch {
     parsed = [];
   }
-  return { id, ...rest, skills: parsed, createdAt };
+  return { id, ...rest, skills: parsed, deployed: !!Number(deployed), createdAt };
 }
 
 function addShadow(saveId, shadow) {
@@ -233,6 +243,18 @@ function getShadows(saveId) {
 function countShadows(saveId) {
   const row = stmts.countShadows.get(saveId);
   return row ? Number(row.n) || 0 : 0;
+}
+
+function getShadow(saveId, shadowId) {
+  return toShadow(stmts.getShadow.get(saveId, shadowId));
+}
+
+// deployed 只允许 0/1；返回更新后的行，影子不存在时返回 null。
+function setShadowDeployed(saveId, shadowId, deployed) {
+  const info = stmts.setShadowDeployed.run(deployed ? 1 : 0, saveId, shadowId);
+  if (!info.changes) return null;
+  stmts.touchSave.run(saveId);
+  return getShadow(saveId, shadowId);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +283,9 @@ module.exports = {
   updateSave,
   addShadow,
   getShadows,
+  getShadow,
   countShadows,
+  setShadowDeployed,
   getDailyQuests,
   setDailyQuest,
 };
