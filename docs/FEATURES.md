@@ -15,7 +15,7 @@
 
 - [x] F001 状态栏组件：姓名/等级/猎人等级/章节 + HP/MP 进度条 + 五项属性 + 金币，数据取自 `/game/api/saves/:id` ✅ (2026-11-15 opencode)
 - [x] F002 操作按钮组骨架：行动组（探索前进/环顾四周/潜行/休息）、系统组（背包/技能/属性/地图/任务/存档），点击调用 `/game/api/action` ✅ (2026-11-15 opencode)
-- [ ] F003 `POST /game/api/action` 通用动作端点（白名单校验 + 写 log + 返回叙述与状态增量）
+- [x] F003 `POST /game/api/action` 通用动作端点（白名单校验 + 写 log + 返回叙述与状态增量） ✅ (2026-11-15 opencode)
 - [ ] F004 背包面板：分类标签（武器/防具/消耗品/材料）、稀有度配色、使用/装备/丢弃按钮
 - [ ] F005 技能面板：已学技能列表、MP 消耗、冷却态灰显、点击释放
 - [ ] F006 属性面板：五项属性、剩余自由属性点、加点按钮、经验条显示到下一级
@@ -71,6 +71,6 @@
 
 ## 运维
 
-- [ ] F080 `scripts/ci-deploy.sh` 部署闸门（build → smoke → restart → 复检）
-- [ ] F081 `scripts/rollback.sh` 失败回滚
-- [ ] F082 部署锁 `.deploy.lock` 防并发部署
+- [x] F080 `scripts/ci-deploy.sh` 部署闸门（build → smoke → restart → 复检） ✅ (2026-11-15 devin)
+- [x] F081 `scripts/rollback.sh` 失败回滚 ✅ (2026-11-15 devin)
+- [x] F082 部署锁 `.deploy.lock` 防并发部署 ✅ (2026-11-15 devin)

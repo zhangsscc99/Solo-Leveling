@@ -18,3 +18,6 @@
 - [ ] 系统播报的蓝色「窗口」动效（出现/关闭）
 - [ ] 升级瞬间的全屏提示（等级 +1、属性点 +3）
 - [ ] 稀有度掉落的颜色闪烁
+- [ ] 统一 pm2 `solo-leveling` 的 node 运行时（better-sqlite3 是 ABI 137 / node 24 产物），把 `scripts/ci-deploy.sh` 里的 node-runtime 探测抽成 `scripts/lib/node-runtime.sh` 复用，彻底消除「从 node20 PATH 重启 → ERR_DLOPEN_FAILED → 重启循环」的风险
+- [ ] 短视口兜底：视口高度 < 480px 时 `.stage` 会被压到 48px 高（叙述几乎不可读），给主舞台设 `min-height` 并让操作区可折叠
+
