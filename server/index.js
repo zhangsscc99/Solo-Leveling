@@ -1429,10 +1429,23 @@ function peacefulCombatIntent(save, input, action) {
   if (action === "flee") {
     const scene = chaptersEngine.currentScene(save);
     if (scene && scene.escape_locked === true) {
+      // F139：escape_locked 是场景静态字段，封门是否成立要看本章守关者
+      // 是否还活着（bossRequirementMet——与章节门/主线奖励同一口径）。
+      // 已清 → 退路重开：诚实指路「前进」，不替玩家推进、不掷遭遇；
+      // 未清 → 封门拒绝照旧，但出路只写真存在的一条（机制上没有
+      // 「撑到副本终结」的计时/存活计数），并点名真实动作词。
+      const chapter = chaptersEngine.getChapter(save.chapter);
+      if (chapter && bossRequirementMet(save, chapter)) {
+        return {
+          patch: null,
+          content: "【系统】守关者已经倒下，退路重新打开——按「前进」离开副本。",
+          events: [],
+        };
+      }
       return {
         patch: null,
         content:
-          "【系统】退路已被封死——你无法撤离。只有击败守关者，或撑到副本终结，才能离开这里。",
+          "【系统】退路已被封死——你无法撤离。说「前进」挑战守关者，打倒他才能离开；说「叫阵」也行。",
         events: [],
         refused: true,
         escape_locked: true,
