@@ -370,7 +370,10 @@ export default function CombatPanel({
                 <li key={s.id} className="combat-sub-row">
                   <span className="combat-sub-name">{s.name}</span>
                   <span className="combat-sub-meta">
-                    MP {s.mp_cost} · 威力 {s.power}
+                    MP {s.mp_cost}
+                    {s.damage_preview
+                      ? ` · 预计伤害 ${s.damage_preview.min}–${s.damage_preview.max}`
+                      : ""}
                   </span>
                   <button
                     className="combat-sub-btn"

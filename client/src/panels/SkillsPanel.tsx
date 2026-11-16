@@ -135,7 +135,11 @@ export default function SkillsPanel({
               <div className="skill-meta">
                 <span className="skill-cost">MP {skill.mp_cost}</span>
                 <span className="skill-cd">冷却 {skill.cooldown} 回合</span>
-                <span className="skill-power">威力 {skill.power}</span>
+                {skill.damage_preview && (
+                  <span className="skill-dmg">
+                    预计伤害 {skill.damage_preview.min}–{skill.damage_preview.max}
+                  </span>
+                )}
               </div>
               <p className="skill-desc">{skill.desc}</p>
               <div className="skill-acts">

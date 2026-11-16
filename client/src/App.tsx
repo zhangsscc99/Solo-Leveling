@@ -932,12 +932,22 @@ export default function App() {
                       className="bar-skill"
                       disabled={disabled}
                       aria-disabled={disabled}
-                      title={reason ?? `${s.desc}`}
+                      title={
+                        reason ??
+                        `${s.desc}${
+                          s.damage_preview
+                            ? ` · 预计伤害 ${s.damage_preview.min}–${s.damage_preview.max}`
+                            : ""
+                        }`
+                      }
                       onClick={() => dispatch(`释放技能 ${s.name}`)}
                     >
                       <span className="bar-skill-name">{s.name}</span>
                       <span className="bar-skill-meta">
                         MP {s.mp_cost} · 冷却 {s.cooldown}
+                        {s.damage_preview
+                          ? ` · 预计伤害 ${s.damage_preview.min}–${s.damage_preview.max}`
+                          : ""}
                       </span>
                       {reason && <span className="bar-skill-reason">{reason}</span>}
                     </button>

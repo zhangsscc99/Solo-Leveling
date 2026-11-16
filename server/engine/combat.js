@@ -51,6 +51,51 @@ function rankFactor(attackerRank, defenderRank) {
   return Math.max(RANK_DOWN_MIN, 1 + diff * RANK_DOWN_STEP);
 }
 
+// ============================================================================
+// F111 伤害单一事实源：战斗结算（strike）与技能面板的预计区间
+// （damageRange）共用同一条 computeDamage——力量基数、暴击倍率、rank
+// 压制、目标减伤、最小 1 点全部只在这一处定义，面板与回包数字同源。
+//
+//   computeDamage(attacker, def, { mult, crit, defenderRank }) -> 伤害值
+//   skillMultOf(skill, fallbackEntity) -> 技能倍率（power/10，下限 0.5）
+//   damageRange(attacker, skill, targets) -> { min, max }
+// ============================================================================
+function computeDamage(attacker, defenderDef, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const mult = S.num(o.mult) > 0 ? S.num(o.mult) : 1;
+  const rankMul = rankFactor(attacker && attacker.rank, o.defenderRank);
+  const multTotal = o.crit ? mult * rankMul * S.critMultiplier(attacker) : mult * rankMul;
+  return S.physicalDamage(attacker, defenderDef, multTotal);
+}
+
+// 技能倍率：power/10、下限 0.5；power 缺失/为 0 时退回智力系数——
+// 与 resolveTurn 的 skillUse 分支严格同一口径。
+function skillMultOf(skill, fallbackEntity) {
+  const raw = S.num(skill && skill.power) / 10;
+  return Math.max(0.5, raw || S.skillMultiplier(fallbackEntity));
+}
+
+// 面板「预计伤害」的唯一算法：对每个可遭遇目标各算一遍不暴击/暴击
+// 伤害（与 strike 同一条 computeDamage），min 取不暴击最低值、max 取
+// 暴击最高值——天然覆盖实战落点（含 rank 压制与目标减伤差异）。
+// targets 为空时退化为零防木桩，保证返回有限正整数区间。
+function damageRange(attacker, skill, targets) {
+  const mult = skillMultOf(skill, attacker);
+  const list = Array.isArray(targets) && targets.length ? targets : [null];
+  let min = Infinity;
+  let max = -Infinity;
+  for (const t of list) {
+    const isEnt = t && typeof t === "object";
+    const def = isEnt ? S.defenseFor(t) : 0;
+    const opts = { mult, defenderRank: isEnt ? t.rank : undefined };
+    const lo = computeDamage(attacker, def, { ...opts, crit: false });
+    const hi = computeDamage(attacker, def, { ...opts, crit: true });
+    if (lo < min) min = lo;
+    if (hi > max) max = hi;
+  }
+  return { min, max };
+}
+
 // 实体消毒：属性/HP/MP 全部夹进合法区间，NaN 与负值安全降级。
 function sanitizeEntity(entity) {
   const src = entity && typeof entity === "object" ? entity : {};
@@ -84,11 +129,9 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
     return;
   }
   const crit = rng.chance(S.critChance(attacker));
-  // F034：等级压制系数乘进最终倍率。只用双方 rank，不消耗任何随机数，
-  // 因此不改变同 seed 下的 RNG 抽取序列，确定性保持不变。
-  const rankMul = rankFactor(attacker.rank, defender.rank);
-  const multTotal = crit ? mult * rankMul * S.critMultiplier(attacker) : mult * rankMul;
-  const dmg = S.physicalDamage(attacker, def, multTotal);
+  // F034：等级压制系数乘进最终倍率（computeDamage 内部合成，只用双方
+  // rank，不消耗任何随机数——同 seed 下的 RNG 抽取序列不变）。
+  const dmg = computeDamage(attacker, def, { mult, crit, defenderRank: defender.rank });
   defender.hp = clamp(defender.hp - dmg, 0, defender.maxHp);
   events.push({
     type: crit ? "crit" : "hit",
@@ -131,7 +174,7 @@ function resolveTurn(state, action, seed, opts) {
     ? Math.max(1, Math.trunc(S.num(skillUse.mp_cost) || 1))
     : S.skillCost(player, SKILL_COST);
   const skillMult = skillUse
-    ? Math.max(0.5, S.num(skillUse.power) / 10 || S.skillMultiplier(player))
+    ? skillMultOf(skillUse, player)
     : S.skillMultiplier(player);
   const skillLabel = skillUse && typeof skillUse.name === "string" && skillUse.name
     ? `「${skillUse.name}」`
@@ -249,4 +292,12 @@ function resolveTurn(state, action, seed, opts) {
   return { state: next, events, narration };
 }
 
-module.exports = { resolveTurn, rankFactor, rankIndex, RANK_ORDER };
+module.exports = {
+  resolveTurn,
+  rankFactor,
+  rankIndex,
+  RANK_ORDER,
+  computeDamage,
+  skillMultOf,
+  damageRange,
+};
