@@ -23,7 +23,11 @@
 //      守关战必打（fightBoss）——击杀后才具备过门资格。
 //   4) 链尾再推：ch1 守关者已击杀 → 过门进第 2 章：chapter_total = ch2
 //      主线链长；Lv 软门显性化——播报含「等级未达 Lv.5」与压制提示，
-//      save.chapter_unlock = {level:5, chapter:1, level_ok:false, hint:"需 Lv.5"}。
+//      save.chapter_unlock 带 {level:5, chapter:1, level_ok:false}。
+//      F116 口径：软门放行不再以「能进门就是绿」收尾——过门前先断
+//      /api/chapters 的 unlock.state === "soft"（地图不得写「锁定」）、
+//      blocked_reasons 只含未达前置（已通关的前置章不得复列）、hint
+//      由服务端下发并含「可强行进入」诚实表述。
 //   5) 双源一致：/saves/:id 的 chapter_steps / chapter_total 与
 //      /saves/:id/quests 当前主线项 progress.current / target 逐位相同。
 //   6) 合法推进到第 3 章：ch2 守关者（链尾毒牙蛇）真实击杀后过门，
@@ -210,8 +214,9 @@ async function observeFree(tag) {
 
 // ── 2) 观察负向（两处场景）─────────────────────────────────────
 await observeFree("observe@ch1_double_gate"); // choice[observe] label 含「观察」
+// F124 口径：新档建档即站在链首（不再是首推自愈落点）——一推即落
+// ch1_law（旧版会误传送到 ch1_watch 的场景）。
 await advance(id);
-await advance(id); // 落在 ch1_law（旧版会误传送到 ch1_watch 的场景）
 await observeFree("observe@ch1_law"); // choice[watch] label 含「观察」
 
 // ── 3) 走满 ch1 主线链到链尾：守关战在途中被真实击杀 ────────────
@@ -247,9 +252,38 @@ assert(tailReply, `never reached ch1 tail, stuck at ${(await fetchSaveView(id)).
 }
 
 // ── 4) 链尾再推：守关者已击杀 → 过门进第 2 章，软门显性化 ───────
+// F116：过门前先断地图口径——level_ok:false 的软门在 /api/chapters 里
+// 必须是 "soft"（不得写「锁定」），blocked_reasons 只列未达前置。
 {
   const { save: s0 } = await fetchSaveView(id);
   if (s0.combat) await clearCombat(id);
+  const mapRes = await get(`/chapters?save_id=${id}`);
+  assert(mapRes.status === 200, `GET chapters for gate view failed (HTTP ${mapRes.status})`);
+  const ch2Gate = mapRes.body.chapters.find((c) => c.index === 2);
+  assert(ch2Gate && ch2Gate.unlock, "ch2 gate view missing from /chapters");
+  assert(
+    ch2Gate.unlock.state === "soft",
+    `ch2 soft gate must report state "soft" (map must not say 锁定), got ${ch2Gate.unlock.state}`
+  );
+  assert(
+    ch2Gate.unlock.level_ok === false && ch2Gate.unlock.chapter_ok === true,
+    `ch2 gate legs should be level_ok=false chapter_ok=true: ${JSON.stringify(ch2Gate.unlock)}`
+  );
+  assert(
+    typeof ch2Gate.unlock.hint === "string" && !ch2Gate.unlock.hint.includes("锁定"),
+    `soft gate hint must not say 锁定: ${ch2Gate.unlock.hint}`
+  );
+  assert(
+    /可强行进入|推荐/.test(ch2Gate.unlock.hint),
+    `soft gate hint must honestly say 可强行进入/推荐: ${ch2Gate.unlock.hint}`
+  );
+  const reasons2 = ch2Gate.unlock.blocked_reasons || [];
+  assert(
+    reasons2.some((r) => r.includes(`Lv.${ch2Unlock.level}`)) &&
+      !reasons2.some((r) => /完成第\d+章主线/.test(r)),
+    `ch2 blocked_reasons must name only the unmet level leg: ${JSON.stringify(reasons2)}`
+  );
+
   const { reply, save: s } = await advance(id);
   assert(s.chapter === 2, `after gate push chapter should be 2, got ${s.chapter}`);
   assert(s.chapter_total === CH2_LEN, `chapter_total should be ch2 chain ${CH2_LEN}, got ${s.chapter_total}`);
@@ -275,7 +309,33 @@ assert(tailReply, `never reached ch1 tail, stuck at ${(await fetchSaveView(id)).
   assert(cu.level === ch2Unlock.level, `chapter_unlock.level should be ${ch2Unlock.level}, got ${cu.level}`);
   assert(cu.chapter === ch2Unlock.chapter, `chapter_unlock.chapter should be ${ch2Unlock.chapter}, got ${cu.chapter}`);
   assert(cu.level_ok === false, `below-gate save must expose level_ok === false, got ${cu.level_ok}`);
-  assert(cu.hint === `需 Lv.${ch2Unlock.level}`, `chapter_unlock.hint should be 需 Lv.${ch2Unlock.level}, got ${cu.hint}`);
+  // F116：chapter_unlock 与 /api/chapters 同一事实源——软门三态 +
+  // 服务端文案 + 未达前置（已满足的 chapter 腿不得复列）。
+  assert(cu.state === "soft", `chapter_unlock.state should be "soft", got ${cu.state}`);
+  assert(
+    typeof cu.hint === "string" && !cu.hint.includes("锁定") && /可强行进入|推荐/.test(cu.hint),
+    `chapter_unlock.hint must be honest soft-gate text (no 锁定): ${cu.hint}`
+  );
+  const cuReasons = cu.blocked_reasons || [];
+  assert(
+    cuReasons.some((r) => r.includes(`Lv.${ch2Unlock.level}`)) &&
+      !cuReasons.some((r) => /完成第\d+章主线/.test(r)),
+    `chapter_unlock.blocked_reasons must name only the unmet leg: ${JSON.stringify(cuReasons)}`
+  );
+  // 地图口径跨章复核：站在 ch2 里，ch3 的前置章腿已满足 → 同样 soft，
+  // blocked_reasons 不得复列「完成第2章主线」。
+  const mapAfter = await get(`/chapters?save_id=${id}`);
+  const ch3Gate = (mapAfter.body.chapters || []).find((c) => c.index === 3);
+  assert(
+    ch3Gate && ch3Gate.unlock && ch3Gate.unlock.state === "soft",
+    `ch3 gate from inside ch2 should be soft, got ${ch3Gate && ch3Gate.unlock && ch3Gate.unlock.state}`
+  );
+  const reasons3 = ch3Gate.unlock.blocked_reasons || [];
+  assert(
+    !reasons3.some((r) => r.includes(`第${ch3Unlock.chapter}章`)) &&
+      reasons3.some((r) => r.includes(`Lv.${ch3Unlock.level}`)),
+    `ch3 blocked_reasons must drop the satisfied chapter leg: ${JSON.stringify(reasons3)}`
+  );
   await dualSource("ch2-enter");
 }
 

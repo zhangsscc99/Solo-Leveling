@@ -2964,3 +2964,66 @@ button {
   color: var(--system);
   text-shadow: 0 0 8px var(--system-dim);
 }
+
+/* ── F116 解锁门三态（追加）──────────────────────
+   软门（soft）：OR 判定放行但仍有未达前置——文字用 --tick 弱色提示
+   「可强行进入」，不再染 --gate 的锁定紫；真锁（locked）与已开（open）
+   各自走既有锁定色/系统色刻度。 */
+.map-soft .map-name,
+.map-soft .map-ch {
+  color: var(--dim);
+}
+
+.map-soft .map-state {
+  color: var(--tick);
+}
+
+.map-soft .map-caret {
+  border-left-color: var(--tick);
+}
+
+.map-soft .map-meta,
+.map-soft .map-req {
+  color: var(--tick);
+}
+
+.map-openable .map-state {
+  color: var(--system);
+  opacity: 0.75;
+}
+
+.map-openable .map-caret {
+  border-left-color: var(--system-dim);
+}
+
+/* F117 章尾入口：主按钮换标「进入第N章 · 章名」文案变长——全局
+   强制单行不折行，避免长标撑高底部操作区（F119 正在修的高度预算
+   不能因新文案回退）。 */
+.btn-group .btn {
+  white-space: nowrap;
+}
+
+/* F117 章尾 CTA 窄屏排版（追加）：390px 栅格单键 ~66px 放不下
+   「进入第N章 · 章名」整句——窄屏下在按钮内两行展示（章号一行、
+   章名一行并缩小字号），按钮仍保持 44px 触控高度：不裁字、
+   不溢出、不撑高底部操作区。 */
+@media (max-width: 480px) {
+  .btn-group .btn.cta-next {
+    padding: 0 2px;
+    white-space: normal;
+  }
+  .btn .btn-cta {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.15;
+    font-size: var(--fs-xs);
+  }
+  .btn .btn-cta-sep {
+    display: none;
+  }
+  .btn .btn-cta-title {
+    font-size: 10px;
+    color: var(--tick);
+  }
+}

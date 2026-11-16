@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChapterView, Save } from "../api";
+import { ChapterView, ChapterGateState, Save } from "../api";
 
 /* ────────────────────────────────────────────────
    地图面板（F090）：8 个章节节点都是 <button>，
@@ -7,8 +7,11 @@ import { ChapterView, Save } from "../api";
    点击展开/收起该章详情（标题/副标题/简介/景数），
    只读回看——不写存档、不允许跳章。
    三态与进度全部由 GET /chapters 服务端结算：
-   cleared（已通关）/ current（当前）/ locked（锁定）。
-   锁定节点行内与详情都写出前置条件，不留「未解锁」孤文。
+   cleared（已通关）/ current（当前）/ locked（未到章）。
+   F116：未到章的「门态」也由服务端 unlockView 下发——
+   locked（真锁）写「锁定」、soft（软门放行）写「可强行进入」、
+   open（门槛已满足）写「已解锁」；前置条件一律渲染服务端
+   unlock.hint，本文件不再自拼「需 Lv.X / 需完成第X章主线」。
 ──────────────────────────────────────────────── */
 
 const STATE_LABEL: Record<ChapterView["state"], string> = {
@@ -17,19 +20,40 @@ const STATE_LABEL: Record<ChapterView["state"], string> = {
   locked: "锁定",
 };
 
-// 状态 → 修饰类：map-now / map-locked 沿用既有样式与 E2E 断言口径。
+// 状态 → 修饰类：map-now / map-cleared 沿用既有样式与 E2E 断言口径。
 const STATE_CLASS: Record<ChapterView["state"], string> = {
   cleared: "map-cleared",
   current: "map-now",
   locked: "map-locked",
 };
 
-// 锁定前置条件：unlock.chapter（需完成的前置章主线）+ unlock.level（等级门）。
-function lockReason(ch: ChapterView): string {
-  const parts: string[] = [];
-  if (ch.unlock.chapter !== null) parts.push(`需完成第${ch.unlock.chapter}章主线`);
-  if (ch.unlock.level !== null) parts.push(`需 Lv.${ch.unlock.level}`);
-  return parts.length ? parts.join(" · ") : "需先推进前置章节";
+// F116 门态 → 展示：软门必须诚实写「可强行进入」，不得再挂「锁定」；
+// open 写「已解锁」。门态缺失（接口未带 save）时按旧口径回退「锁定」。
+const GATE_LABEL: Record<ChapterGateState, string> = {
+  locked: "锁定",
+  soft: "可强行进入",
+  open: "已解锁",
+};
+
+const GATE_CLASS: Record<ChapterGateState, string> = {
+  locked: "map-locked",
+  soft: "map-soft",
+  open: "map-openable",
+};
+
+function gateState(ch: ChapterView): ChapterGateState {
+  return ch.unlock && ch.unlock.state ? ch.unlock.state : "locked";
+}
+
+// 未到章的门禁文案：hint 是服务端写好的整句（locked = 未达前置串，
+// soft = 「推荐 X · 可强行进入（受压制）」）；hint 缺失时退回
+// blocked_reasons 串——都是服务端字段，前端不拼数值。门槛已满足
+// （open）时两者皆空，返回 null 不再画前置行。
+function gateHint(ch: ChapterView): string | null {
+  if (ch.unlock.hint) return ch.unlock.hint;
+  const reasons = ch.unlock.blocked_reasons;
+  if (Array.isArray(reasons) && reasons.length) return reasons.join(" · ");
+  return null;
 }
 
 function metaLine(ch: ChapterView, save: Save): string {
@@ -40,7 +64,7 @@ function metaLine(ch: ChapterView, save: Save): string {
     const at = save.scene_title ? ` · 「${save.scene_title}」` : "";
     return `进行中 · 主线 ${ch.progress.current}/${ch.progress.target}${at}`;
   }
-  return lockReason(ch);
+  return gateHint(ch) ?? GATE_LABEL[gateState(ch)];
 }
 
 export default function MapPanel({
@@ -70,8 +94,13 @@ export default function MapPanel({
     <ol className="map-list">
       {data.map((ch) => {
         const open = openIndex === ch.index;
+        const gated = ch.state === "locked";
+        const gate = gateState(ch);
+        const hint = gated ? gateHint(ch) : null;
+        const nodeClass = gated ? GATE_CLASS[gate] : STATE_CLASS[ch.state];
+        const stateText = gated ? GATE_LABEL[gate] : STATE_LABEL[ch.state];
         return (
-          <li key={ch.id} className={`map-node ${STATE_CLASS[ch.state]}${open ? " map-open" : ""}`}>
+          <li key={ch.id} className={`map-node ${nodeClass}${open ? " map-open" : ""}`}>
             <button
               type="button"
               className="map-btn"
@@ -82,9 +111,9 @@ export default function MapPanel({
               <span className="map-ch">Ch.{ch.index}</span>
               <span className="map-name">
                 {ch.title}
-                {ch.state === "locked" && <i className="map-req">{lockReason(ch)}</i>}
+                {hint && <i className="map-req">{hint}</i>}
               </span>
-              <span className="map-state">{STATE_LABEL[ch.state]}</span>
+              <span className="map-state">{stateText}</span>
               <span className="map-caret" aria-hidden="true" />
             </button>
             {open && (

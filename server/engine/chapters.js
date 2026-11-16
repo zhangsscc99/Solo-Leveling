@@ -452,6 +452,41 @@ function unlockedFor(save, chapter) {
   return { ok, level: levelReq, chapter: chapterReq, level_ok: levelOk, chapter_ok: chapterOk };
 }
 
+// F116 解锁门视图：判定仍走 unlockedFor（F093 软门口径与数值一律不动），
+// 本函数只把判定翻译成展示态 —— state（locked/soft/open）+
+// blocked_reasons（仅列尚未满足的前置，已满足的条件不出现）+
+// hint（服务端写好的诚实文案）。/api/chapters 与 saveView.chapter_unlock
+// 共用此出口，前端不再自拼「需 Lv.X / 需完成第X章主线」，软门期间地图
+// 也不许再写「锁定」。
+function unlockView(save, chapter) {
+  const gate = unlockedFor(save, chapter);
+  const blockedReasons = [];
+  if (gate.chapter !== null && !gate.chapter_ok) {
+    blockedReasons.push(`需完成第${gate.chapter}章主线`);
+  }
+  if (gate.level !== null && !gate.level_ok) {
+    blockedReasons.push(`需 Lv.${gate.level}`);
+  }
+  let state;
+  let hint;
+  if (!gate.ok) {
+    state = "locked";
+    hint = blockedReasons.join(" · ") || null;
+  } else if (blockedReasons.length === 0) {
+    state = "open";
+    hint = null;
+  } else {
+    // 软门：OR 判定放行但仍有未达前置 —— 诚实写「推荐 X · 可强行进入」，
+    // 不出现「锁定」措辞。
+    state = "soft";
+    const softReqs = [];
+    if (gate.chapter !== null && !gate.chapter_ok) softReqs.push(`完成第${gate.chapter}章主线`);
+    if (gate.level !== null && !gate.level_ok) softReqs.push(`Lv.${gate.level}`);
+    hint = `推荐 ${softReqs.join("、")} · 可强行进入（受压制）`;
+  }
+  return { ...gate, state, blocked_reasons: blockedReasons, hint };
+}
+
 module.exports = {
   DATA_PATH,
   VALID_KINDS,
@@ -472,4 +507,5 @@ module.exports = {
   chapterPath,
   pathIndexOf,
   unlockedFor,
+  unlockView,
 };

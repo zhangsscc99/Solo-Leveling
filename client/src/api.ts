@@ -28,11 +28,27 @@ export interface CombatState {
   started_at: string | null;
 }
 
+// F116 解锁门三态：服务端 chaptersEngine.unlockView 统一下发，
+// 前端只渲染 state/blocked_reasons/hint，不再自拼门槛文案。
+export type ChapterGateState = "locked" | "soft" | "open";
+
 export interface ChapterUnlockView {
   level: number | null;
   chapter: number | null;
-  level_ok: boolean;
+  level_ok?: boolean;
+  chapter_ok?: boolean;
+  state?: ChapterGateState | null;
+  blocked_reasons?: string[];
   hint: string | null;
+}
+
+// F117 章尾入口：advance_mode === "next_chapter" 时主按钮按此换标
+// 「进入第N章 · 章名」——章号/章名由服务端数据下发，不写死。
+export interface NextChapterView {
+  index: number;
+  id: string;
+  title: string;
+  subtitle: string;
 }
 
 export interface SceneChoice {
@@ -76,7 +92,9 @@ export interface Save {
   // 推进。F121：人已站在守关房内且无交战时下发 "challenge_boss"——
   // 主按钮换标「叫阵守关者」、点击发起「攻击」就地开战。
   // 服务端按主线链位置下发，前端只按字段换标。
-  advance_mode: "advance" | "retreat_to_boss" | "challenge_boss";
+  // F117："next_chapter" = 人已站在已击杀守关者的主线链尾——主按钮换标
+  // 「进入第N章 · 章名」，点击过门穿章（零消耗、不掷遭遇、不计步）。
+  advance_mode: "advance" | "retreat_to_boss" | "challenge_boss" | "next_chapter";
   // F074 场景运行时字段（saveView 派生，服务端结算）：
   // 当前场景 + 本章主线进度 steps/total + 本章 unlock 软门判定。
   scene: string | null;
@@ -87,6 +105,7 @@ export interface Save {
   chapter_progress: string;
   chapter_completed: boolean;
   chapter_unlock: ChapterUnlockView | null;
+  next_chapter: NextChapterView | null;
   next_choices: SceneChoice[];
   // F081：技能可释放性视图（目录字段 + unlocked/cooldown_remaining/
   // mp_enough/engaged/can_cast/reason），服务端随存档下发，前端只渲染。
@@ -272,7 +291,9 @@ export interface ChapterView {
   title: string;
   subtitle: string;
   summary: string;
-  unlock: { level: number | null; chapter: number | null };
+  // F116：unlock 携带服务端门态（state/blocked_reasons/hint），
+  // 地图面板按字段渲染——软门写「可强行进入」，不再自拼「需 Lv.X」。
+  unlock: ChapterUnlockView;
   scene_count: number;
   main_total: number;
   state: ChapterState;

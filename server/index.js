@@ -55,6 +55,7 @@ function sceneView(save) {
     chapter_progress: "0/0",
     chapter_completed: false,
     chapter_unlock: null,
+    next_chapter: null,
     next_choices: [],
   };
   if (!chapter || !scene) return base;
@@ -64,7 +65,9 @@ function sceneView(save) {
   // （站位 + 1；站位不在链上记 0）——不再叠加 main_steps 高水位，
   // 位置与进度是一本账：回溯退几幕，计数就退几幕。
   const steps = Math.min(total, Math.max(0, idx + 1));
-  const gate = chaptersEngine.unlockedFor(save, chapter);
+  // F117 章尾入口数据：下一章的章号/章名随存档下发，主按钮
+  // 「进入第N章 · 章名」按字段渲染——章名取自数据，前端不写死。
+  const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
   return {
     scene: scene.id,
     scene_title: scene.title,
@@ -73,12 +76,17 @@ function sceneView(save) {
     chapter_total: total,
     chapter_progress: `${steps}/${total}`,
     chapter_completed: total > 0 && steps >= total,
-    chapter_unlock: {
-      level: gate.level,
-      chapter: gate.chapter,
-      level_ok: gate.level_ok,
-      hint: gate.level === null ? null : `需 Lv.${gate.level}`,
-    },
+    // F116 单一事实源：软门三态（locked/soft/open）+ 未达前置 +
+    // 服务端文案与 /api/chapters 同出自 chaptersEngine.unlockView。
+    chapter_unlock: chaptersEngine.unlockView(save, chapter),
+    next_chapter: nextChapter
+      ? {
+          index: nextChapter.index,
+          id: nextChapter.id,
+          title: nextChapter.title,
+          subtitle: nextChapter.subtitle,
+        }
+      : null,
     next_choices: (Array.isArray(scene.choices) ? scene.choices : [])
       .slice(0, 3)
       .map((c) => ({ id: c.id, label: c.label })),
@@ -155,6 +163,16 @@ function advanceMode(save) {
   if (idxBoss >= 0 && idx >= idxBoss && !bossCleared(save, chapter.id)) {
     if (idx === idxBoss && !store.getCombat(save.id)) return "challenge_boss";
     return "retreat_to_boss";
+  }
+  // F117：站在主线链尾（chapter_completed）且守关者已击杀时，主按钮的
+  // 真实语义是「进入下一章」——过门零消耗、不掷遭遇、不计步。章号/章名
+  // 经 save.next_chapter 下发，前端按字段换标，不自行推断完成态。
+  if (
+    idx >= 0 &&
+    idx === path.length - 1 &&
+    chaptersEngine.getChapter(chapter.index + 1)
+  ) {
+    return "next_chapter";
   }
   return "advance";
 }
@@ -422,7 +440,7 @@ function chapterBossName(chapter) {
 // 正文显性写「本次没有消耗体力」，并挂 refused 标记让路由短路：
 // 用户输入与播报都不进日志、不产 advance 事件（账本不写没发生的事）。
 // 否则章尾连点「前进」会把玩家原地耗死——门锁了还扣血是死路。
-function chapterGate(save, chapter, nextChapter, vit) {
+function chapterGate(save, chapter, nextChapter) {
   const gate = chaptersEngine.unlockedFor(save, nextChapter);
   if (!gate.ok) {
     const need =
@@ -452,11 +470,15 @@ function chapterGate(save, chapter, nextChapter, vit) {
     gate.level_ok === false && gate.level !== null
       ? `（等级未达 Lv.${gate.level}，系统压制了传送门——继续任务/战斗提升等级）`
       : "";
+  // F117：过门是章节切换不是一次「前进」——零消耗（patch 不写 HP/MP）、
+  // scripted 标记让 advanceWithEncounter 跳过遭遇判定与 advance 事件，
+  // 落点 = 下一章主线链首（下一幕才重新开始计步与掷怪）。
   return {
-    patch: { ...vit.patch, scene: first.id, chapter: nextChapter.index },
+    patch: { scene: first.id, chapter: nextChapter.index },
+    scripted: true,
     content:
       `【主线】第${nextChapter.index}章「${nextChapter.title}」开启${suppressed}。\n` +
-      `${first.text}\n${vit.note}`,
+      `${first.text}\n（本次没有消耗体力）`,
   };
 }
 
@@ -476,10 +498,14 @@ function advanceOutcome(save) {
 
   // 自愈落点：save.scene 为空、悬空、错章或落在主线链之外（支线场景，
   // 支线只能通过 choice 进入、不占主线步序）→ 一律落到主线链首场景。
+  // F124：这是异常路径自愈，不是真实推进——scripted 零消耗、不掷遭遇、
+  // 不产 advance 事件（账本不写没发生的步数；新档建档即写入链首，
+  // 正常玩家不会走到这里）。
   if (idx < 0) {
     return {
-      patch: { ...vit.patch, scene: path[0].id },
-      content: `${path[0].text}\n${vit.note}`,
+      patch: { scene: path[0].id },
+      scripted: true,
+      content: `${path[0].text}\n（本次没有消耗体力）`,
     };
   }
 
@@ -532,7 +558,21 @@ function advanceOutcome(save) {
     if (!nextChapter) {
       return { patch: null, refused: true, content: EPILOGUE_REFUSAL };
     }
-    return chapterGate(save, chapter, nextChapter, vit);
+    return chapterGate(save, chapter, nextChapter);
+  }
+
+  // F124 章首铺陈步：人站在本章主线链首（建档落点 / 过门落点 / 死亡
+  // 回溯落点）时，「前进」是踏入本章的第一幕剧情推进——零消耗、不掷
+  // 遭遇、不产 advance 事件。修法选型：建档即写入真实链首（见 POST
+  // /saves），让「1/7」点击前后都是真站位；这一步的免费化则消掉
+  // 「开场白同一回包内掉血开战、每日任务空结算」的旧毛病。
+  if (idx === 0) {
+    const nextScene = path[1];
+    return {
+      patch: { scene: nextScene.id },
+      scripted: true,
+      content: `${nextScene.text}\n（本次没有消耗体力）`,
+    };
   }
 
   const next = path[idx + 1];
@@ -856,10 +896,15 @@ function advanceWithEncounter(save) {
   const out = advanceOutcome(save);
   const patch = out.patch ? { ...out.patch } : null;
   const moved = Boolean(patch && typeof patch.scene === "string" && patch.scene !== save.scene);
+  // F117/F124 scripted 步（自愈落点 / 章首铺陈 / 过门穿章）：有真实位移
+  // 但不是一次探索推进——不产 advance 事件（每日「推进战线」不空结算），
+  // 不掷遭遇（开场白同一回包内开战是旧毛病），体力已在 advanceOutcome
+  // 层剥离。
+  const scripted = out.scripted === true;
   const res = {
     patch,
     content: out.content,
-    events: moved ? ["advance"] : [],
+    events: moved && !scripted ? ["advance"] : [],
     combat: null,
     rewards: null,
     grantMain: null,
@@ -890,6 +935,13 @@ function advanceWithEncounter(save) {
   if (patch.chapter && patch.chapter !== save.chapter) patch.encounter_clock = 0;
   const cdNext = Math.max(0, Math.trunc(Number(save.encounter_cd) || 0) - 1);
   patch.encounter_cd = cdNext;
+
+  if (scripted) {
+    // scripted 步不掷遭遇、不计保底——落点永远是链首/次幕，applyTailGate
+    // 对链首天然空转，但守关提示等兜底仍走同一出口，保持一致。
+    applyTailGate(res, chaptersEngine.getChapter(patch.chapter || save.chapter), false);
+    return res;
+  }
 
   const nextChapter = chaptersEngine.getChapter(patch.chapter || save.chapter);
   const landedScene = chaptersEngine.getScene(patch.scene);
@@ -1827,14 +1879,25 @@ api.get("/chapters", (req, res) => {
       title: chapter.title,
       subtitle: chapter.subtitle,
       summary: chapter.summary,
-      unlock: {
-        level:
-          chapter.unlock && Number.isInteger(chapter.unlock.level) ? chapter.unlock.level : null,
-        chapter:
-          chapter.unlock && Number.isInteger(chapter.unlock.chapter)
-            ? chapter.unlock.chapter
-            : null,
-      },
+      // F116：解锁门三态（locked/soft/open）+ 未达前置 + 服务端文案由
+      // chaptersEngine.unlockView 统一下发——与 saveView.chapter_unlock
+      // 同一事实源，前端只渲染 hint/blocked_reasons，不再自拼「需 Lv.X」。
+      // 无 save_id 时只给静态门槛，门态为空。
+      unlock: save
+        ? chaptersEngine.unlockView(save, chapter)
+        : {
+            level:
+              chapter.unlock && Number.isInteger(chapter.unlock.level)
+                ? chapter.unlock.level
+                : null,
+            chapter:
+              chapter.unlock && Number.isInteger(chapter.unlock.chapter)
+                ? chapter.unlock.chapter
+                : null,
+            state: null,
+            blocked_reasons: [],
+            hint: null,
+          },
       scene_count: chapter.scenes.length,
       main_total: mainTotal,
     };
@@ -1864,6 +1927,15 @@ api.post("/saves", (req, res) => {
     return res.status(400).json({ error: "player_name is required" });
   }
   const save = store.createSave(playerName);
+  // F124：建档即写入第 1 章主线链首场景——「1/7」自此是真实站位而非
+  // currentScene 自愈出的影子位；首幕正文随开场白一并落日志，第一次
+  // 「前进」沿链推进到第二幕（章首铺陈步：零消耗、不掷遭遇、不计步）。
+  const ch1 = chaptersEngine.getChapter(1);
+  const entry = ch1 ? chaptersEngine.firstSceneOf(ch1) : null;
+  if (entry) {
+    store.updateSave(save.id, { scene: entry.id });
+    store.appendLog(save.id, "narrator", entry.text);
+  }
   grantStarterKit(save.id);
   res.status(201).json({ save: saveView(store.getSave(save.id)) });
 });

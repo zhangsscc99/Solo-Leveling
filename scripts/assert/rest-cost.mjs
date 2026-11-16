@@ -47,7 +47,9 @@ assert(r.save.rest.available === false && r.save.rest.reason,
   "rest refusal must keep reporting unavailable + reason");
 
 // ── (b) 受伤后休息：HP 严格上升 + 真实代价 ───────────────────────
-// 「前进」有真实体力消耗（HP -3），可能顺带掷出遭遇——先打/逃到脱战。
+// 章首铺陈步零消耗（F124）：首推落到第二幕不掉血，第二推才是真扣
+// （HP -3），可能顺带掷出遭遇——先打/逃到脱战。
+await doAct("前进");
 await doAct("前进");
 let s = await ensureOutOfCombat();
 assert(s.hp < s.max_hp, `expected HP below max after 前进 (got ${s.hp}/${s.max_hp})`);
