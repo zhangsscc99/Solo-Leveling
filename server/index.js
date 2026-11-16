@@ -38,6 +38,17 @@ function vitalsLine(save) {
   return `HP ${save.hp}/${save.max_hp} · MP ${save.mp}/${save.max_mp}`;
 }
 
+// F133 场景叙述名：正文与场景显示名一律念 narr_name（玩家可读的称呼），
+// 缺失时回退 title——title 保留内部口径（可能是「玩家」这类占位串或
+// 守关者真名），绝不直接写进正文。
+function sceneNarrName(scene) {
+  if (!scene || typeof scene !== "object") return "";
+  return isNonEmpty(scene.narr_name) ? scene.narr_name : scene.title || "";
+}
+function isNonEmpty(v) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
 // F074 场景运行时：主线进度 = 当前场景在本章主线链中的位置 + 1，
 // chapter_total = 主线链长度（支线场景不计入）。save.scene 缺失或错章时
 // 按主线链首场景展示（与「前进」结算的自愈落点一致），所以新档也能直接
@@ -70,7 +81,7 @@ function sceneView(save) {
   const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
   return {
     scene: scene.id,
-    scene_title: scene.title,
+    scene_title: sceneNarrName(scene),
     scene_index: idx,
     chapter_steps: steps,
     chapter_total: total,
@@ -561,7 +572,7 @@ function advanceOutcome(save) {
       patch: { ...vit.patch, scene: path[idxBoss].id, encounter_clock: 0 },
       retreatToBoss: true,
       content:
-        `【主线】守关者还守在那扇门前——你原路折返，回到「${path[idxBoss].title}」。\n` +
+        `【主线】守关者还守在那扇门前——你原路折返，回到「${sceneNarrName(path[idxBoss])}」。\n` +
         `${vit.note}`,
     };
   }
@@ -767,13 +778,13 @@ function settleDeath(saveId) {
   lines.push(
     `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章` +
       `${landedIdx === 0 ? "的入口" : ""}` +
-      `${landedScene ? `「${landedScene.title}」` : ""}，` +
+      `${landedScene ? `「${sceneNarrName(landedScene)}」` : ""}，` +
       `伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`
   );
   if (chapter && path.length && landedIdx >= 0) {
     lines.push(
       `【系统】回溯后本章主线停驻在 ${landedIdx + 1}/${path.length}` +
-        `「${landedScene.title}」——位置与进度同退，重走的路会重新计数。`
+        `「${sceneNarrName(landedScene)}」——位置与进度同退，重走的路会重新计数。`
     );
   }
   return lines;
@@ -1016,7 +1027,7 @@ function advanceWithEncounter(save) {
     delete patch.mp;
     const n = (proseStmts.bossReentryCount.get(save.id) || {}).n || 0;
     const line = BOSS_REENTRY_LINES[Math.abs(Math.trunc(n)) % BOSS_REENTRY_LINES.length](
-      landedScene.title,
+      sceneNarrName(landedScene),
       chapterBossName(chaptersEngine.getChapterOfScene(landedScene.id))
     );
     res.content = `${line}\n（本次没有消耗体力）`;
@@ -1326,7 +1337,7 @@ function combatTurn(save, cbt, action, input, skill, opts) {
       if (prev) {
         patch.scene = prev.id;
         res.content +=
-          `\n【战斗】你且战且退，撤回了「${prev.title}」——` +
+          `\n【战斗】你且战且退，撤回了「${sceneNarrName(prev)}」——` +
           `${e.name}仍守在门后没有追出来，两步之内它不会立刻再度拦路。`;
       } else {
         res.content += `\n【战斗】你摆脱了${e.name}的纠缠——它需要时间重新凝聚成形。`;
@@ -1661,7 +1672,7 @@ const INTENTS = [
       const line = proseEngine.pick(proseEngine.poolFor(chapter.index).observe, n);
       return {
         patch: null,
-        content: `你放慢呼吸，重新审视「${scene.title}」。${line}`,
+        content: `你放慢呼吸，重新审视「${sceneNarrName(scene)}」。${line}`,
       };
     },
   },
