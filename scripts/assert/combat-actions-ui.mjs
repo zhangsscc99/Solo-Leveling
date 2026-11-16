@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// F094 战斗操作入口（行动栏战斗四键）+ 交战期动作门禁：
-//   a) 无敌人：行动栏「攻击 / 释放技能 / 防御 / 逃跑」disabled +
-//      aria-disabled="true"，可见提示「当前没有可攻击的目标」；
+// F094/F113 战斗操作入口 + 交战期动作门禁：
+//   a) 无敌人：战斗四键折叠为单行矮入口 .combat-entry——存在、disabled、
+//      aria-disabled="true"，文案含「当前没有可攻击的目标」；四键本体
+//      不再常驻渲染；
 //   b) 真实 UI 输入触发遭遇后四键可用：点「攻击」→ 日志新增「第N回合」，
 //      HP/敌人 HP 至少其一真实变化（击杀收场按「击败」播报计）；
 //   c) 技能按钮文案含 MP + 数字与冷却；点击真实扣 MP（= mp_cost），日志与
@@ -9,7 +10,9 @@
 //      MP 不足（DB 落点压 MP）→ disabled +「MP 不足」；未解锁 →「需 Lv.N」；
 //   d) 交战中「休息」不恢复 HP（前后不变）+ 拒绝文案 + refused 标记；
 //      「潜行/存档」不产生免费收益（MP 不动、存档按钮 disabled、拒绝文案）；
-//   e) 390×844 视口：四键 boundingBox 全在视口内、高度 ≥44px、可点。
+//   e) 390×844 视口：四键 boundingBox 全在视口内、高度 ≥44px、可点；
+//      footer.actions ≤ 30% 视口高、.stage ≥ 60%；行动组每行 ≤4 键且
+//      每个按钮 boundingBox().width ≥ 72。
 // 稳定性：关键动作后 settle 等待；整套断言失败重试一次（F087 口径）。
 const BASE = (process.env.E2E_BASE_URL || "http://127.0.0.1:3020/game").replace(/\/+$/, "");
 process.env.E2E_BASE_URL = BASE;
@@ -66,21 +69,29 @@ async function ensureEngaged(page, saveId) {
 }
 
 async function body(page, saveId) {
-  // ── a) 无敌人：四键 disabled + aria + 可见提示 ──────────────────
-  await page.waitForSelector(".bar-combat-hint");
-  const hint = page.locator(".bar-combat-hint");
-  assert(await hint.isVisible(), "no-enemy hint not visible");
+  // ── a) 无敌人：战斗入口折叠为单行矮槽位，四键本体不常驻 ──────────
+  await page.waitForSelector(".combat-entry");
+  const entry = page.locator(".combat-entry");
+  assert((await entry.count()) === 1, "combat entry missing (expect exactly one)");
+  assert(await entry.isVisible(), "combat entry not visible");
+  assert(await entry.isDisabled(), "combat entry should be disabled with no engagement");
   assert(
-    (await hint.innerText()).includes("当前没有可攻击的目标"),
-    `hint copy wrong: "${await hint.innerText()}"`
+    (await entry.getAttribute("aria-disabled")) === "true",
+    "combat entry missing aria-disabled=\"true\""
   );
+  const entryText = (await entry.innerText()).replace(/\s+/g, "");
+  assert(
+    entryText.includes("当前没有可攻击的目标"),
+    `combat entry copy wrong: "${entryText}"`
+  );
+  {
+    const box = await entry.boundingBox();
+    assert(box && box.height >= 28 && box.height <= 44, `combat entry height ${box?.height}px out of 28–44 slim row`);
+  }
   for (const label of ["攻击", "释放技能", "防御", "逃跑"]) {
-    const b = combatBtn(page, label);
-    assert((await b.count()) === 1, `「${label}」button missing in action bar`);
-    assert(await b.isDisabled(), `「${label}」enabled with no engagement`);
     assert(
-      (await b.getAttribute("aria-disabled")) === "true",
-      `「${label}」missing aria-disabled="true"`
+      (await combatBtn(page, label).count()) === 0,
+      `「${label}」should be folded into .combat-entry with no engagement`
     );
   }
 
@@ -237,7 +248,7 @@ async function body(page, saveId) {
     await combatBtn(page, "释放技能").click(); // 收起技能列表再测移动端
   }
 
-  // ── e) 390×844：四键全在视口内、≥44px、可点 ─────────────────────
+  // ── e) 390×844：四键全在视口内、≥44px、可点；底栏 ≤30%、正文 ≥60% ──
   {
     await page.setViewportSize({ width: 390, height: 844 });
     await settle(page, 500);
@@ -251,6 +262,51 @@ async function body(page, saveId) {
       );
       assert(box.height >= 44, `「${label}」touch height ${box.height}px < 44px`);
       assert(await b.isEnabled(), `「${label}」not clickable @390`);
+    }
+    // F113/F119 高度预算：footer.actions ≤30% 视口、.stage ≥60%。
+    const foot = await page.locator(".actions").boundingBox();
+    const stageBox = await page.locator(".stage").boundingBox();
+    assert(foot && stageBox, "footer.actions/.stage boundingBox missing @390");
+    console.log(
+      `    (e) 390×844 footer.actions=${foot.height.toFixed(1)}px (${((foot.height / 844) * 100).toFixed(1)}%), stage=${stageBox.height.toFixed(1)}px (${((stageBox.height / 844) * 100).toFixed(1)}%)`
+    );
+    assert(
+      foot.height <= 844 * 0.3,
+      `footer.actions height ${foot.height}px > 30% viewport (limit 253.2px)`
+    );
+    assert(
+      stageBox.height >= 844 * 0.6,
+      `.stage height ${stageBox.height}px < 60% viewport (need ≥506.4px)`
+    );
+    // 行动组每行 ≤4 键、每键 ≥72px 宽（四字标签舒适宽度）。
+    const rows = await page
+      .locator(".btn-group:not(.btn-group-sys) .btn")
+      .evaluateAll((els) => {
+        const items = els
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            return { y: r.y, w: r.width };
+          })
+          .sort((a, b) => a.y - b.y);
+        const out = [];
+        for (const it of items) {
+          const last = out[out.length - 1];
+          if (last && Math.abs(it.y - last.y) < 20) last.widths.push(it.w);
+          else out.push({ y: it.y, widths: [it.w] });
+        }
+        return out;
+      });
+    assert(rows.length >= 1, "action group has no visible buttons @390");
+    console.log(
+      `    (e) action rows: ${rows.map((r) => r.widths.length).join("+")} per row, widths ${rows
+        .map((r) => r.widths.map((w) => w.toFixed(0)).join(","))
+        .join(" | ")}`
+    );
+    for (const row of rows) {
+      assert(row.widths.length <= 4, `action row @390 has ${row.widths.length} buttons (>4)`);
+      for (const w of row.widths) {
+        assert(w >= 72, `action button width ${w.toFixed(1)}px < 72px @390`);
+      }
     }
   }
 }
