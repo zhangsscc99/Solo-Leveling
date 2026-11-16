@@ -263,10 +263,31 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export const createSave = (player_name: string) =>
+// F136 存档找回：同名匹配由服务端 NFKC+trim+大小写折叠精确匹配，
+// 前端只透传代号并渲染 saves 摘要数组，不在本地另算口径。
+export interface SaveSummary {
+  id: number;
+  player_name: string;
+  level: number;
+  chapter: number;
+  hp: number;
+  max_hp: number;
+  cleared_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const findSaves = (player_name: string) =>
+  req<{ saves: SaveSummary[] }>(`/saves?player_name=${encodeURIComponent(player_name)}`).then(
+    (r) => r.saves
+  );
+
+// mode === "new"：玩家在重名对话框里明确选「另起新档」，服务端才允许
+// 同名并存（旧档不删）；缺省走重名检测，命中即 409。
+export const createSave = (player_name: string, mode?: "new") =>
   req<{ save: Save }>("/saves", {
     method: "POST",
-    body: JSON.stringify({ player_name }),
+    body: JSON.stringify(mode ? { player_name, mode } : { player_name }),
   }).then((r) => r.save);
 
 export const getSave = (id: number) =>

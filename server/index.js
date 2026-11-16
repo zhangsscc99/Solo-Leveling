@@ -2029,10 +2029,43 @@ api.get("/chapters", (req, res) => {
   res.json({ chapters });
 });
 
+// F136 存档找回：按猎人代号查存档摘要（同名匹配口径 = db.js 的
+// NFKC+trim+大小写折叠精确匹配，前端不在本地另算）。名字空 → 400；
+// 无命中 → { saves: [] }，两种结果前端都按「可继续/可新建」分支渲染。
+api.get("/saves", (req, res) => {
+  const playerName = String((req.query && req.query.player_name) || "").trim();
+  if (!playerName) {
+    return res.status(400).json({ error: "player_name is required" });
+  }
+  res.json({ saves: store.findSavesByName(playerName) });
+});
+
 api.post("/saves", (req, res) => {
   const playerName = String((req.body && req.body.player_name) || "").trim();
   if (!playerName) {
     return res.status(400).json({ error: "player_name is required" });
+  }
+  const mode = String((req.body && req.body.mode) || "").trim();
+  // F136 重名检测：同名已有存档时默认拒绝（409），一条记录都不写——
+  // 静默开新档会让玩家误以为找回了角色、旧档从此找不回。玩家明确选
+  // 「另起新档」（mode === "new"）才放行，旧档保留不删，仅回包带
+  // superseded_save_id 提示。
+  const existing = store.findSavesByName(playerName);
+  if (existing.length && mode !== "new") {
+    const s = existing[0];
+    return res.status(409).json({
+      error: "existing_save",
+      existing_save_id: s.id,
+      existing: {
+        id: s.id,
+        level: s.level,
+        chapter: s.chapter,
+        clears: s.cleared_at ? 1 : 0,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      },
+      name_conflict: true,
+    });
   }
   const save = store.createSave(playerName);
   // F124：建档即写入第 1 章主线链首场景——「1/7」自此是真实站位而非
@@ -2045,7 +2078,12 @@ api.post("/saves", (req, res) => {
     store.appendLog(save.id, "narrator", entry.text);
   }
   grantStarterKit(save.id);
-  res.status(201).json({ save: saveView(store.getSave(save.id)) });
+  const body = { save: saveView(store.getSave(save.id)) };
+  if (existing.length) {
+    body.superseded_save_id = existing[0].id;
+    body.replaced_note = "同名旧档仍保留在服务端，本浏览器此后只接入新档。";
+  }
+  res.status(201).json(body);
 });
 
 api.get("/saves/:id", (req, res) => {

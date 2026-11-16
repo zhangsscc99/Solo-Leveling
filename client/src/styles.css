@@ -1699,6 +1699,43 @@ button {
   color: var(--blood);
 }
 
+/* F136 建档常驻提示与重名二选一对话框——沿用 holo/gate 色系与 .btn，
+   不新开组件库，只加版面类。 */
+.gate-note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  line-height: 1.7;
+}
+
+.gate-conflict {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--gate);
+  border-left: 3px solid var(--gate);
+  border-radius: var(--r-hard);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.gate-conflict-line {
+  margin: 0 0 var(--sp-3);
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.gate-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.gate-conflict-warn {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--blood);
+  line-height: 1.7;
+}
+
 /* ── 移动端 ≤880px ────────────────────────── */
 @media (max-width: 880px) {
   .app {

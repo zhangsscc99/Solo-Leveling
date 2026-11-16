@@ -5,6 +5,7 @@ import {
   ChapterView,
   createSave,
   Equipment,
+  findSaves,
   getChapters,
   getItems,
   getLog,
@@ -19,6 +20,7 @@ import {
   LogEntry,
   QuestsView,
   Save,
+  SaveSummary,
   Shadow,
   ShadowFormation,
   getShadows,
@@ -355,6 +357,11 @@ export default function App() {
   const [shadowNotice, setShadowNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
+  // F136 重名建档：GET /saves?player_name= 命中后挂起创建流程，等玩家在
+  // 「继续这个存档 / 另起新档」二选一。confirmNew 是「另起新档」的二次
+  // 确认门槛（点了第一下先换确认文案，再点才真发 mode:"new"）。
+  const [conflict, setConflict] = useState<{ name: string; saves: SaveSummary[] } | null>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -633,6 +640,19 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss]);
 
+  // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
+  // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
+  const enterSave = useCallback(async (saveId: number) => {
+    localStorage.setItem(STORAGE_KEY, String(saveId));
+    const full = await getSave(saveId);
+    setSave(full.save);
+    setInventory(full.inventory);
+    setEquipment(full.equipment);
+    setLog(await getLog(saveId));
+    setConflict(null);
+    setConfirmNew(false);
+  }, []);
+
   const onCreate = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -641,21 +661,58 @@ export default function App() {
       setBusy(true);
       setError(null);
       try {
+        // 先查同名档：命中 → 挂起创建流程，弹「继续 / 另起新档」二选一；
+        // 未命中 → 走原有创建流程，无额外步骤。
+        const hits = await findSaves(playerName);
+        if (hits.length) {
+          setConflict({ name: playerName, saves: hits });
+          setConfirmNew(false);
+          return;
+        }
         const created = await createSave(playerName);
-        localStorage.setItem(STORAGE_KEY, String(created.id));
-        const full = await getSave(created.id);
-        setSave(full.save);
-        setInventory(full.inventory);
-        setEquipment(full.equipment);
-        setLog(await getLog(created.id));
+        await enterSave(created.id);
       } catch {
         setError("存档创建失败，请重试。");
       } finally {
         setBusy(false);
       }
     },
-    [name, busy]
+    [name, busy, enterSave]
   );
+
+  // 「继续这个存档」：直接接入 updated_at 最新的同名档（服务端倒序首条）。
+  const onContinueSave = useCallback(async () => {
+    if (!conflict || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await enterSave(conflict.saves[0].id);
+    } catch {
+      setError("接入存档失败，请重试。");
+    } finally {
+      setBusy(false);
+    }
+  }, [conflict, busy, enterSave]);
+
+  // 「另起新档」：第一下只翻成确认文案，再点才真发 mode:"new"——
+  // 旧档不删，但本浏览器此后只认新档，确认门槛必须显性。
+  const onNewSave = useCallback(async () => {
+    if (!conflict || busy) return;
+    if (!confirmNew) {
+      setConfirmNew(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createSave(conflict.name, "new");
+      await enterSave(created.id);
+    } catch {
+      setError("存档创建失败，请重试。");
+    } finally {
+      setBusy(false);
+    }
+  }, [conflict, confirmNew, busy, enterSave]);
 
   const onSend = useCallback(
     (e: FormEvent) => {
@@ -702,6 +759,33 @@ export default function App() {
                   觉醒
                 </button>
               </form>
+              <p className="gate-note">存档绑定本机浏览器，换设备请用同一猎人代号找回。</p>
+              {conflict && (
+                <div className="gate-conflict" role="alertdialog" aria-label="检测到已有存档">
+                  <p className="gate-conflict-line">
+                    检测到已有猎人「{conflict.saves[0].player_name}」（Lv.
+                    {conflict.saves[0].level} · 第{conflict.saves[0].chapter}章）已有存档。
+                  </p>
+                  <div className="gate-conflict-actions">
+                    <button className="btn primary" disabled={busy} onClick={onContinueSave}>
+                      继续这个存档
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={busy}
+                      onClick={onNewSave}
+                      title="旧档将无法在此浏览器找回"
+                    >
+                      {confirmNew ? "确认另起新档" : "另起新档（旧档将无法在此浏览器找回）"}
+                    </button>
+                  </div>
+                  {confirmNew && (
+                    <p className="gate-conflict-warn">
+                      再点一次「确认另起新档」将从 Lv.1 重新开始；旧档仍保留，但此浏览器不再接入。
+                    </p>
+                  )}
+                </div>
+              )}
               {error && <p className="gate-error">{error}</p>}
             </div>
           </div>

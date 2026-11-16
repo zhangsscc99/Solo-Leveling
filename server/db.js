@@ -276,6 +276,31 @@ function getSave(id) {
   return toSave(stmts.getSave.get(id));
 }
 
+// F136 同名检测的单一事实源：玩家名比较统一在 JS 侧做 NFKC 归一 +
+// trim + 大小写折叠（SQLite 的 COLLATE NOCASE / lower() 不做 Unicode
+// 归一，全角字符与兼容等价形会漏判）。只做归一后的精确匹配，不模糊
+// 匹配——「小明」与「小明明」是两档，不能互相挡。
+function saveNameKey(name) {
+  return String(name ?? "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase();
+}
+
+// 该名字下的存档摘要（updated_at 倒序）。归一比较在 JS 侧过滤，
+// saves 表量级为玩家存档行，全表扫足够且免迁移。
+function findSavesByName(playerName) {
+  const key = saveNameKey(playerName);
+  if (!key) return [];
+  return db
+    .prepare(
+      `SELECT id, player_name, level, chapter, hp, max_hp, cleared_at, updated_at, created_at
+       FROM saves ORDER BY updated_at DESC, id DESC`
+    )
+    .all()
+    .filter((row) => saveNameKey(row.player_name) === key);
+}
+
 // Whitelisted column writes for state mutation (the narrative engine only ever
 // changes these through the action endpoint, which clamps values first).
 // scene 由 F074 场景运行时推进写入；cleared_at 不走 updateSave，由
@@ -419,6 +444,7 @@ module.exports = {
   transaction,
   createSave,
   getSave,
+  findSavesByName,
   getInventory,
   appendLog,
   getLog,
