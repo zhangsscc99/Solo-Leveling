@@ -202,4 +202,31 @@ async function invQty(id, itemId) {
   console.log("[OK] (e)「释放技能」「使用技能」仍走 skill，未被 item 抢走");
 }
 
+// ── (f) MP 缺口更大时裸「使用道具」：选魔力药剂（回蓝方向覆盖）────────
+{
+  const id = await newSave("f");
+  forge(id, { hp: 90, mp: 2 });
+  forgeCombat(id, 9106);
+  const manaBefore = await invQty(id, "mana_potion");
+  const healBefore = await invQty(id, "low_heal_potion");
+  assert(manaBefore >= 1, "(f) setup: no mana_potion in starter kit");
+
+  const r = await act(id, "使用道具");
+  assert(r.refused !== true, `(f) 裸「使用道具」被拒：${r.reply.content.slice(0, 160)}`);
+  assert(
+    (await invQty(id, "mana_potion")) === manaBefore - 1,
+    `(f) MP 缺口更大时应选魔力药剂：${manaBefore} -> ${await invQty(id, "mana_potion")}`
+  );
+  assert(
+    (await invQty(id, "low_heal_potion")) === healBefore,
+    `(f) 不许烧治疗类补给：${healBefore} -> ${await invQty(id, "low_heal_potion")}`
+  );
+  assert(r.save.mp > 2, `(f) MP 未上升：2 -> ${r.save.mp}`);
+  assert(
+    r.reply.content.includes("魔力药剂"),
+    `(f) 播报未点名所选物品：${r.reply.content.slice(0, 200)}`
+  );
+  console.log("[OK] (f) MP 缺口更大时裸「使用道具」选魔力药剂：mana -1、治疗不动、MP 上升");
+}
+
 ok("item-target-in-combat PASS");

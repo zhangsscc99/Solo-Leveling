@@ -190,4 +190,42 @@ async function logRows(id) {
   console.log("[OK] (e) 空背包拒绝仍指路：含休息配额与可达恢复方式");
 }
 
+// ── (f) HP 残 / MP 满 / 只剩魔力药剂：拒绝文案按真实缺口说，不得谎称满格 ──
+{
+  const id = await newSave("f");
+  const view = (await fetchSaveView(id)).save;
+  forge(id, { hp: 50, mp: view.max_mp });
+  // 只留魔力药剂：清掉治疗类（含装备素材一并删，确保 usable 只剩回魔）。
+  db.prepare("DELETE FROM inventory WHERE save_id = ? AND item_id != 'mana_potion'").run(id);
+  const manaBefore = await invQty(id, "mana_potion");
+  assert(manaBefore >= 1, "(f) setup: no mana_potion in starter kit");
+  const logsBefore = (await logRows(id)).length;
+
+  const r = await act(id, "使用道具");
+  assert(
+    r.refused === true,
+    `(f) HP 残/MP 满只剩回魔「使用道具」期望 refused=true，实际 ${JSON.stringify(r.refused)}（${r.reply.content.slice(0, 160)}）`
+  );
+  assert(
+    (await invQty(id, "mana_potion")) === manaBefore,
+    `(f) 拒绝消耗了库存：${manaBefore} -> ${await invQty(id, "mana_potion")}`
+  );
+  const logs = await logRows(id);
+  assert(logs.length === logsBefore, `(f) 拒绝写了日志：${logsBefore} -> ${logs.length}`);
+  const text = r.reply.content;
+  assert(
+    !/满格/.test(text),
+    `(f) HP 只有一半不得谎称「满格」：${text.slice(0, 200)}`
+  );
+  assert(
+    /回魔|魔力/.test(text),
+    `(f) 拒绝回包应说明只剩回魔类/缺的是体力：${text.slice(0, 200)}`
+  );
+  assert(
+    /休息\s*\d+\s*\/\s*3/.test(text),
+    `(f) 拒绝回包缺「休息 x/3」指路：${text.slice(-200)}`
+  );
+  console.log("[OK] (f) HP 残/MP 满只剩回魔：refused 如实说缺口，无「满格」字样");
+}
+
 ok("out-of-combat-supply PASS");

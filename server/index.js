@@ -1217,7 +1217,13 @@ function supplySelection(save, input) {
     return { picked, want };
   }
   const helpful = usable.filter((x) => helps(x.item));
-  if (!helpful.length) return { error: "useless" };
+  if (!helpful.length) {
+    return {
+      error: "useless",
+      haveHeal: usable.some((x) => (x.item.heal || 0) > 0),
+      haveMp: usable.some((x) => (x.item.mp || 0) > 0),
+    };
+  }
   const hpMissingPct = (save.max_hp - save.hp) / Math.max(1, save.max_hp);
   const mpMissingPct = (save.max_mp - save.mp) / Math.max(1, save.max_mp);
   const preferHeal = hpMissingPct >= mpMissingPct;
@@ -1225,6 +1231,33 @@ function supplySelection(save, input) {
     preferHeal ? (x.item.heal || 0) > 0 : (x.item.mp || 0) > 0
   );
   return { picked: (primary.length ? primary : helpful).sort(weakest)[0], want };
+}
+
+// 「useless」拒绝理由按真实状态生成，不臆断满格：无点名时看背包里还剩
+// 哪类补给与当前缺口（HP 残/MP 满只剩回魔 → 「只剩回魔类，而你缺的是
+// 体力」，反之类推）；点名时只说该物效应对应的那一项满了。
+function uselessReason(save, sel) {
+  const needHp = save.hp < save.max_hp;
+  const needMp = save.mp < save.max_mp;
+  if (sel.picked) {
+    const it = sel.picked.item;
+    const full = [];
+    if ((it.heal || 0) > 0 && !needHp) full.push("伤势已满");
+    if ((it.mp || 0) > 0 && !needMp) full.push("魔力已满");
+    return `「${it.name}」此刻派不上用场——${full.length ? full.join("，") : "它帮不上当前的缺口"}。`;
+  }
+  if (!needHp && !needMp) return "体力与魔力俱已满格，补给派不上用场。";
+  if (needHp && !needMp) {
+    return sel.haveMp
+      ? "背包里的补给此刻帮不上忙——只剩回魔类，而你缺的是体力。"
+      : "背包里的补给此刻都派不上用场。";
+  }
+  if (needMp && !needHp) {
+    return sel.haveHeal
+      ? "背包里的补给此刻帮不上忙——只剩回血类，而你缺的是魔力。"
+      : "背包里的补给此刻都派不上用场。";
+  }
+  return "背包里的补给此刻都派不上用场。";
 }
 
 // F145 恢复通道指路：补给拒绝文案的尾部固定带剩余休息次数（「休息 x/3」
@@ -1269,9 +1302,7 @@ function peacefulItemOutcome(save, input) {
       patch: null,
       events: [],
       refused: true,
-      content: sel.picked
-        ? `【系统】「${sel.picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。${hint}`
-        : `【系统】体力与魔力俱已满格，补给派不上用场。${hint}`,
+      content: `【系统】${uselessReason(save, sel)}${hint}`,
     };
   }
   const picked = sel.picked;
@@ -1329,9 +1360,7 @@ function combatTurn(save, cbt, action, input, skill, opts) {
     if (sel.error === "useless") {
       return {
         patch: null,
-        content: sel.picked
-          ? `【系统】「${sel.picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。`
-          : "【系统】背包里的补给此刻都派不上用场。",
+        content: `【系统】${uselessReason(save, sel)}`,
         events: [],
         refused: true,
       };
