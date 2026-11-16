@@ -14,6 +14,12 @@
 const { createRng } = require("./rng");
 const S = require("./stats");
 
+// F115 场景遭遇许可：场景对象上的 encounters 字段是「这里能不能刷怪」
+// 的数据事实——"none" 表示现实世界/收束场景（医院、协会、归途运输等），
+// 落地 / 原地叫阵 / 休憩惊动三条掷点路径共用 roll 这一漏斗，此处一处
+// 拦截即全覆盖；字段缺失或取 "dungeon" 维持旧行为（地下城默认掷怪）。
+const ENCOUNTERS_NONE = "none";
+
 const PITY_LIMIT = 4;
 const BASE_CHANCE = 0.3;
 const PER_CHAPTER = 0.05;
@@ -179,10 +185,14 @@ function spawnBoss(chapterIndex) {
   return makeEnemy({ ...tpl, level, hp, xp, boss: true });
 }
 
-// 遭遇判定（纯函数）：boss 场景必中；否则 pity 计数到顶必中；再否则
-// 按本章遭遇率掷点。返回敌人实体或 null（caller 负责计数落库）。
+// 遭遇判定（纯函数）：scene.encounters === "none" 的场景（现实世界）
+// 永不掷怪——判定放在 boss 之前，数据字段是权威事实；boss 场景误标
+// "none" 会被 chapters.js 校验在加载期拦下（守关战是主线硬门）。
+// boss 场景必中；否则 pity 计数到顶必中；再否则按本章遭遇率掷点。
+// 返回敌人实体或 null（caller 负责计数落库）。
 function roll({ chapterIndex, scene, clock, seed }) {
   if (!scene || typeof scene !== "object") return null;
+  if (scene.encounters === ENCOUNTERS_NONE) return null;
   if (scene.kind === "boss") return spawnBoss(chapterIndex);
   const c = Math.max(0, Math.trunc(S.num(clock)));
   if (c + 1 >= PITY_LIMIT) return spawn(chapterIndex, `${seed}:pity`);
@@ -192,6 +202,7 @@ function roll({ chapterIndex, scene, clock, seed }) {
 
 module.exports = {
   PITY_LIMIT,
+  ENCOUNTERS_NONE,
   chanceFor,
   spawn,
   spawnBoss,

@@ -14,6 +14,11 @@ const DATA_PATH = path.join(__dirname, "..", "data", "chapters.json");
 // Scene kinds the UI knows how to render.
 const VALID_KINDS = ["story", "dungeon", "boss", "rest"];
 
+// F115 场景遭遇许可（可选字段）："none" = 现实世界/收束场景不掷遭遇；
+// "dungeon" = 显式掷怪（与字段缺失同义，缺省即旧行为）。白名单校验让
+// 笔误在加载期炸出来，而不是静默落回「掷怪」把 bug 藏起来。
+const VALID_ENCOUNTERS = ["none", "dungeon"];
+
 // The story arc is fixed at 8 chapters (SPEC §8). A mismatch is a hard error.
 const CHAPTER_COUNT = 8;
 
@@ -151,6 +156,19 @@ function validateChapters(data) {
         errors.push(`${at}.kind 非法: ${JSON.stringify(scene.kind)}（应为 ${VALID_KINDS.join("/")}）`);
       }
 
+      if (scene.encounters !== undefined) {
+        if (!VALID_ENCOUNTERS.includes(scene.encounters)) {
+          errors.push(
+            `${at}.encounters 非法: ${JSON.stringify(scene.encounters)}（应为 ${VALID_ENCOUNTERS.join("/")}）`
+          );
+        } else if (scene.kind === "boss" && scene.encounters === "none") {
+          // 守关战是主线硬门：boss 场景标 "none" 会让守关者永不现形，
+          // 章节被数据层软锁——loadChapters 首次被调用时拒绝，不许带病
+          // 进运行时（进程照常 listening，首个读章节数据的请求 500）。
+          errors.push(`${at}.encounters 不得在 kind='boss' 场景标 "none"（守关战是主线硬门）`);
+        }
+      }
+
       if (scene.next_scene !== undefined && scene.next_scene !== null && !sceneIds.has(scene.next_scene)) {
         errors.push(`${at}.next_scene 指向不存在的场景: ${scene.next_scene}`);
       }
@@ -274,8 +292,10 @@ function clearCache() {
   derived = null;
 }
 
-// Reads + validates once. Throws on any validation error so a corrupt data file
-// fails at require/boot time instead of midway through a playthrough.
+// Reads + validates once, lazily. Throws on any validation error so a corrupt
+// data file fails on the first call that touches chapter data (e.g. the first
+// /chapters request 500s) instead of midway through a playthrough. The process
+// itself still boots and listens — validation is not a boot-time gate.
 function loadChapters() {
   if (cached) return cached;
 
@@ -490,6 +510,7 @@ function unlockView(save, chapter) {
 module.exports = {
   DATA_PATH,
   VALID_KINDS,
+  VALID_ENCOUNTERS,
   VALID_REQUIRE_KEYS,
   VALID_EFFECT_KEYS,
   CHAPTER_COUNT,
