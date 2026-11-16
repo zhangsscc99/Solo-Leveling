@@ -375,6 +375,9 @@ export default function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
+  // F141 日志基线：整页回灌/接入存档时已有的行是「旧行」——历史战报
+  // 不得重新点亮战斗面板；只有此后新写入的行才算日志侧交战信号。
+  const logBaseRef = useRef(0);
 
   useEffect(() => {
     getItems()
@@ -399,7 +402,9 @@ export default function App() {
         setSave(save);
         setInventory(inventory);
         setEquipment(equipment);
-        setLog(await getLog(save.id));
+        const fetched = await getLog(save.id);
+        logBaseRef.current = fetched.length;
+        setLog(fetched);
       })
       .catch(() => localStorage.removeItem(STORAGE_KEY))
       .finally(() => setLoading(false));
@@ -429,7 +434,7 @@ export default function App() {
     if (!liveCombat) setBarSkillOpen(false);
   }, [liveCombat]);
   useEffect(() => {
-    const gate = detectCombatGate(log);
+    const gate = detectCombatGate(log, { live: liveCombat, freshFrom: logBaseRef.current });
     const prev = gateRef.current;
     gateRef.current = gate;
     if (gate === "engage" && prev !== "engage") setCombatOpen(true);
@@ -648,7 +653,9 @@ export default function App() {
     setSave(full.save);
     setInventory(full.inventory);
     setEquipment(full.equipment);
-    setLog(await getLog(saveId));
+    const fetched = await getLog(saveId);
+    logBaseRef.current = fetched.length;
+    setLog(fetched);
     setConflict(null);
     setConfirmNew(false);
   }, []);
@@ -804,6 +811,7 @@ export default function App() {
             <CombatPanel
               save={save}
               log={log}
+              logBase={logBaseRef.current}
               skills={save.skills ?? skills}
               inventory={inventory}
               items={items}
