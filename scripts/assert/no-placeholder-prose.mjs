@@ -42,8 +42,10 @@ const CASES = [
 // 子串匹配）。这些输入走正常意图结算——observe 写日志、rest 回血/推进
 // 遭遇时钟，所以只断言 intent/panel，不做 STATE_KEYS 不变断言。
 // intent 字段只有 /ai-action 回包下发；/action 只断言无 panel。
+// 注意：F143 起「动词+面板名」（如「查看背包」「打开我的属性」）是合法的
+// 开面板说法，会返回 panel；所以这里的反例一律用带上下文的整句叙述。
 const NEG_CASES = [
-  { input: "查看背包", intent: "observe" },
+  { input: "我查看背包，里面只剩一把断剑", intent: "observe" },
   { input: "我要休息一下", intent: "rest" },
   { input: "打开地图看看", intent: null },
 ];
