@@ -1768,10 +1768,41 @@ const INTENTS = [
   },
 ];
 
-const PLACEHOLDER = {
-  role: "system",
-  content: null, // filled per-request with the raw input
-};
+// F129 面板名直开：自由输入只写面板名（可带「面板」尾缀）时按名直开
+// 对应侧边面板——玩家口述「地图」与点地图按钮同义，不该落未识别兜底。
+// 整句锚定、先于关键词表拦截：「属性」「状态」「影子编队」这类名字本就
+// 被 status/shadow_formation 意图接住，两者同样零副作用，直开面板只是
+// 省一次手点；句中再带别的词一律不拦，照走意图解析。
+const PANEL_ROUTES = [
+  { match: /^(?:背包|行囊|物品栏)(?:面板)?$/, panel: "inventory", label: "背包" },
+  { match: /^技能(?:面板|列表)?$/, panel: "skills", label: "技能" },
+  { match: /^(?:属性|状态)(?:面板)?$/, panel: "stats", label: "属性" },
+  { match: /^地图(?:面板)?$/, panel: "map", label: "地图" },
+  { match: /^任务(?:面板|列表|日志)?$/, panel: "quests", label: "任务" },
+  { match: /^(?:影子(?:编队|面板|名单)?|编队)$/, panel: "shadows", label: "影子" },
+];
+
+// 裸面板名 → {intent:"unknown", panel} 的零副作用出参；非面板名返回 null，
+// 由调用方继续走意图解析。/action 与 /ai-action 共用：后者在 AI 网关之前
+// 短路，裸面板名不值得白跑一趟上行。零副作用是硬约束——patch/events 全空、
+// 不占回合、不掷遭遇、不发奖励，照旧只写一条 system 日志。
+function panelOutcome(input) {
+  const text = typeof input === "string" ? input.trim() : "";
+  if (!text) return null;
+  for (const r of PANEL_ROUTES) {
+    if (r.match.test(text)) {
+      return {
+        intent: "unknown",
+        role: "system",
+        panel: r.panel,
+        patch: null,
+        events: [],
+        content: `【系统】已调出${r.label}面板。`,
+      };
+    }
+  }
+  return null;
+}
 
 // 交战中允许执行的意图：五个战斗指令 + 「前进」（撤离掷逃）。
 // 其余白名单意图（休息/潜行/存档/状态/观察/影子编队……）在敌我面前一律
@@ -1877,20 +1908,25 @@ function applyOutcome(saveId, outcome) {
 }
 
 function resolveAction(save, input) {
+  // 裸面板名最先走面板路由（F129）：比关键词表更靠前，因为「属性」
+  // 「影子编队」本就会被 status/shadow_formation 意图接住而轮不到
+  // unknown 分支——面板路由是同一意图的更好落地，不是新解析层。
+  const panel = panelOutcome(input);
+  if (panel) return panel;
   const intentId = intentRules.resolveIntent(input);
   if (intentId) {
     return executeIntent(save, intentId, input);
   }
-  // 交战中收到无法解析的输入：给战斗指令提示而不是通用占位句。
+  // 交战中收到无法解析的输入：给战斗指令提示而不是通用提示。
   const cbt = store.getCombat(save.id);
   return {
     intent: "unknown",
-    role: PLACEHOLDER.role,
+    role: "system",
     patch: null,
     events: [],
     content: cbt
       ? `【系统】你正与${cbt.enemy.name}交战——「攻击」「释放技能 X」「防御」「使用道具」「逃跑」，或「前进」强行撤离。`
-      : `【系统】指令已接收：「${input}」。命运之线仍在编织中……（叙事引擎尚未接入，此处为占位回应。输入「帮助」查看当前可用指令。）`,
+      : "【系统】系统未识别该指令。可用：探索前进 / 环顾四周 / 攻击 / 休息 / 存档，输入「帮助」查看完整指令表。",
   };
 }
 
@@ -2400,8 +2436,12 @@ api.post("/action", (req, res) => {
     outcome.role,
     extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
   );
+  // F129：面板路由把目标面板 key 挂上回复——日志行只存 role/content，
+  // panel 是回包附加字段不落库，前端凭它直接开对应抽屉。
+  if (outcome.panel) reply.panel = outcome.panel;
   const payload = { reply, save: saveView(store.getSave(save.id)) };
   if (outcome.shadows) payload.shadows = outcome.shadows;
+  if (outcome.panel) payload.panel = outcome.panel;
   res.json(payload);
 });
 
@@ -2457,6 +2497,22 @@ api.post("/ai-action", async (req, res) => {
         save: saveView(save),
         refused: true,
         ending_ready: true,
+      });
+    }
+
+    // F129 面板名直开：与 /action 同一面板路由——裸面板名在 AI 网关
+    // 之前短路，不值得为它白跑一趟上行；零副作用，照旧只写一条
+    // system 日志，回包带 panel 供前端开对应抽屉。
+    const direct = panelOutcome(input);
+    if (direct) {
+      store.appendLog(save.id, "user", input);
+      const reply = store.appendLog(save.id, direct.role, direct.content);
+      reply.panel = direct.panel;
+      return res.json({
+        reply,
+        intent: "unknown",
+        panel: direct.panel,
+        save: saveView(save),
       });
     }
 

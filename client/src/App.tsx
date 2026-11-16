@@ -81,6 +81,9 @@ const TABS: { key: TabKey; label: string }[] = [
 // 结算 tab 只在真通关（save.cleared：当前场景为 ch8_epilogue，与服务端
 // /ending 门禁同一判定）后出现，不占常驻快捷键位。
 const ENDING_TAB: { key: TabKey; label: string } = { key: "ending", label: "结算" };
+// F129：服务端「面板名直开」下发的 reply.panel 只认 TabKey 白名单——
+// 陌生串按普通日志处理，绝不弹面板。
+const PANEL_TAB_KEYS = new Set<TabKey>([...TABS.map((t) => t.key), ENDING_TAB.key]);
 
 function RankEmblem({ rank, level }: { rank: string; level: number }) {
   const R = 15.5;
@@ -422,6 +425,13 @@ export default function App() {
     else if (gate === "ended" && prev === "engage" && !liveCombat) setCombatOpen(false);
   }, [log, liveCombat]);
 
+  const openTab = useCallback((key: TabKey) => {
+    setTab(key);
+    setDrawer(true);
+    setItemNotice(null);
+    setStatNotice(null);
+  }, []);
+
   const dispatch = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -432,6 +442,13 @@ export default function App() {
         const { reply, save: updated } = await sendAction(save.id, trimmed);
         setSave(updated);
         setLog((l) => [...l, reply]);
+        // F129：服务端把「裸面板名」路由成 reply.panel——口述「地图」
+        // 等价于点对应面板按钮，复用 openTab，不另起状态机。panel 是
+        // 回包附加字段（不落库），LogEntry 未声明，本地窄化取值。
+        const panel = (reply as { panel?: string }).panel;
+        if (panel && PANEL_TAB_KEYS.has(panel as TabKey)) {
+          openTab(panel as TabKey);
+        }
       } catch {
         setLog((l) => [
           ...l,
@@ -441,7 +458,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [save, busy]
+    [save, busy, openTab]
   );
 
   // 真通关（save.cleared）后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
@@ -453,13 +470,6 @@ export default function App() {
   useEffect(() => {
     if (!tabs.some((t) => t.key === tab)) setTab("inventory");
   }, [tabs, tab]);
-
-  const openTab = useCallback((key: TabKey) => {
-    setTab(key);
-    setDrawer(true);
-    setItemNotice(null);
-    setStatNotice(null);
-  }, []);
 
   // 背包操作：只上报 item_id + op，效果与数值都由服务端结算后回灌。
   const onItemOp = useCallback(
