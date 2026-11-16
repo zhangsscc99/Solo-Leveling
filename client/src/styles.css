@@ -1462,6 +1462,42 @@ button {
   white-space: nowrap;
 }
 
+/* F113/F119 非交战战斗入口：四键折叠成一条 32–40px 矮槽位。
+   虚线描边 = 待命舱位（与 .side-empty 同一记号），disabled 不再常驻
+   四个实键；交战/叫阵态由四键本体接管。 */
+.combat-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-hard);
+  color: var(--faint);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.combat-entry-label {
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.combat-entry-div {
+  flex: none;
+  width: 1px;
+  height: 10px;
+  background: var(--line-strong);
+}
+
+.combat-entry-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 数字快捷键：右上角小键帽 */
 .btn kbd {
   position: absolute;
@@ -1785,29 +1821,61 @@ button {
 
   .action-groups {
     gap: var(--sp-2);
+    align-items: center;
+    margin-bottom: var(--sp-2);
   }
 
   /* F085：两组按钮改等宽栅格、行内折行——全部落在视口内。
      旧版 nowrap+overflow-x 因 flex 子项 min-width:auto 缩不进容器，
-     按钮被推出视口且页面不可横滑，等于功能消失。 */
+     按钮被推出视口且页面不可横滑，等于功能消失。
+     F113/F119：列下限 64→72px——390px 下每行最多 4 键且不小于
+     四字标签的舒适宽度，行动组独占一行。 */
   .btn-group {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    flex: 0 0 100%;
     align-items: stretch;
     gap: var(--sp-2);
-    width: 100%;
     padding-top: var(--sp-2);
   }
 
+  /* 窄屏高度预算：组名让位给按钮行，组间只剩发丝线级的区分。 */
   .btn-group .group-label {
-    grid-column: 1 / -1;
-    margin-right: 0;
+    display: none;
   }
 
+  /* F113/F119：系统组收成一条可横滑的 meta 行，与 .combat-entry
+     共享第二行——不再独占两行按钮把底栏撑高。右缘渐隐同 .status-nums，
+     暗示可滑；padding-top 给 kbd 键帽留位（纵向不裁）。 */
   .btn-group-sys {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
     margin-left: 0;
     padding-left: 0;
     border-left: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  .btn-group-sys::-webkit-scrollbar {
+    display: none;
+  }
+
+  .btn-group-sys .group-label,
+  .btn-group-sys .btn {
+    flex: none;
+  }
+
+  /* 折叠态战斗入口与系统条同行：吃内容宽，不够时先缩提示文案。 */
+  .combat-entry {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
   }
 
   /* 不裁 overflow：kbd 快捷键键帽探出按钮上缘，需要可见。 */

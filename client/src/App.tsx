@@ -859,11 +859,13 @@ export default function App() {
                   </button>
                 );
               })}
-              {/* F094 战斗四键常驻：交战中可用（键帽 1–4），无交战 disabled
-                  + 可见提示——玩家不必靠战斗面板/快捷键猜入口。
-                  F121：守关房叫阵态（challengeBoss）「攻击」解禁——守关者
-                  就封在出口，原地叫阵即开战，与主按钮同一结算路径。 */}
-              {COMBAT_BUTTONS.map((b, i) => {
+              {/* F094/F113 战斗四键：交战态整组展开（键帽 1–4）；守关房
+                  叫阵态（challengeBoss）同样展开且只解禁「攻击」——守关者
+                  就封在出口，原地叫阵即开战，与主按钮同一结算路径。
+                  其余非交战态不再常驻四个 disabled 键（F113/F119 高度
+                  预算）：折叠为下方 .combat-entry 单行矮入口。 */}
+              {(liveCombat || challengeBoss) &&
+                COMBAT_BUTTONS.map((b, i) => {
                 const challengeable = challengeBoss && b.input === "攻击";
                 const disabled = busy || (!liveCombat && !challengeable);
                 return (
@@ -893,12 +895,27 @@ export default function App() {
                   </button>
                 );
               })}
-              {!liveCombat && (
-                <span className="bar-combat-hint">
-                  {challengeBoss ? "守关者封着出口——叫阵即开战" : "当前没有可攻击的目标"}
-                </span>
+              {!liveCombat && challengeBoss && (
+                <span className="bar-combat-hint">守关者封着出口——叫阵即开战</span>
               )}
             </div>
+            {/* F113/F119 非交战战斗入口：单行矮槽位，disabled +
+                aria-disabled 保留语义，文案即「当前没有可攻击的目标」提示；
+                桌面下跟随行动组同行，移动端与系统组共享一行 meta 条。 */}
+            {!liveCombat && !challengeBoss && (
+              <button
+                type="button"
+                className="combat-entry"
+                data-testid="combat-entry"
+                disabled
+                aria-disabled="true"
+                title="当前没有可攻击的目标"
+              >
+                <span className="combat-entry-label">战斗</span>
+                <i className="combat-entry-div" aria-hidden="true" />
+                <span className="combat-entry-hint">当前没有可攻击的目标</span>
+              </button>
+            )}
             <div className="btn-group btn-group-sys">
               <span className="group-label">系统</span>
               {tabs.map((t, i) => (
