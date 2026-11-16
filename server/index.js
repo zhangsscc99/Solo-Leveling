@@ -142,12 +142,14 @@ function restStatus(save, combat) {
 // 身后（含主线链尾，多为旧档冷却期穿房的落点）时，「前进」的真实语义是
 // 折返回守关房再战而非继续推进。主按钮据此换标「折返守关者」：模式由
 // 服务端按主线链位置下发，前端不猜场景。
+// F106：人站在守关房内时出口同样被门封死（房内「前进」是零消耗拒绝），
+// 主按钮也换标「折返守关者」——被门挡住的提示不该显示「探索前进」。
 function advanceMode(save) {
   const chapter = chaptersEngine.getChapter(save && save.chapter);
   const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
   const idxBoss = path.findIndex((s) => s && s.kind === "boss");
   const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save && save.scene) : -1;
-  if (idxBoss >= 0 && idx > idxBoss && !bossCleared(save, chapter.id)) {
+  if (idxBoss >= 0 && idx >= idxBoss && !bossCleared(save, chapter.id)) {
     return "retreat_to_boss";
   }
   return "advance";
@@ -457,7 +459,8 @@ function advanceOutcome(save) {
   const chapter = chaptersEngine.getChapter(save.chapter);
   const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
   if (!path.length) {
-    return { patch: null, content: "【系统】前路在此断裂，暂无可以踏足之地。" };
+    // 断路同样是门拒绝：零消耗、零位移、零日志——与章节门/终章同口径。
+    return { patch: null, refused: true, content: "【系统】前路在此断裂，暂无可以踏足之地。" };
   }
   const vit = vitalsCost(save);
   const idx = chaptersEngine.pathIndexOf(chapter, save.scene);
@@ -480,24 +483,19 @@ function advanceOutcome(save) {
   const bossAlive = idxBoss >= 0 && !bossCleared(save, chapter.id);
   if (bossAlive && idx === idxBoss) {
     //   a) 人就站在守关房里（F095 逃生阀放进来的，或守关房即链尾）：
-    //      「前进」不是放行——守关者封着出口，只能退回上一主线场景；
-    //      链首即守关房无退路时，兜底为零消耗拒绝（数据上 8 章的守关房
-    //      都不在链首，该分支是防数据漂移的保险丝）。
-    const prev = idx > 0 ? path[idx - 1] : null;
-    if (!prev) {
-      return {
-        patch: null,
-        refused: true,
-        content:
-          `【主线】「${chapterBossName(chapter)}」仍挡在出口——必须击败它才能通过。\n` +
-          `（本次没有消耗体力）`,
-      };
-    }
+    //      「前进」是门拒绝——守关者封着出口，一律 refused 短路：
+    //      零 HP/MP、零位移、零日志、零事件（与章节门/终章同口径）。
+    //      F106：旧口径「退回上一景并扣体力」是顺序倒置——位移结算
+    //      先于门禁成立，线上玩家在房内连点被原地耗死。现在拒绝不改
+    //      落点，出路只剩击败守关者（房内「攻击」可逼它现形再战；
+    //      守关战里的逃跑/阵亡仍按战斗结算位移），不再由「前进」代劳。
     return {
-      patch: { ...vit.patch, scene: prev.id },
+      patch: null,
+      refused: true,
       content:
         `【主线】「${chapterBossName(chapter)}」的威压仍封着出口——` +
-        `你无法越过守关者，只能退回「${prev.title}」。\n${vit.note}`,
+        `你无法越过守关者，唯有击败它才能前行（「攻击」可逼它现形再战）。\n` +
+        `（本次没有消耗体力）`,
     };
   }
   if (bossAlive && idx > idxBoss) {
@@ -521,7 +519,7 @@ function advanceOutcome(save) {
   // 兜底，保证任何路径都扣不到血。
   if (idx === path.length - 1) {
     if (!nextChapter) {
-      return { patch: null, content: EPILOGUE_REFUSAL };
+      return { patch: null, refused: true, content: EPILOGUE_REFUSAL };
     }
     return chapterGate(save, chapter, nextChapter, vit);
   }
@@ -1008,7 +1006,7 @@ function combatTurn(save, cbt, action, input, skill, opts) {
       .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
       .filter((x) => x.item && x.item.category === "consumable" && x.row.qty > 0);
     if (!usable.length) {
-      return { patch: null, content: "【系统】背包里已没有可用的补给。", events: [] };
+      return { patch: null, content: "【系统】背包里已没有可用的补给。", events: [], refused: true };
     }
     const needHp = save.hp < save.max_hp;
     const needMp = save.mp < save.max_mp;
@@ -1019,19 +1017,20 @@ function combatTurn(save, cbt, action, input, skill, opts) {
       ? usable.find((x) => x.item.name === want || x.item.id === want)
       : null;
     if (want && !picked) {
-      return { patch: null, content: `【系统】背包里没有名为「${want}」的可用补给。`, events: [] };
+      return { patch: null, content: `【系统】背包里没有名为「${want}」的可用补给。`, events: [], refused: true };
     }
     if (picked && !helps(picked.item)) {
       return {
         patch: null,
         content: `【系统】「${picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。`,
         events: [],
+        refused: true,
       };
     }
     if (!picked) {
       const helpful = usable.filter((x) => helps(x.item));
       if (!helpful.length) {
-        return { patch: null, content: "【系统】背包里的补给此刻都派不上用场。", events: [] };
+        return { patch: null, content: "【系统】背包里的补给此刻都派不上用场。", events: [], refused: true };
       }
       picked = helpful.sort(
         (a, b) => (a.item.heal || 0) + (a.item.mp || 0) - ((b.item.heal || 0) + (b.item.mp || 0))
@@ -1186,22 +1185,26 @@ function peacefulCombatIntent(save, input, action) {
         patch: null,
         content: "【系统】此处已无可战之敌——硝烟散尽，只余归途的安静。",
         events: [],
+        refused: true,
       };
     }
     if (action === "skill") {
       // 技能必须有真实交战目标：无交战时一律诚实拒绝（含冷却/MP/等级
       // 门禁顺序），不再用技能掷遭遇——不扣 MP、不占回合、不开战。
+      // F106：门禁失败挂 refused——零消耗、零日志、零事件。
       const gate = skillGate(save, input, false);
-      if (!gate.ok) return { patch: null, content: gate.content, events: [] };
+      if (!gate.ok) return { patch: null, content: gate.content, events: [], refused: true };
     }
     const scene = chaptersEngine.currentScene(save);
     // 击杀冷却未走完：原地连点「攻击」刷不出怪——落空计数不涨
     // （被冷却压制的空挥不该喂保底），只给诚实播报。
+    // F106：冷却压制也是门拒绝——挂 refused 让路由短路、不入账本。
     if (encounterBlockedByCooldown(save, scene)) {
       return {
         patch: null,
         content: "【系统】刚结束的战斗把附近的魔物惊散了——这片区域暂时没有敌人敢靠近，往前走走再试。",
         events: [],
+        refused: true,
       };
     }
     // boss 房逃跑冷却是负值 encounter_clock：原地出招不算「移动」，
@@ -1245,7 +1248,8 @@ function combatIntent(save, input, action) {
   let skill = null;
   if (action === "skill") {
     const gate = skillGate(save, input, engagedTarget(cbt));
-    if (!gate.ok) return { patch: null, content: gate.content, events: [] };
+    // F106：门禁失败挂 refused——不扣 MP、不占回合、不写日志。
+    if (!gate.ok) return { patch: null, content: gate.content, events: [], refused: true };
     skill = gate.skill;
   }
   return combatTurn(save, cbt, action, input, skill, { retreatOnFlee: action === "flee" });
@@ -1504,6 +1508,15 @@ const INTENTS = [
     id: "sneak",
     role: "narrator",
     build: (save) => {
+      // F106：MP 不足是门拒绝——潜行需 5 MP，不足时 refused 短路
+      // （零消耗、零日志），不再按残量扣费放行。
+      if (save.mp < 5) {
+        return {
+          patch: null,
+          refused: true,
+          content: `【系统】MP 不足——「潜行」需要 5 MP（当前 ${save.mp}）。`,
+        };
+      }
       const mp = clamp(save.mp - 5, 0, save.max_mp);
       const n = (proseStmts.sneakCount.get(save.id) || {}).n || 0;
       const line = proseEngine.pick(
@@ -1524,9 +1537,11 @@ const INTENTS = [
     build: (save) => {
       const status = restStatus(save, store.getCombat(save.id));
       // 满血满蓝或配额耗尽：诚实拒绝，不产收益、不耗次数、不写虚构数值。
+      // F106：门拒绝挂 refused——零消耗、零日志、零事件。
       if (!status.available) {
         return {
           patch: null,
+          refused: true,
           content:
             `【系统】${status.reason}。` +
             (status.remaining > 0 ? `本章还可休息 ${status.remaining}/${REST_LIMIT} 次。` : ""),

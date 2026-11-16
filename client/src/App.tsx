@@ -787,9 +787,9 @@ export default function App() {
                 const restBlocked = Boolean(restInfo && !restInfo.available);
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
-                // 不再发这条必拒指令。F096：守关者未击杀而人站在 boss 场景
-                // 之后（含章尾）时「前进」的真实语义是折返回守关房再战——
-                // 主按钮按服务端 advance_mode 换标，不在前端猜场景。
+                // 不再发这条必拒指令。F096/F106：守关者未击杀被门挡时
+                // （房内出口被封 / 站在 boss 场景之后含章尾）主按钮按服务端
+                // advance_mode 换标「折返守关者」，不在前端猜场景。
                 const retreatToBoss =
                   b.input === "前进" && save.advance_mode === "retreat_to_boss";
                 if (b.input === "前进" && save.at_epilogue) {
@@ -814,7 +814,7 @@ export default function App() {
                     title={
                       (restBlocked && (restInfo?.reason || "暂时无法休息")) ||
                       (retreatToBoss
-                        ? `守关者未击杀 · 折返再战 · 快捷键 ${i + 1}`
+                        ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
                         : `快捷键 ${i + 1}`)
                     }
                     aria-disabled={busy || restBlocked}
