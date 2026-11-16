@@ -108,3 +108,59 @@ test("resolveIntent: F137 反例——裸「打」不吞非战斗输入", () => 
     assert.notEqual(fallback.parse(input).intent, "attack", `fallback.parse "${input}"`);
   }
 });
+
+// F150 review 回归：守关者门前的文字叫阵与主按钮「叫阵守关者」同一个
+// 真实入口——「叫阵」「挑战」「叫阵守关者」必须归 attack，不落 unknown。
+test("resolveIntent: F150 叫阵/挑战归 attack（含叫阵守关者）", () => {
+  for (const input of ["叫阵", "挑战", "叫阵守关者", "向守关者叫阵", "挑战它"]) {
+    assert.equal(keywords.resolveIntent(input), "attack", `resolveIntent "${input}"`);
+    assert.equal(fallback.parse(input).intent, "attack", `fallback.parse "${input}"`);
+  }
+});
+
+// F151 review 回归：疑问句形态（？结尾 / 还是 / 吗 / 要不要 / 是不是）
+// 不命中战斗意图——系统兜底句被复述回输入时不得结算成一次攻击；
+// 正常陈述句的攻击说法照旧生效。
+test("resolveIntent: F151 疑问句不命中战斗意图，陈述句照旧", () => {
+  const questions = [
+    "你是想攻击还是想离开？",
+    "你想攻击还是想离开?",
+    "要不要攻击它",
+    "攻击它行吗",
+    "我是不是该攻击",
+    "攻击还是防御",
+    "要不要逃跑？",
+    "要不要继续前进？",
+  ];
+  for (const input of questions) {
+    const got = keywords.resolveIntent(input);
+    assert.notEqual(got, "attack", `resolveIntent "${input}" -> ${got}`);
+    assert.notEqual(got, "flee", `resolveIntent "${input}" -> ${got}`);
+    assert.notEqual(got, "advance", `resolveIntent "${input}" -> ${got}`);
+    assert.notEqual(fallback.parse(input).intent, "attack", `fallback.parse "${input}"`);
+  }
+  for (const input of ["攻击", "我攻击它", "攻击它", "我攻击它，然后离开"]) {
+    assert.equal(keywords.resolveIntent(input), "attack", `resolveIntent "${input}"`);
+    assert.equal(fallback.parse(input).intent, "attack", `fallback.parse "${input}"`);
+  }
+});
+
+// F154 review 回归：「使用 X」要补给词尾才判 item——「喝水」「喝彩」
+// 「使用钥匙开门」不烧补给；点名真实补给仍生效，背包里词尾表之外的
+// 补给全名被点名时由 supplyNames 兜底接住。
+test("resolveIntent: F154 item 意图收窄 + 点名兜底", () => {
+  for (const input of ["喝水", "喝彩", "使用钥匙开门", "使用 力量加点", "吃面"]) {
+    assert.notEqual(keywords.resolveIntent(input), "item", `resolveIntent "${input}"`);
+    assert.notEqual(fallback.parse(input).intent, "item", `fallback.parse "${input}"`);
+  }
+  for (const input of ["使用治疗药水", "喝魔力药剂", "使用道具", "使用圣水", "喝低级治疗药水", "吃药"]) {
+    assert.equal(keywords.resolveIntent(input), "item", `resolveIntent "${input}"`);
+    assert.equal(fallback.parse(input).intent, "item", `fallback.parse "${input}"`);
+  }
+  // 词尾表之外的补给名：使用动词 + 点名背包实有补给 → item；
+  // 没点名（「喝水」对「生命圣水」）或没搭使用动词都不算。
+  assert.equal(keywords.resolveIntent("喝能量饮", ["能量饮"]), "item");
+  assert.equal(keywords.resolveIntent("喝能量饮", []), null);
+  assert.equal(keywords.resolveIntent("喝水", ["生命圣水"]), null);
+  assert.equal(keywords.resolveIntent("背包里有能量饮", ["能量饮"]), null);
+});

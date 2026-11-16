@@ -418,6 +418,14 @@ function itemLine(item) {
   return "素材";
 }
 
+// F153 补给用量尾注与丢弃路径同一口径：qty 扣尽时写「这是最后一瓶，
+// 已用完」（栈真的没了，与丢弃的「背包中已无此物」同向），绝不写
+// 「剩余 ×0」。/saves/:id/item op=use 与「使用道具」脱战结算共用。
+function supplyUseTail(item, qtyLeft) {
+  const rest = qtyLeft > 0 ? `剩余 ×${qtyLeft}` : "这是最后一瓶，已用完";
+  return `（${itemLine(item)}，${rest}）`;
+}
+
 
 // 推进体力消耗（沿用原数值）：HP-3、MP-2，下限一律 0——F077 起不再夹
 // 在 1，耗尽可能触发死亡回溯。数值没动过的一律不进文案——HP 已 0 时
@@ -442,6 +450,30 @@ const BOSS_REENTRY_LINES = [
   (sceneTitle, bossName) =>
     `你重新回到「${sceneTitle}」。「${bossName}」还立在原地没有倒下——要打，就先叫阵。`,
 ];
+
+// F150 守关者威压拒绝：文案按被拒次数轮换 + 如实报数，拒绝是零日志零
+// patch 的短路——计数只能放进程内存（与 equipment 边车同理）：同一存档
+// 第 n 次被逼退按 n 取池内下一条并写出「第 n 次被威压逼退」，进程重启
+// 后计数自然清零（只是文案细节，不伤语义）。
+// 每条的硬约束：① 点名可输入的「攻击」/「叫阵」——纯键盘玩家与点按钮
+// 玩家都有路，不再只让人去点按钮；② 含按钮名「叫阵守关者」——
+// gate-refusal-free 断言的老契约，删了它前端主按钮失去可点出路；
+// ③ 不出现「遭遇/第 N 回合/倒下了」这类客户端交战信号词。
+const BOSS_GATE_LINES = [
+  (bossName, n) =>
+    `【主线】「${bossName}」的威压仍封着出口——你无法越过守关者，唯有击败它才能前行。` +
+    `说「攻击」或「叫阵」逼它现形再战（也可点「叫阵守关者」按钮）。\n` +
+    `（本次没有消耗体力 · 第 ${n} 次被威压逼退）`,
+  (bossName, n) =>
+    `【主线】出口仍被「${bossName}」的威压钉死——这已经是第 ${n} 次被它逼退。` +
+    `守关者还活着，此路不通：说「攻击」向它叫阵，或点「叫阵守关者」。\n` +
+    `（本次没有消耗体力）`,
+  (bossName, n) =>
+    `【主线】「${bossName}」没有让路的意思——威压第 ${n} 次将你拦在门前。` +
+    `唯有击败它才能前行：输入「攻击」或「叫阵」开战（对应按钮「叫阵守关者」）。\n` +
+    `（本次没有消耗体力）`,
+];
+const bossGatePushes = new Map();
 
 // 本章守关者真名：遭遇表 boss 模板为准（玩家实际交手的实体），兜底主线
 // 链上 kind="boss" 场景的标题；都拿不到才回退到通用称谓——数据上 8 章
@@ -551,15 +583,17 @@ function advanceOutcome(save) {
     //      先于门禁成立，线上玩家在房内连点被原地耗死。现在拒绝不改
     //      落点，出路只剩击败守关者（F121：房内主按钮已换标「叫阵守关
     //      者」、点击即发起「攻击」逼它现形；守关战里的逃跑/阵亡仍按
-    //      战斗结算位移），不再由「前进」代劳。文案必须指向玩家真实
-    //      可点的按钮名——指向自由输入框手打指令是不可发现的死路。
+    //      战斗结算位移），不再由「前进」代劳。F150：文案轮换+计数，
+    //      可输入动词与按钮名双指路——只指按钮对纯输入玩家是死路。
+    const pushN = (bossGatePushes.get(save.id) || 0) + 1;
+    bossGatePushes.set(save.id, pushN);
     return {
       patch: null,
       refused: true,
-      content:
-        `【主线】「${chapterBossName(chapter)}」的威压仍封着出口——` +
-        `你无法越过守关者，唯有击败它才能前行（点「叫阵守关者」逼它现形再战）。\n` +
-        `（本次没有消耗体力）`,
+      content: BOSS_GATE_LINES[(pushN - 1) % BOSS_GATE_LINES.length](
+        chapterBossName(chapter),
+        pushN
+      ),
     };
   }
   if (bossAlive && idx > idxBoss) {
@@ -1274,6 +1308,19 @@ function supplyHint(save) {
   return `（${parts.join("；")}）`;
 }
 
+// F154 补给点名名单：把该档背包里真实存在的可用补给名传给
+// resolveIntent，接住词尾表之外的点名叫法（新补给名不带药/剂/水
+// 字尾时仍能用药）。裸「喝水」不会因为背包里有「生命圣水」被误判
+// ——输入没有点名它。
+function bagSupplyNames(save) {
+  return store
+    .getInventory(save.id)
+    .filter((r) => Number(r.qty) > 0)
+    .map((r) => ITEMS.get(r.item_id))
+    .filter((it) => it && it.category === "consumable")
+    .map((it) => it.name);
+}
+
 // F145 脱战补给：与 /saves/:id/item op:"use" 同口径结算——数值 clamp 到
 // 0..max、消耗 1 件、满值拒绝；点名/选取走 supplySelection（与交战态同一
 // 套，不是第二份数值逻辑）。零战斗结算：不占回合、不掷遭遇、不动 scene/
@@ -1327,7 +1374,7 @@ function peacefulItemOutcome(save, input) {
     events: [],
     content:
       `【系统】已使用「${item.name}」。${deltas.join(" · ")}。` +
-      `（${itemLine(item)}，剩余 ×${picked.row.qty - 1}）`,
+      supplyUseTail(item, picked.row.qty - 1),
   };
 }
 
@@ -2132,13 +2179,62 @@ function applyOutcome(saveId, outcome) {
   return run();
 }
 
+// F146 脱战未识别兜底按语境生成：
+//   ① 回显玩家原文——「系统未识别该指令：「X」」形态自 F129 起有客户端
+//      依赖（回显被删曾打红 F076 交战信号断言），不得改写；
+//   ② 命中面板操作词（加点/属性点/装备/卸下/技能……）先给一句具体指路
+//      ——这些动作在面板里有真实路径，笼统问「想干什么」是死路；
+//   ③ 收尾给 2–3 条与当前场景实况相关的可做之事（守关者封门指叫阵、
+//      有自由点指属性、有伤且配额在指休息），不再固定追问
+//      「你是想攻击还是想离开」——与语境无关的死问句已删。
+const UNKNOWN_GUIDES = [
+  {
+    match: /加点|属性点|自由属性/,
+    tip: "属性点请到「属性」面板分配（口述「属性」或「状态」直接打开）。",
+  },
+  {
+    match: /装备|卸下|换装|穿上/,
+    tip: "装备与卸下请到「背包」面板操作（口述「背包」直接打开）。",
+  },
+  {
+    match: /技能/,
+    tip: "技能请到「技能」面板查看与释放（口述「技能」直接打开）。",
+  },
+];
+
+function unknownFallbackContent(save, input) {
+  const guide = UNKNOWN_GUIDES.find((g) => g.match.test(input));
+  const scene = chaptersEngine.currentScene(save);
+  const todo = [];
+  if (advanceMode(save) === "challenge_boss") {
+    todo.push("说「攻击」或「叫阵」逼守关者现形再战");
+  } else if (scene && scene.escape_locked === true) {
+    todo.push("说「前进」硬闯守关者——击败它才能离开这里");
+  }
+  if ((Number(save.free_points) || 0) > 0) {
+    todo.push("说「属性」打开面板分配自由属性点");
+  }
+  const rest = restStatus(save, null);
+  if (rest.available && (save.hp < save.max_hp || save.mp < save.max_mp)) {
+    todo.push(`说「休息」恢复体力与魔力（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`);
+  }
+  todo.push("说「观察」环顾四周", "说「前进」推进剧情");
+  return (
+    `【系统】系统未识别该指令：「${input}」。` +
+    (guide ? `${guide.tip}\n` : "") +
+    `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`
+  );
+}
+
 function resolveAction(save, input) {
   // 裸面板名最先走面板路由（F129）：比关键词表更靠前，因为「属性」
   // 「影子编队」本就会被 status/shadow_formation 意图接住而轮不到
   // unknown 分支——面板路由是同一意图的更好落地，不是新解析层。
   const panel = panelOutcome(input);
   if (panel) return panel;
-  const intentId = intentRules.resolveIntent(input);
+  // F154：背包真实补给名一并交给解析器——词尾表之外的点名叫法
+  // （「喝能量饮」且背包真有「能量饮」）仍判 item；没点名不算。
+  const intentId = intentRules.resolveIntent(input, bagSupplyNames(save));
   if (intentId) {
     return executeIntent(save, intentId, input);
   }
@@ -2150,10 +2246,9 @@ function resolveAction(save, input) {
     patch: null,
     events: [],
     content: cbt
-      ? `【系统】你正与${cbt.enemy.name}交战——「攻击」「释放技能 X」「防御」「使用道具」或「使用/喝 <药名>」「逃跑」，或「前进」强行撤离。`
-      // F137：兜底指令表之外补一句澄清问句——玩家最常见的真实意图就是
-      // 「打」或「走」，给一个可执行的回话方向，不再是一句死话收尾。
-      : `【系统】系统未识别该指令：「${input}」。可用：探索前进 / 环顾四周 / 攻击 / 休息 / 存档，输入「帮助」查看完整指令表。\n你是想攻击还是想离开？`,
+      ? `【系统】系统未识别该指令：「${input}」。你正与${cbt.enemy.name}交战——` +
+        `「攻击」「释放技能 X」「防御」「使用道具」或「使用/喝 <药名>」「逃跑」，或「前进」强行撤离。`
+      : unknownFallbackContent(save, input),
   };
 }
 
@@ -2435,7 +2530,7 @@ api.post("/saves/:id/item", (req, res) => {
     if (mp !== save.mp) deltas.push(`MP ${save.mp}→${mp}`);
     content =
       `【系统】已使用「${item.name}」。${deltas.join(" · ")}。` +
-      `（${itemLine(item)}，剩余 ×${qty - 1}）`;
+      supplyUseTail(item, qty - 1);
     if (qty <= 1) invStmts.remove.run(save.id, item.id);
     else invStmts.setQty.run(qty - 1, save.id, item.id);
   } else if (body.op === "equip") {
@@ -2824,7 +2919,7 @@ api.post("/ai-action", async (req, res) => {
     }
 
     if (!intentId) {
-      const rule = aiFallback.parse(input);
+      const rule = aiFallback.parse(input, bagSupplyNames(save));
       intentId = rule && aiValidate.INTENT_IDS.has(rule.intent) ? rule.intent : "observe";
       degraded = true;
     }
