@@ -324,9 +324,26 @@
   risk: low
 
 ## 第 15 轮试玩新增（2026-11-16 08:05，cron；F136 上线后真机 180 动作 / 桌面+移动）
-- [ ] F137 自由输入意图覆盖过窄：交战中输「对着石像挥一拳」→ 回指令表不结算攻击；惩罚副本 2/3 输「离开这里」→ 被路由成「前进」，直接撞回毒牙蛇守门房（方向与语义相反）；「撤离副本」「回到第1章」一律「系统未识别该指令」。要求：攻击类同义表述（挥拳/砍/劈/打它/出手）在交战中按攻击结算；「离开/撤退/撤离/回去」等脱离语义在交战中解析为 `flee`、在非交战惩罚区解析为「撤离惩罚副本」，**不得**路由成 `advance`；未识别时回指令表之外再给一句「你是想攻击还是想离开？」的澄清问句。断言：交战中三种攻击同义句各造成一回合结算（敌人 HP 下降且回合数 +1）；惩罚区「离开这里」不得让 `scene` 从 `ch2_penalty_gate` 走向守门房/毒牙蛇遭遇；`flee`/`撤离` 指令不得出现在「未识别」回包
+- [x] F137 自由输入意图覆盖过窄：交战中输「对着石像挥一拳」→ 回指令表不结算攻击；惩罚副本 2/3 输「离开这里」→ 被路由成「前进」，直接撞回毒牙蛇守门房（方向与语义相反）；「撤离副本」「回到第1章」一律「系统未识别该指令」。要求：攻击类同义表述（挥拳/砍/劈/打它/出手）在交战中按攻击结算；「离开/撤退/撤离/回去」等脱离语义在交战中解析为 `flee`、在非交战惩罚区解析为「撤离惩罚副本」，**不得**路由成 `advance`；未识别时回指令表之外再给一句「你是想攻击还是想离开？」的澄清问句。断言：交战中三种攻击同义句各造成一回合结算（敌人 HP 下降且回合数 +1）；惩罚区「离开这里」不得让 `scene` 从 `ch2_penalty_gate` 走向守门房/毒牙蛇遭遇；`flee`/`撤离` 指令不得出现在「未识别」回包 ✅ (2026-11-16 cron devin swe-2-high; `server/ai/keywords.js` 词表单一事实源改动——attack 补 `挥[^，。！？]{0,3}拳|挥刀|劈|打它|打你|揍|出手|砸`（不加裸「打」，避免吞「打开背包」），flee 补 `离开|撤离|回到|返回|脱战|溜走|走人` 并从 advance 正则删掉「离开」；`server/index.js` 非交战 flee 分两层——`chapters.json` 场景级 `escape_locked`（ch2_penalty_gate / ch2_poison_fang，数据驱动非写死 id）走 `refused` 零消耗短路并给真实出路「击败守关者或撑到副本终结」，普通场景回「此处没有交战，无需撤离」且绝不推进；未识别兜底追加「你是想攻击还是想离开？」；`/action` 与 `/ai-action` 回包统一新增 `intent`（新增字段，前端不读不受影响）；新断言 `free-input-intent.mjs` (a)–(g) 隔离实例 3 连跑全绿，旧码红证 (a) FAIL，另手工红证：旧码 `ch2_penalty_gate` 输「离开这里」→ `scene=ch2_poison_fang` + 毒牙蛇开战，新码原地 + `escape_locked:true`；回归 `node --test server/*.test.js` 203/203、F076/F096/F109/F129/F134 线上 PASS、`ci-deploy.sh` 内置 E2E 5/5、合并后全量 `run-all.mjs` 5/5)
   verify: node scripts/assert/free-input-intent.mjs
   risk: med
 - [ ] F138 惩罚副本「回满血再挑战」反被打回死循环：2/3 休息召来可击杀的惩罚沙虫 Lv.4（+36XP，唯一活路），但 **3/3 休息召来的却是 Boss 本体**（「休憩被硬生生打断——惩罚副本·毒牙蛇摸到了你的藏身处」）——玩家最自然的「回满血再挑战」操作反而立刻回到必死遭遇，且位置规则不可预测。要求：惩罚副本内休息遭遇一律从「惩罚副本杂兵池」（沙虫/毒蛇 Lv.4，可击杀）取样，Boss 本体只在玩家主动叫阵/前进到守门房 3/3 时才出现；休息回包须带 `encounter_source:"rest"` 与可读提示。断言：同一存档在惩罚副本连做 3 次休息，遭遇名字不得出现「毒牙蛇」；三次休息的遭遇等级均 ≤ `player.level + 1`
   verify: node scripts/assert/penalty-rest-encounter-pool.mjs
   risk: high
+
+## 第 16 轮试玩新增（2026-11-16 09:24，cron；F137 上线后真机复核，桌面 1280×800）
+- [ ] F139 （阻断）F137 的封门拒绝在「守关者已死」后当面说谎 + 承诺一条不存在的出路：杀完 ch2 毒牙蛇后 `advance_mode=next_chapter`、主按钮已换「进入第3章」，此时输「离开这里」仍 `refused+escape_locked`，回「退路已被封死——你无法撤离。只有击败守关者，或撑到副本终结，才能离开这里」。两处错：① `escape_locked` 是场景静态字段，不看 `boss_cleared`/`advance_mode`，Boss 已死仍拒；② 「或撑到副本终结」机制上不存在（场景文本「存活至副本结束」无 N/M 计数、无计时器、任务面板无惩罚倒计时，死亡回溯落点又指回 `ch2_penalty_gate`），同一条出路被杀蛇说成了两条，且拒绝句不点名可点动作词（守关门 refused 会点名「叫阵守关者」）。要求：`escape_locked` 分支先看 Boss 是否已清——已清则不再拒绝，回「守关者已倒下，按『前进』离开副本」（或直接放行推进），未清则文案改成单一路径并点名动作词（「说『前进』挑战守关者」），**删掉**「撑到副本终结」类 phantom 承诺。断言：Boss 已击杀存档在 `ch2_penalty_gate` 输「离开这里」不得 `refused`（或文案不含「无法撤离」且含「前进」）；Boss 未清时回包不得含「撑到」「存活至副本结束」，且必须含动作词「前进」或「叫阵」。
+  verify: node scripts/assert/escape-locked-boss-cleared.mjs
+  risk: med
+- [ ] F140 F137 同族漏网：「往回走」仍被 advance 抢走——实测 ch3 正常场景输「往回走」`scene` 从 `ch3_association` 真推进到 `ch3_retest`（方向与语义相反）。要求：flee 词表补 `往回|回头|退回去|原路返回`，并确认不把 advance 的裸「走」抢坏（「继续走」必须仍是 advance）。断言：非交战场景输「往回走」「原路返回」`scene` 不变且非 advance；「继续走」「向前走」仍是 advance。
+  verify: node scripts/assert/backtrack-intent.mjs
+  risk: low
+- [ ] F141 帮助文本被当成敌人名导致「幽灵战斗面板」：打一场仗 → 输「帮助」→ 刷新页面 → 战斗面板自动顶开显示「交战 第5回合 / 战中： Lv.- HP -/-」，玩家以为卡在一场看不见敌人的战斗里（`CombatPanel` 的 `ENEMY_RE` 把指令表里的「遭遇战中：」抓成敌人名，`TURN_RE` 抓到旧回合数）。要求：`ENEMY_RE`/推断逻辑排除系统指令表行（或以服务端结构化的 `combat` 字段为准，不再从日志正则反推）；断言：Playwright 打一场仗 → 输「帮助」→ 刷新 → 战斗面板不得显示「交战」；同场景真交战时面板仍正常显示。
+  verify: node scripts/assert/ghost-combat-panel.mjs
+  risk: med
+- [ ] F142 拒绝往来不落库（minor）：refused 的输入与警告零日志，刷新后「离开这里」连同「你无法撤离」一并消失，玩家回查无据；F137 把更多日常输入变成 refused 后「被抹掉的对话」变多。要求：refused 输入仍写一条 user 日志 + 一条 system 拒绝文案（不产生任何数值结算/位移），或明确在回包标注 `logged:false` 并让前端保留本地气泡。断言：封门拒绝后 `GET /api/saves/:id` 的日志含该输入与拒绝文案，且 hp/mp/xp/scene 零变化。
+  verify: node scripts/assert/refused-log-visibility.mjs
+  risk: low
+- [ ] F143 面板直开只认裸名（minor）：「背包」能开面板，但「打开背包」→ unknown 吃兜底、「看看背包」被裸「看」抢成 observe。要求：`打开/查看/看看/打开我的/给我看` + 面板名 一律路由到对应面板（F129 的整句锚定原则不变，长句叙述不得被吞）。断言：「打开背包」「看看背包」「打开我的属性」均回 `panel`；「我打开背包发现里面空了」不得回 panel。
+  verify: node scripts/assert/panel-open-verbs.mjs
+  risk: low
