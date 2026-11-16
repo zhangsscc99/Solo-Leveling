@@ -6,11 +6,14 @@
 //      支线场景 ch1_watch / ch1_death 不计入）。
 //   2) POST /action {input:"前进"} 严格沿主线链推进 save.scene，
 //      reply.content 必须含落点场景 text 的 ≥12 字原文片段，且不得含
-//      「踩着碎石」模板句。（首推是老存档自愈落点：scene 列由 NULL 写入链首。）
+//      「踩着碎石」模板句。（F124 口径：建档即写入链首——首推是章首
+//      铺陈步落到第二幕；旧档 scene=NULL 才走自愈落点，见
+//      new-save-first-advance.mjs。）
 //   3) 连推 12 次：落点序列与独立推导的主线链逐位一致，chapter_steps
 //      单调增（穿章时重置为 1 且 chapter+1）；落到链尾那一步
 //      chapter_completed === true 且播报含「本章主线 N/N 完成」。
-//   4) 链尾再推一次才过章节门：第 8 推进第 2 章并落到 ch2 链首。
+//   4) 链尾再推一次才过章节门：过门落到下一章链首（F117：过门零消耗、
+//      scripted 不计步——下一章的步序从下一幕真实推进开始递增）。
 //   期望值不经过被测的 chaptersEngine.chapterPath —— ch1 链 id 写死，
 //   其余章节由本脚本直接读 chapters.json 沿 next_scene（缺失取首个指向
 //   本章未到访场景的 choice.next）独立推导。
@@ -76,15 +79,17 @@ assert(
   "side scenes must not be on the main chain"
 );
 
-// 12 推的期望落点：ch1 链 7 步 + 过门进 ch2 链 3 步 + 过门进 ch3 链 2 步。
+// 12 推的期望落点：新档已站在 ch1 链首（F124 建档写入真实场景），
+// 首推 = 章首铺陈步落到链第二幕——ch1 链还剩 6 步 + 过门进 ch2 链 3 步
+// （过门落链首计 1 步）+ 过门进 ch3 链 3 步。
 const expected = [];
-chains[1].forEach((scene, i) =>
-  expected.push({ chapter: 1, scene, steps: i + 1, total: 7 })
+chains[1].slice(1).forEach((scene, i) =>
+  expected.push({ chapter: 1, scene, steps: i + 2, total: 7 })
 );
 chains[2].slice(0, 3).forEach((scene, i) =>
   expected.push({ chapter: 2, scene, steps: i + 1, total: chains[2].length })
 );
-chains[3].slice(0, 2).forEach((scene, i) =>
+chains[3].slice(0, 3).forEach((scene, i) =>
   expected.push({ chapter: 3, scene, steps: i + 1, total: chains[3].length })
 );
 assert(expected.length === 12, "expected landing table misassembled");

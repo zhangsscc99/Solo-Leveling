@@ -148,7 +148,9 @@ assert(
 assert(!CONTRADICTION.test(repB1) && !SAME_VALUE.test(repB1), "B1: bad death prose");
 const xpAfterFirst = dieB1.save.xp;
 
-db.prepare("UPDATE saves SET hp = 1 WHERE id = ?").run(idB);
+// 第二次倒下同样推进中力竭：回溯落点是链首入口，F124 口径下章首铺陈步
+// 零消耗（站在链首 hp=1 推不死人）——把站位锚回 PATH[1]，与 B1 同一口径。
+db.prepare("UPDATE saves SET hp = 1, scene = ? WHERE id = ?").run(PATH[1], idB);
 const dieB2 = await act(idB, "前进");
 const repB2 = dieB2.reply.content;
 assert(dieB2.save.deaths === 2, `B2: deaths should be 2, got ${dieB2.save.deaths}`);

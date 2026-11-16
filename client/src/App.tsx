@@ -798,11 +798,19 @@ export default function App() {
                 // 换标「折返守关者」，不在前端猜场景。F121：人已站在守关
                 // 房内时主按钮换标「叫阵守关者」——点击发起「攻击」就地
                 // 开战（与自由输入「攻击」同一服务端结算），这是房内唯一
-                // 可点的出路。
+                // 可点的出路。F117：主线链尾（守关者已击杀、chapter_completed）
+                // 主按钮换标「进入第N章 · 章名」——章号章名来自服务端
+                // save.next_chapter，过门零消耗；前端不推断完成态。
                 const retreatToBoss =
                   b.input === "前进" && save.advance_mode === "retreat_to_boss";
                 const challenge =
                   b.input === "前进" && save.advance_mode === "challenge_boss";
+                const nextChapter =
+                  b.input === "前进" &&
+                  save.advance_mode === "next_chapter" &&
+                  save.next_chapter
+                    ? save.next_chapter
+                    : null;
                 if (b.input === "前进" && save.at_epilogue) {
                   return (
                     <button
@@ -819,20 +827,33 @@ export default function App() {
                 return (
                   <button
                     key={b.label}
-                    className={`btn${b.primary ? " primary" : ""}`}
+                    className={`btn${b.primary ? " primary" : ""}${nextChapter ? " cta-next" : ""}`}
                     disabled={busy || restBlocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
                       (restBlocked && (restInfo?.reason || "暂时无法休息")) ||
                       (challenge
                         ? `守关者就在面前 · 叫阵开战 · 快捷键 ${i + 1}`
-                        : retreatToBoss
-                          ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
-                          : `快捷键 ${i + 1}`)
+                        : nextChapter
+                          ? `进入第${nextChapter.index}章 · 过门不耗体力 · 快捷键 ${i + 1}`
+                          : retreatToBoss
+                            ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
+                            : `快捷键 ${i + 1}`)
                     }
                     aria-disabled={busy || restBlocked}
                   >
-                    {challenge ? "叫阵守关者" : retreatToBoss ? "折返守关者" : b.label}
+                    {challenge ? (
+                      "叫阵守关者"
+                    ) : nextChapter ? (
+                      <span className="btn-cta">
+                        进入第{nextChapter.index}章<span className="btn-cta-sep"> · </span>
+                        <span className="btn-cta-title">{nextChapter.title}</span>
+                      </span>
+                    ) : retreatToBoss ? (
+                      "折返守关者"
+                    ) : (
+                      b.label
+                    )}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>
