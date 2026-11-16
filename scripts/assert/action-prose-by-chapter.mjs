@@ -15,7 +15,7 @@
 // （例：PORT=3089 DB_PATH=/tmp/sl-f092.db node server/index.js，
 //   再 API_BASE=... DB_PATH=/tmp/sl-f092.db node 本脚本）。
 // 端点默认 _http.mjs 的 API_BASE（3020），可用
-//   API_BASE=http://127.0.0.1:3089/game/api 覆盖。连跑两次结果一致。
+//   API_BASE=http://127.0.0.1:3098/game/api 覆盖。连跑两次结果一致。
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

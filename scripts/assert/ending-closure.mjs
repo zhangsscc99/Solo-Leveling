@@ -23,8 +23,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// 本断言默认打隔离实例 3089（自测命令里的 PORT）；显式 API_BASE 仍可覆盖。
-process.env.API_BASE = process.env.API_BASE || "http://127.0.0.1:3089/game/api";
+// 端点与全族断言一致：_http.mjs 默认 3020，API_BASE 可显式覆盖。
 const { assert, get, ok, makeSave, post } = await import("./_http.mjs");
 
 const require = createRequire(import.meta.url);

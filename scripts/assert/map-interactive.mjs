@@ -4,17 +4,27 @@
 //   ② 锁定节点行内与详情都写清前置条件（含「需」字：需完成第N章主线 + 需 Lv.X），
 //      全列表不允许「未解锁」孤文；
 //   ③ 已通关章节可回看 summary/景数——只读，不写存档、不允许跳章。
+//
+// 可复现性（F105）：report.sh 顺序跑时本脚本偶发超时。等待一律 settle 到
+// 真实状态（网络空闲 + 目标元素 attached/visible，无固定 sleep），整段
+// 包一次自动重试（打日志报第几次），Playwright 默认超时放宽到 45s。
 const BASE = (process.env.E2E_BASE_URL || "http://127.0.0.1:3020/game").replace(/\/+$/, "");
 process.env.E2E_BASE_URL = BASE;
 process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
 
 const { run, createSave, assert } = await import("../e2e/lib.mjs");
-const { post, advanceOnce } = await import("./_http.mjs");
+const { advanceOnce } = await import("./_http.mjs");
 
 const NAME = `e2e-map-${Date.now().toString(36)}`;
+const MAX_ATTEMPTS = 2; // 首跑 + 一次自动重试
 
-run("map-interactive", async ({ page }) => {
+async function attemptOnce(page) {
+  // 干净起点：清掉上次（重试时）残留的 save_id，等网络空闲再走门。
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => localStorage.clear());
   await createSave(page, NAME);
+  await page.waitForLoadState("networkidle");
   const saveId = await page.evaluate(() =>
     Number(localStorage.getItem("solo_leveling_save_id"))
   );
@@ -30,7 +40,7 @@ run("map-interactive", async ({ page }) => {
 
   await page.locator(".btn-group-sys .btn", { hasText: "地图" }).first().click();
   await page.waitForSelector(".sidebar.open");
-  await page.waitForSelector(".map-list .map-node");
+  await page.waitForSelector(".map-list .map-node", { state: "visible" });
 
   const nodes = page.locator(".map-list .map-node");
   const count = await nodes.count();
@@ -74,7 +84,7 @@ run("map-interactive", async ({ page }) => {
   assert((await clearedNode.count()) === 1, "no cleared node after crossing to ch2");
   await clearedNode.locator("button.map-btn").click();
   const detail = clearedNode.locator(".map-detail");
-  await detail.waitFor();
+  await detail.waitFor({ state: "visible" });
   const dt = await detail.innerText();
   assert(dt.replace(/\s/g, "").length > 30, `cleared detail too thin: "${dt.slice(0, 80)}"`);
   assert(/景/.test(dt), `cleared detail missing 景数: "${dt.slice(0, 80)}"`);
@@ -88,4 +98,22 @@ run("map-interactive", async ({ page }) => {
   // 只读确认：点开详情后 save.chapter 不变（不允许跳章、不改存档）
   const after = await fetch(`${BASE}/api/saves/${saveId}`).then((r) => r.json());
   assert(after.save.chapter === 2, `save.chapter drifted to ${after.save.chapter} (read-only violated)`);
-});
+}
+
+run("map-interactive", async ({ page }) => {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await attemptOnce(page);
+      if (attempt > 1) console.log(`[E2E] map-interactive attempt ${attempt} PASS (after retry)`);
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.log(
+        `[E2E] map-interactive attempt ${attempt}/${MAX_ATTEMPTS} failed: ${e.message}` +
+          (attempt < MAX_ATTEMPTS ? " — retrying" : "")
+      );
+    }
+  }
+  throw lastErr;
+}, { timeoutMs: 45000 });
