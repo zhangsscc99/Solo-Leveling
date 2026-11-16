@@ -74,7 +74,7 @@ export async function run(name, fn, opts = {}) {
       ...(opts.context || {}),
     });
     page = await ctx.newPage();
-    page.setDefaultTimeout(20000);
+    page.setDefaultTimeout(opts.timeoutMs || 20000);
     await fn({ page, ctx });
   } catch (e) {
     err = e;
