@@ -335,7 +335,7 @@
 - [x] F139 （阻断）F137 的封门拒绝在「守关者已死」后当面说谎 + 承诺一条不存在的出路：杀完 ch2 毒牙蛇后 `advance_mode=next_chapter`、主按钮已换「进入第3章」，此时输「离开这里」仍 `refused+escape_locked`，回「退路已被封死——你无法撤离。只有击败守关者，或撑到副本终结，才能离开这里」。两处错：① `escape_locked` 是场景静态字段，不看 `boss_cleared`/`advance_mode`，Boss 已死仍拒；② 「或撑到副本终结」机制上不存在（场景文本「存活至副本结束」无 N/M 计数、无计时器、任务面板无惩罚倒计时，死亡回溯落点又指回 `ch2_penalty_gate`），同一条出路被杀蛇说成了两条，且拒绝句不点名可点动作词（守关门 refused 会点名「叫阵守关者」）。要求：`escape_locked` 分支先看 Boss 是否已清——已清则不再拒绝，回「守关者已倒下，按『前进』离开副本」（或直接放行推进），未清则文案改成单一路径并点名动作词（「说『前进』挑战守关者」），**删掉**「撑到副本终结」类 phantom 承诺。断言：Boss 已击杀存档在 `ch2_penalty_gate` 输「离开这里」不得 `refused`（或文案不含「无法撤离」且含「前进」）；Boss 未清时回包不得含「撑到」「存活至副本结束」，且必须含动作词「前进」或「叫阵」。 ✅ (2026-11-16 cron devin swe-2-high; `peacefulCombatIntent` 的 escape_locked 分支先过 `bossRequirementMet(save, chapter)`（读 `boss_cleared_json`，与章节门/主线奖励同一口径）：已清→`patch:null`、不挂 refused/escape_locked、不替玩家推进不掷遭遇，回「守关者已经倒下，退路重新打开——按「前进」离开副本」；未清→照旧 `refused+escape_locked` 零日志零消耗，文案删掉 phantom「撑到副本终结」，改「说「前进」挑战守关者，打倒他才能离开；说「叫阵」也行」；新断言 `escape-locked-boss-cleared.mjs`（(a) 未清两场景拒+点名动作词+无「撑到/存活至/毒牙蛇」、(b) 已清不拒+含「前进」、(c) 已清后「前进」两步正常进 ch3），隔离实例 3 连跑全绿，旧码红证 (a) FAIL + 手工红证（旧码 boss_cleared 后仍 refused 并谎称「只有击败守关者」）；回归 203/203 单测、F137/F076/F096/F109/F129/F134 线上 PASS、部署内置 E2E 5/5)
   verify: node scripts/assert/escape-locked-boss-cleared.mjs
   risk: med
-- [ ] F140 F137 同族漏网：「往回走」仍被 advance 抢走——实测 ch3 正常场景输「往回走」`scene` 从 `ch3_association` 真推进到 `ch3_retest`（方向与语义相反）。要求：flee 词表补 `往回|回头|退回去|原路返回`，并确认不把 advance 的裸「走」抢坏（「继续走」必须仍是 advance）。断言：非交战场景输「往回走」「原路返回」`scene` 不变且非 advance；「继续走」「向前走」仍是 advance。
+- [x] F140 F137 同族漏网：「往回走」仍被 advance 抢走——实测 ch3 正常场景输「往回走」`scene` 从 `ch3_association` 真推进到 `ch3_retest`（方向与语义相反）。要求：flee 词表补 `往回|回头|退回去|原路返回`，并确认不把 advance 的裸「走」抢坏（「继续走」必须仍是 advance）。断言：非交战场景输「往回走」「原路返回」`scene` 不变且非 advance；「继续走」「向前走」仍是 advance。 ✅ (2026-11-16 cron devin swe-2-high; `server/ai/keywords.js` 的 flee 规则补 `往回|回头|退回去|原路返回`，advance 词表未动；`keywords.test.js` 补 6 条用例（4 后退→flee、继续走/向前走→advance）；新断言 `backtrack-intent.mjs`：ch3_association 非交战存档输「往回走/原路返回/回头」逐个 intent=flee 且 scene 不动，再验「继续走/向前走」intent=advance 且 scene 真变化（每步 front 铸回链首，不吃 RNG）；隔离实例 2 连跑全绿，旧码红证「往回走→intent=advance，scene 已到 ch3_retest」；F137/F139/F096/F076/F129/F135 线上回归 PASS、部署内置 E2E 5/5)
   verify: node scripts/assert/backtrack-intent.mjs
   risk: low
 - [x] F141 帮助文本被当成敌人名导致「幽灵战斗面板」：打一场仗 → 输「帮助」→ 刷新页面 → 战斗面板自动顶开显示「交战 第5回合 / 战中： Lv.- HP -/-」，玩家以为卡在一场看不见敌人的战斗里（`CombatPanel` 的 `ENEMY_RE` 把指令表里的「遭遇战中：」抓成敌人名，`TURN_RE` 抓到旧回合数）。要求：`ENEMY_RE`/推断逻辑排除系统指令表行（或以服务端结构化的 `combat` 字段为准，不再从日志正则反推）；断言：Playwright 打一场仗 → 输「帮助」→ 刷新 → 战斗面板不得显示「交战」；同场景真交战时面板仍正常显示。 ✅ (2026-11-16 cron devin swe-2-high; `gateIndexes`/`detectCombatGate`/`inferContext` 改收 `{live, freshFrom}`：`save.combat` 非空直接判 engage（F088 单一事实源），脱战口径下只信本会话新写入且非指令表（`SYS_TABLE_RE`=可用指令|遭遇战中）的行，刷新回灌的旧战报与帮助指令表不再点亮面板；App 新增 `logBaseRef`（整页回灌 + enterSave 两处）并把基线透传给 `CombatPanel`；新断言 `ghost-combat-panel.mjs`（(a) 打仗→帮助→刷新不得出现「交战」面板，(b) 真交战刷新仍自动展开且敌名/回合正确）；隔离实例 3 连跑全绿，旧码红证显示「交战 第4回合 / 战中： Lv.2 HP —/—」；线上 3020 连跑 3 次 PASS、部署内置 E2E 5/5、F076/F132/F135/F109/F121 回归 PASS)
@@ -344,6 +344,26 @@
 - [ ] F142 拒绝往来不落库（minor）：refused 的输入与警告零日志，刷新后「离开这里」连同「你无法撤离」一并消失，玩家回查无据；F137 把更多日常输入变成 refused 后「被抹掉的对话」变多。要求：refused 输入仍写一条 user 日志 + 一条 system 拒绝文案（不产生任何数值结算/位移），或明确在回包标注 `logged:false` 并让前端保留本地气泡。断言：封门拒绝后 `GET /api/saves/:id` 的日志含该输入与拒绝文案，且 hp/mp/xp/scene 零变化。
   verify: node scripts/assert/refused-log-visibility.mjs
   risk: low
-- [ ] F143 面板直开只认裸名（minor）：「背包」能开面板，但「打开背包」→ unknown 吃兜底、「看看背包」被裸「看」抢成 observe。要求：`打开/查看/看看/打开我的/给我看` + 面板名 一律路由到对应面板（F129 的整句锚定原则不变，长句叙述不得被吞）。断言：「打开背包」「看看背包」「打开我的属性」均回 `panel`；「我打开背包发现里面空了」不得回 panel。
+- [x] F143 面板直开只认裸名（minor）：「背包」能开面板，但「打开背包」→ unknown 吃兜底、「看看背包」被裸「看」抢成 observe。要求：`打开/查看/看看/打开我的/给我看` + 面板名 一律路由到对应面板（F129 的整句锚定原则不变，长句叙述不得被吞）。断言：「打开背包」「看看背包」「打开我的属性」均回 `panel`；「我打开背包发现里面空了」不得回 panel。 ✅ (2026-11-16 cron devin swe-2-high; `server/index.js` 的 `PANEL_ROUTES` 抽出 `PANEL_VERB = "(?:打开我的|给我看|打开|查看|看看|瞧一瞧|看一下|调出|显示)?\\s*"` 并前置到六条路由（整句锚定不变，长句首尾对不上锚点照走意图解析）；新断言 `panel-open-verbs.mjs`（14 组动词+名/裸名 → 正确 panel 且 hp/mp/scene/xp 零副作用；「我打开背包发现里面空了」「他打开地图看了一眼就合上」回包无 panel；/ai-action 同口径）；隔离实例 2 连跑全绿，旧码红证「打开背包 → intent=unknown，panel=undefined」；**契约冲突已处理**：F129 的 `no-placeholder-prose.mjs` 原把「查看背包」当反面用例，现改成长句叙述「我查看背包，里面只剩一把断剑」（整句锚定强度不变，「打开地图看看」反例保留），F129 线上复跑 PASS)
   verify: node scripts/assert/panel-open-verbs.mjs
+  risk: low
+
+## 第 18 轮试玩新增（2026-11-16 10:43，cron；线上真机 58 步，Lv.1→Lv.2，桌面 1440×900）
+- [ ] F144 （major）战斗中「使用道具」不可指定物品且按背包顺序乱烧资源：交战中输「使用治疗药水」被拒（只认裸「使用道具」），再输「使用道具」时系统挑了「魔力药剂」（MP 16/20 时回蓝），第二次才轮到治疗药水。要求：`item` 意图支持「使用/喝 + 物品名」（复用既有供给解析，交战中也要生效），裸「使用道具」在多个可用补给中按**当前最缺**（HP 百分比低于 MP 时优先治疗）选取，并在播报里点名选了哪件。断言：交战态输「使用治疗药水」→ 消耗的是治疗药水（该栈 -1、mp 不变）、HP 上升；裸「使用道具」在 HP 60%/MP 100% 时不得消耗魔力药剂
+  verify: node scripts/assert/item-target-in-combat.mjs
+  risk: med
+- [ ] F145 （major）脱战完全不能用补给、恢复通道只剩「休息」配额：战斗后残血输「使用道具」→「殿里没有迫近的威胁——补给留到石像真正动起来时再用。」，输「喝治疗药水」→ 未识别。休息有 3/3 配额，配额耗尽 + 残血 = 只能残血硬闯，接近设计死路。要求：脱战允许「使用道具」/「喝 <药名>」回血（零战斗结算、占一条日志、不推进场景），或明确给出替代恢复路径（「休息 x/3」「回城/章节回溯」）并让「使用道具」指路。断言：脱战残血存档输「使用道具」→ HP 上升且消耗一件治疗类补给；若不改这一条，则回包必须同时含剩余休息次数与一条可达的恢复方式（不得只说「留到战斗再用」）
+  verify: node scripts/assert/out-of-combat-supply.mjs
+  risk: med
+- [ ] F146 （minor）未识别兜底固定追问「你是想攻击还是想离开？」与语境无关、且不指路面板专属操作：脱战输「喝治疗药水」「加点力量」「跳」都回同一句尾巴；而「加点力量」「装备猎刀」这类面板操作明明有可行路径（属性面板 +1、背包点装备）。要求：兜底问句按语境生成（脱战不再问「攻击还是离开」），并在命中「加点/属性点/装备/卸下」等词时给一句指路（「属性点请到属性面板分配」/「装备请到背包点『装备』」）。断言：脱战未识别输入的回包不得含「你是想攻击还是想离开」；「加点力量」「装备猎刀」回包须含对应面板名
+  verify: node scripts/assert/unknown-followup-context.mjs
+  risk: low
+- [ ] F147 （minor）开局配发装备不自动穿、属性面板写「无配发装备」与播报矛盾：建档播报「猎人协会向你配发基础装备」，但武器/防具位「空置 —」，生锈猎刀、旧皮甲躺在背包里要手动装备；属性面板装备栏还显示「无配发装备」。Lv.1 没发现要手动装备 = 裸身打 Lv.3 守关者。要求：建档即装上配发的基础武器/防具（或播报改成「配发了……请到背包装备」并让首个观察提示），属性面板装备栏与 save 的装备字段同源。断言：新档 `GET /api/saves/:id` 的 weapon/armor 非空且攻击力含武器加成；属性面板装备栏文案不含「无配发装备」
+  verify: node scripts/assert/starter-gear-equipped.mjs
+  risk: med
+- [ ] F148 （minor）背包「N 件」计数与 API 物品栈不符、关键道具不可见：击杀后背包面板显示「7 件」，`GET /api/saves/:id` 返回 8 个物品栈（含 `gate_shard`×2）——传送门碎片既不计入「件」也不在任何分类页，玩家看不到自己持有的关键道具。要求：计数口径与列表一致（不可见就不计数、或给出「关键道具」页签并显示），分类页不得静默吞物品。断言：构造含 `gate_shard` 的存档，背包面板「N 件」数值 = API 可见物品栈数，且每个栈都能在某个页签里看到
+  verify: node scripts/assert/bag-count-consistency.mjs
+  risk: low
+- [ ] F149 （待验证）HP 归零死亡/回溯流程本轮未实测（Lv.1 却打赢了 Lv.3 守关者，没能送死；升级后 168 HP 更难死）：下一轮用连续作战/惩罚副本专项送死，验证 HP→0 是否有可读死亡播报 + 回溯落点 + rest 回满，而不是静默回血。断言脚本在演练后补，不要用现有 `death.mjs` 代替（它只覆盖 ch1 固定路径）
+  verify: node scripts/assert/death-probe-live.mjs
   risk: low
