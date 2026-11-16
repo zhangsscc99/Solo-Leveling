@@ -287,8 +287,9 @@
   risk: med
   - 2026-11-16 03:35 追加（升级为生产事故）：线上 pm2 进程带着 `DB_PATH=/tmp/mut.db` 跑了 1h45m，真实玩家存档全部写进 /tmp（已合并回 `data/game.db`，旧库留档 `.bak-20261116-033300`）。除 `unset` 外还要求：`ci-deploy.sh` 显式固定 `DB_PATH=/www/Solo-Leveling/data/game.db`（不依赖缺省值）；`/api/health` 回包带上 `db_path`，部署第 6 步断言其等于预期；`rollback.sh` 重启时同样固定 DB_PATH。
 - [ ] F127 `scripts/report.sh` 全表汇总存在系统性假红：2026-11-16 02:35 / 02:42 两份报告都报 31 项 FAIL（PASS 38/39），但把同样的 FID 逐条单跑与按报告顺序串行复跑（F110→F117）**全部 PASS**（F112 24.06s、F113 26.37s、F116 10.74s、F117 16.40s）。现象集中在 UI/Playwright 类断言的超时型失败，怀疑 report.sh 的 `vout="$(./scripts/verify.sh "$fid" | tail -1)"; rc=$?` 取到的是 tail 的状态、或串行跑时未给每个断言独立 settle 预算（前一条断言的浏览器/DB 残留未清）。要求：`rc` 改为 `set -o pipefail` 下的显式 `if ! out=$(...)` 判定并保留完整输出到报告；每条断言跑前清 `e2e-*/verify-*` 存档；对超时型失败重跑一次再判；报告里 FAIL 行必须附断言原始错误行（现在只有 `[VERIFY] X FAIL`，无从定位）
-  verify: bash scripts/report.sh && ! grep -q 'F117 | FAIL' "$(ls -t docs/runs/*.md | head -1)"
+  verify: node scripts/assert/report-gate.mjs
   risk: med
+  - 2026-11-16 03:50 追加：本条原先的 verify 写成 `bash scripts/report.sh && …`，而 report.sh 会遍历执行每条 verify → **无限递归**（本轮实测 fork 出 6 层 report.sh，单条断言卡死整轮报告）。要求：verify 一律不得调用 `report.sh`（改为独立断言脚本）；`report.sh` 自身加递归护栏（`REPORT_DEPTH` 或 `exec 9>` 互斥锁，重入直接退出）；跑 report 时把自身 FID 排除。
 
 ## 第 10 轮试玩新增（2026-11-16 03:30，cron；真人 500+ 动作 / 五面板 / 桌面+移动）
 - [ ] F128 （阻断）第 2 章惩罚副本死亡循环：ch2 任意战斗中死亡 → 回溯到 ch2_daily_quest →「前进」唯一出口是 ch2_penalty_gate → 强制遭遇「惩罚副本·毒牙蛇 Lv.5 HP200 攻24 boss:true」，Lv.4（攻 16、伤害恒 9）需 ~20 回合、蛇每回合反击 18，玩家 ~9 回合必死；自动化实测 50+ 次循环无一脱出（deaths 3→53），且界面没有任何「撤离」提示（真正的撤离键是自由输入「前进」，按钮「逃跑」反而可能失败）。要求：战斗面板在惩罚副本给出可见目标（「存活至副本结束 N/M 回合」）与撤离指引；或让 Lv.4 在该副本有可行打法（药水/技能/等级带宽钳制，与 F097 合并考虑）；断言：脚本从死亡回溯点连续 12 次「前进」必须能离开 ch2_penalty_gate（到达别的场景或完成副本），不得 12 次都停在惩罚副本→毒牙蛇
