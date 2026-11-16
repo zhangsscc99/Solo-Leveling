@@ -710,6 +710,9 @@ function settleDeath(saveId) {
     deaths: (Number(save.deaths) || 0) + 1,
     encounter_clock: 0,
     encounter_cd: 0,
+    // F134 回溯 = 重开本章：休息配额与跨章重置同一语义归零——
+    // 死亡不返还配额会把惩罚副本压成永久死局（血回不来、怪照刷）。
+    rest_used: 0,
   };
   const lines = ["【系统】你倒下了……视野在尖锐的警报声里碎成一片黑雪。"];
   const firstDeath = (Number(save.deaths) || 0) === 0;
@@ -780,6 +783,9 @@ function settleDeath(saveId) {
       `${landedIdx === 0 ? "的入口" : ""}` +
       `${landedScene ? `「${sceneNarrName(landedScene)}」` : ""}，` +
       `伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`
+  );
+  lines.push(
+    `【系统】回溯抹去了本章积攒的疲惫——休息次数已重置（${REST_LIMIT}/${REST_LIMIT} 次可用）。`
   );
   if (chapter && path.length && landedIdx >= 0) {
     lines.push(
