@@ -1830,13 +1830,19 @@ const INTENTS = [
 // 整句锚定、先于关键词表拦截：「属性」「状态」「影子编队」这类名字本就
 // 被 status/shadow_formation 意图接住，两者同样零副作用，直开面板只是
 // 省一次手点；句中再带别的词一律不拦，照走意图解析。
+// F143：裸名之外允许一个可选的开面板动词前缀（+ 可选空白）——「打开背包」
+// 「看看地图」「打开我的属性」与点按钮同义；整句锚定原则不变，长句叙述
+// （「我打开背包发现里面空了」）首尾对不上锚点，仍落正常意图解析。
+// 「打开我的/给我看」这类长前缀必须排在短词之前先试，否则「我的背包」
+// 会卡住名词匹配。
+const PANEL_VERB = "(?:打开我的|给我看|打开|查看|看看|瞧一瞧|看一下|调出|显示)?\\s*";
 const PANEL_ROUTES = [
-  { match: /^(?:背包|行囊|物品栏)(?:面板)?$/, panel: "inventory", label: "背包" },
-  { match: /^技能(?:面板|列表)?$/, panel: "skills", label: "技能" },
-  { match: /^(?:属性|状态)(?:面板)?$/, panel: "stats", label: "属性" },
-  { match: /^地图(?:面板)?$/, panel: "map", label: "地图" },
-  { match: /^任务(?:面板|列表|日志)?$/, panel: "quests", label: "任务" },
-  { match: /^(?:影子(?:编队|面板|名单)?|编队)$/, panel: "shadows", label: "影子" },
+  { match: new RegExp(`^${PANEL_VERB}(?:背包|行囊|物品栏)(?:面板)?$`), panel: "inventory", label: "背包" },
+  { match: new RegExp(`^${PANEL_VERB}技能(?:面板|列表)?$`), panel: "skills", label: "技能" },
+  { match: new RegExp(`^${PANEL_VERB}(?:属性|状态)(?:面板)?$`), panel: "stats", label: "属性" },
+  { match: new RegExp(`^${PANEL_VERB}地图(?:面板)?$`), panel: "map", label: "地图" },
+  { match: new RegExp(`^${PANEL_VERB}任务(?:面板|列表|日志)?$`), panel: "quests", label: "任务" },
+  { match: new RegExp(`^${PANEL_VERB}(?:影子(?:编队|面板|名单)?|编队)$`), panel: "shadows", label: "影子" },
 ];
 
 // 裸面板名 → {intent:"unknown", panel} 的零副作用出参；非面板名返回 null，

@@ -26,7 +26,10 @@ const INTENT_MATCHERS = [
   { intent: "item", match: /使用道具|道具|喝药|吃药|use item|use potion|item/i },
   // F137：补脱离语义（离开/撤离/回到/走人……）。「离开」此前被 advance
   // 抢走——惩罚副本门口输「离开这里」反而推进撞守关者，方向与语义相反。
-  { intent: "flee", match: /逃跑|逃离|撤退|逃走|离开|撤离|回到|回去|返回|脱战|溜走|走人|flee|escape|retreat/i },
+  // F140：再补往回|回头|退回去|原路返回——「往回走」的裸「走」被 advance
+  // 抢走（实测 ch3 倒退输入真推进一幕）；只补完整词组，不写裸「退」，
+  // 避免把「撤退/退回……」之外的说法误吞（「退回去」本就含「回去」）。
+  { intent: "flee", match: /逃跑|逃离|撤退|逃走|离开|撤离|回到|回去|返回|往回|回头|退回去|原路返回|脱战|溜走|走人|flee|escape|retreat/i },
   { intent: "status", match: /状态|面板|属性|status|stat/i },
   { intent: "help", match: /帮助|指令|help/i },
   { intent: "observe", match: /观察|查看|环顾|四周|环境|看|look|inspect/i },
