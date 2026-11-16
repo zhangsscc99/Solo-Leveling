@@ -306,6 +306,11 @@ const proseStmts = {
   sneakCount: db.prepare(
     "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'user' AND content = '潜行'"
   ),
+  // F125：守关房再入播报的轮转计数——同一句式按已产出行数取池内下一条，
+  // 连续两次重入不重文（与 observe 同口径）。
+  bossReentryCount: db.prepare(
+    "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE '你重新回到「%'"
+  ),
 };
 
 const STARTER_KIT = [
@@ -415,6 +420,17 @@ function vitalsCost(save) {
   const note = parts.length ? `（体力消耗 ${parts.join(" · ")}）` : "（体力已见底）";
   return { patch: { hp, mp }, note };
 }
+
+// F125 守关房再入播报池（守关者未倒下、冷却期落地没有开战）：中性的
+// 「回到守关房」一句话，含守关者真名与「仍未倒下」的事实。场景正文里的
+// 开场战叙述只属于落地开打/叫阵那一刻，「残骸」只属于已被击杀的守关
+// 者——两者都不许出现在再入播报里。≥2 条按已产出行数轮转。
+const BOSS_REENTRY_LINES = [
+  (sceneTitle, bossName) =>
+    `你重新回到「${sceneTitle}」——「${bossName}」仍未倒下，威压隔着殿门沉沉地压过来。`,
+  (sceneTitle, bossName) =>
+    `你重新回到「${sceneTitle}」。「${bossName}」还立在原地没有倒下——要打，就先叫阵。`,
+];
 
 // 本章守关者真名：遭遇表 boss 模板为准（玩家实际交手的实体），兜底主线
 // 链上 kind="boss" 场景的标题；都拿不到才回退到通用称谓——数据上 8 章
@@ -973,6 +989,27 @@ function advanceWithEncounter(save) {
     }
   }
 
+  // F125 守关房再入：守关者未击杀、落地没有开战（再入冷却压住了强制
+  // 遭遇）时，场景正文是开打时的开场战叙述、探索扣费也是错账——换成
+  // 中性的「回到守关房」播报并剥掉这一步的 HP/MP 代价。房内的真仗只能
+  // 由叫阵（forceBoss）或冷却走尽后的落地遭遇发起。
+  const landedGuardianAlive =
+    !enemy &&
+    !out.retreatToBoss &&
+    landedScene &&
+    landedScene.kind === "boss" &&
+    !bossCleared(save, (chaptersEngine.getChapterOfScene(landedScene.id) || {}).id);
+  if (landedGuardianAlive) {
+    delete patch.hp;
+    delete patch.mp;
+    const n = (proseStmts.bossReentryCount.get(save.id) || {}).n || 0;
+    const line = BOSS_REENTRY_LINES[Math.abs(Math.trunc(n)) % BOSS_REENTRY_LINES.length](
+      landedScene.title,
+      chapterBossName(chaptersEngine.getChapterOfScene(landedScene.id))
+    );
+    res.content = `${line}\n（本次没有消耗体力）`;
+  }
+
   applyTailGate(res, nextChapter, Boolean(enemy && enemy.boss));
   return res;
 }
@@ -1272,7 +1309,7 @@ function combatTurn(save, cbt, action, input, skill, opts) {
         patch.scene = prev.id;
         res.content +=
           `\n【战斗】你且战且退，撤回了「${prev.title}」——` +
-          `守关者的残骸在身后缓缓凝聚，两步之内不会再立刻成军。`;
+          `${e.name}仍守在门后没有追出来，两步之内它不会立刻再度拦路。`;
       } else {
         res.content += `\n【战斗】你摆脱了${e.name}的纠缠——它需要时间重新凝聚成形。`;
       }
@@ -1330,7 +1367,7 @@ function peacefulCombatIntent(save, input, action) {
       return {
         patch: { encounter_clock: rawClock < 0 ? rawClock : 0, encounter_seq: enemy.seq },
         content: bossChallenge
-          ? `【遭遇】你主动逼近满地残骸——${enemy.name} Lv.${enemy.level} 被惊动，提前凝聚成形，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`
+          ? `【遭遇】你主动向仍未倒下的守关者叫阵——${enemy.name} Lv.${enemy.level} 被惊动，提前拦在出口前，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`
           : `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`,
         events: [],
         combat: { op: "set", enemy, turn: 1 },
