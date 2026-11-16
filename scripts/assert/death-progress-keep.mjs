@@ -4,9 +4,10 @@
 // 线上 save 779 的双账 bug（场景在第 2 幕、计数在第 4 步）。F114 改为单一
 // 事实源：chapter_steps 由当前场景位置推导，回溯时位置与计数同退。
 //   A) DB 落点构造 ch1 高进度存档（站位 ch1_awaken + 陈旧高水位
-//      main_steps=7 作陷阱）→ 真实动作打到 HP 0 → 回溯落点 = 倒下处往前
-//      两幕（推进中倒下按推进后的落点计），回包与 DB 的 scene/steps
-//      必须同账（scene_index+1 === chapter_steps），高水位不再顶起计数；
+//      main_steps=7 作陷阱）→ 真实动作打到 HP 0 → 回溯落点 = 本章链首
+//      入口（F095 已验收的入口回溯契约；F114「退两幕」系回归，F122 改回），
+//      回包与 DB 的 scene/steps 必须同账（scene_index+1 === chapter_steps），
+//      高水位不再顶起计数；
 //   B) 首死保底 XP 一次性：新档首死入账 +30（与 ch1 濒死觉醒并存），
 //      第二次死亡分文不补（此契约不受 F114 影响，原样保留）；
 //   C) 死亡播报诚实：不得出现「回到起点/进度重置」与落点不符的矛盾文案，
@@ -52,9 +53,8 @@ const PATH = [];
 }
 const TOTAL = PATH.length;
 const FIRST = PATH[0];
-// F114 回溯步幅：倒下处往前两幕（锚定链首），与服务端 DEATH_REWIND_SCENES
-// 同一口径——这里是期望值 oracle，写死防回归。
-const REWIND_SCENES = 2;
+// F095 入口回溯契约：落点恒为本章主线链首入口（服务端 settleDeath 同一
+// 口径）——这里是期望值 oracle，写死防回归。
 const sceneTitleById = new Map(ch1.scenes.map((s) => [s.id, s.title]));
 const CONTRADICTION = /回到起点|退回起点|的起点|进度.{0,6}(重置|归零|清零|清空)/;
 const SAME_VALUE = /(HP|MP) (\d+)→\2/;
@@ -76,10 +76,10 @@ function checkLedger(s, tag) {
   );
 }
 
-// ── A) 非首死：高进度存档倒下，位置与计数同退两幕 ──────────────────
-// 站位 PATH[5]（6/7）+ hp=1：一推落到 PATH[6] 即力竭——倒下按落点 idx6
-// 计，回溯两幕落 PATH[4]（5/7）。main_steps=7 是陈旧高水位陷阱：新口径
-// 必须忽略它（旧口径会把计数顶到 7/7——双账复现即 FAIL）。
+// ── A) 非首死：高进度存档倒下，位置与计数同退回入口 ──────────────
+// 站位 PATH[5]（6/7）+ hp=1：一推落到 PATH[6] 即力竭——F095 入口回溯
+// 契约下落点恒为链首 PATH[0]（1/7）。main_steps=7 是陈旧高水位陷阱：
+// 新口径必须忽略它（旧口径会把计数顶到 7/7——双账复现即 FAIL）。
 const idA = await makeSave("f114-rewind");
 db.prepare(
   "UPDATE saves SET chapter = 1, scene = ?, main_steps = ?, hp = 1, xp = 0, deaths = 1, boss_cleared_json = ? WHERE id = ?"
@@ -95,17 +95,21 @@ const repA = dieA.reply.content;
 assert(repA.includes("倒下"), `A: missing 倒下 broadcast: ${repA.slice(-300)}`);
 assert(repA.includes("回溯"), `A: missing 回溯 broadcast: ${repA.slice(-300)}`);
 assert(
-  repA.includes(`「${sceneTitleById.get(PATH[4])}」`),
-  `A: rewind broadcast must name real landing「${sceneTitleById.get(PATH[4])}」: ${repA.slice(-300)}`
+  repA.includes(`「${sceneTitleById.get(FIRST)}」`),
+  `A: rewind broadcast must name real landing「${sceneTitleById.get(FIRST)}」: ${repA.slice(-300)}`
+);
+assert(
+  repA.includes("的入口"),
+  `A: landing IS the entry — broadcast must say 的入口: ${repA.slice(-300)}`
 );
 assert(!CONTRADICTION.test(repA), `A: contradictory rewind prose: ${repA.slice(-300)}`);
 assert(!SAME_VALUE.test(repA), `A: zero-delta vitals prose leaked`);
 assert(dieA.save.deaths === 2, `A: deaths should be 2, got ${dieA.save.deaths}`);
-assert(dieA.save.scene === PATH[4], `A: should rewind to ${PATH[4]}, got ${dieA.save.scene}`);
+assert(dieA.save.scene === FIRST, `A: should rewind to entry ${FIRST}, got ${dieA.save.scene}`);
 checkLedger(dieA.save, "A post-death");
 assert(
-  dieA.save.chapter_steps === 5 && dieA.save.chapter_progress === `5/${TOTAL}`,
-  `A: progress should rewind with position to 5/${TOTAL}, got ${dieA.save.chapter_progress}`
+  dieA.save.chapter_steps === 1 && dieA.save.chapter_progress === `1/${TOTAL}`,
+  `A: progress should rewind with position to 1/${TOTAL}, got ${dieA.save.chapter_progress}`
 );
 assert(dieA.save.xp >= preAxp, `A: xp dropped ${preAxp} -> ${dieA.save.xp}`);
 assert(
@@ -113,12 +117,12 @@ assert(
   "A: non-first death must not grant consolation XP"
 );
 const rowA = dbRow(idA);
-assert(rowA.scene === PATH[4], `A: DB scene should be ${PATH[4]}, got ${rowA.scene}`);
+assert(rowA.scene === FIRST, `A: DB scene should be ${FIRST}, got ${rowA.scene}`);
 assert(rowA.deaths === 2, `A: DB deaths should be 2`);
 assert(!CONTRADICTION.test(recentLog(idA, 8)), "A: DB log contains contradictory rewind prose");
 
 // ── B) 首死：保底 XP +30 入账一次；第二次死亡分文不补 ──────────────
-// 站位 PATH[1]（2/7）：一推落到 PATH[2] 即力竭，回溯两幕锚到链首入口。
+// 站位 PATH[1]（2/7）：一推落到 PATH[2] 即力竭，回溯落点 = 链首入口。
 const idB = await makeSave("f114-first");
 db.prepare(
   "UPDATE saves SET chapter = 1, scene = ?, hp = 1, xp = 0, deaths = 0, level = 1 WHERE id = ?"
@@ -152,7 +156,7 @@ assert(
   dieB2.save.xp === xpAfterFirst && !repB2.includes("逸散的经验"),
   `B2: second death re-granted XP (${xpAfterFirst} -> ${dieB2.save.xp})`
 );
-// 第二次倒下发生在 PATH[1]（推进中力竭），回溯两幕锚回链首入口。
+// 第二次倒下发生在 PATH[1]（推进中力竭），回溯落点同样锚回链首入口。
 assert(dieB2.save.scene === FIRST, `B2: should rewind to entry ${FIRST}, got ${dieB2.save.scene}`);
 checkLedger(dieB2.save, "B2 post-death");
 assert(

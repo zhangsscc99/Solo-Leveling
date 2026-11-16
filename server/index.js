@@ -616,33 +616,27 @@ function claimMainReward(saveId, chapterId) {
   return [`【主线】第${chapter.index}章主线达成，奖励入账 ${parts.join(" · ")}。`, ...lines];
 }
 
-// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至倒下处往前
-// 两幕（锚定本章入口）、HP/MP 恢复至上限一半、deaths+1。返回播报行，
-// 未死返回 null。
+// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章入口、
+// HP/MP 恢复至上限一半、deaths+1。返回播报行，未死返回 null。
 // F095：第 1 章「首次」死亡是剧情事件——接入 ch1_death 濒死支线，
 // 系统提前完成绑定，一次性补满升级差额（实质 +1 级：满血上限、
 // 自由属性点入账），让死亡成为推进而不是零收益循环。触发条件
 // chapter===1 && deaths===0，终生只此一次；第 2 章起死亡仍是纯回溯。
 // F114：位置与主线计数一本账——chapter_steps 一律由场景位置推导，
-// 落点退两幕计数就退两幕，不再有「场景在第 2 幕、计数在第 4 步」的
-// 双账态；落点文案取回写后的真实存档场景（是入口写入口、是第 2 幕
-// 写第 2 幕），不写死。
+// 落回入口计数就回 1，不再有「场景在第 2 幕、计数在第 4 步」的
+// 双账态；落点文案取回写后的真实存档场景（是入口写入口），不写死。
 // 首死另发一次性保底 XP（DEATH_CONSOLATION_XP，终生一次，deaths>0 后不再
 // 发）——死亡给一条出路，但不是刷经验的门。
 const DEATH_CONSOLATION_XP = 30;
-// 回溯步幅：倒下处往前退几幕主线场景（锚定链首入口）。
-const DEATH_REWIND_SCENES = 2;
 
 function settleDeath(saveId) {
   const save = store.getSave(saveId);
   if (!save || save.hp > 0) return null;
   const chapter = chaptersEngine.getChapter(save.chapter) || chaptersEngine.getChapter(1);
   const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
-  const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save.scene) : -1;
-  // 落点 = 倒下位置往前两幕（锚定入口）；站位不在链上（支线/悬空）时
-  // 落到链首——与「前进」的自愈落点同一口径。
-  const rewindIdx = path.length ? Math.max(0, Math.max(0, idx) - DEATH_REWIND_SCENES) : 0;
-  const landing = path.length ? path[rewindIdx] : chapter ? chaptersEngine.firstSceneOf(chapter) : null;
+  // F095 入口回溯契约：落点恒为本章主线链首入口；站位不在链上
+  // （支线/悬空）时同样落链首——与「前进」的自愈落点同一口径。
+  const landing = chapter ? chaptersEngine.firstSceneOf(chapter) : null;
   const patch = {
     chapter: chapter ? chapter.index : 1,
     scene: landing ? landing.id : null,

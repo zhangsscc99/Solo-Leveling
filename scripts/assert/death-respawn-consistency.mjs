@@ -6,14 +6,15 @@
 //       另把 main_steps 写成 7 作陈旧高水位陷阱（旧口径下回溯后计数会
 //       恒定在 7——新口径必须忽略它）。真实「攻击」打到 HP 0 → settleDeath
 //       全链路回溯。断言：
-//         · 回溯落点 = 倒下处往前两幕（ch1_law，scene_index === 1）；
+//         · 回溯落点 = 本章链首入口（ch1_double_gate，scene_index === 0）
+//           ——F095 已验收的入口回溯契约（F114「退两幕」系回归，F122 改回）；
 //         · 回包与 GET /saves/:id 双源一致：scene_index + 1 === chapter_steps；
-//         · 死亡播报落点名 = saves 回包 scene_title（落在第 2 幕就写第 2
-//           幕，不得写死「入口」——本用例落点非入口，正文出现「的入口」
-//           即判错）。
+//         · 死亡播报落点名 = saves 回包 scene_title（本用例落点正是链首
+//           入口，正文必须出现「的入口」——播报与存档同账，不写死）。
 //   (b) 回溯后把击杀冷却拉高压制遭遇掷点（排除 RNG 噪声，只验步数口径），
-//       连点「前进」3 次：chapter_steps 严格单调递增到 ≥5（不得恒定在
-//       4）；每次响应若 scene 与请求前相同，正文不得出现「体力消耗」。
+//       连点「前进」3 次：chapter_steps 严格单调递增到 ≥4（回溯后从 1
+//       起，不得原地不动）；每次响应若 scene 与请求前相同，正文不得
+//       出现「体力消耗」。
 //   (c) 反向断言贯穿全程：任何一次响应 scene_index + 1 !== chapter_steps
 //       立即 FAIL——把双账当期望值写死也 FAIL（初始 fixture 的 steps
 //       必须由站位推导为 4，不得被 main_steps=7 的高水位顶上去）。
@@ -62,9 +63,8 @@ const BOSS_SCENE = ch1.scenes.find((s) => s.kind === "boss");
 assert(BOSS_SCENE, "oracle: ch1 boss scene missing");
 const BOSS_IDX = PATH.indexOf(BOSS_SCENE.id);
 assert(BOSS_IDX === 3, `oracle: ch1 boss scene should sit at chain idx 3, got ${BOSS_IDX}`);
-// 新口径：回溯落点 = 倒下处往前两幕（锚定链首）。
-const REWIND_SCENES = 2;
-const EXPECT_LANDING_IDX = Math.max(0, BOSS_IDX - REWIND_SCENES);
+// F095 入口回溯契约：落点 = 本章主线链首（F114「退两幕」系回归，F122 改回）。
+const EXPECT_LANDING_IDX = 0;
 const EXPECT_LANDING = PATH[EXPECT_LANDING_IDX];
 
 const VITALS_COST = /（体力消耗 [^）]*）/;
@@ -110,7 +110,7 @@ assert(rep.includes("倒下"), `(a) missing 倒下 broadcast: ${rep.slice(-300)}
 assert(rep.includes("回溯"), `(a) missing 回溯 broadcast: ${rep.slice(-300)}`);
 assert(died.save.combat === null, "(a) stale combat after death");
 
-// 落点：倒下处（idx3）往前两幕 = idx1「命令之律」。
+// 落点：本章链首入口 idx0（F095 契约，与倒下位置无关）。
 assert(
   died.save.scene === EXPECT_LANDING,
   `(a) rewind should land on ${EXPECT_LANDING} (idx ${EXPECT_LANDING_IDX}), got ${died.save.scene}`
@@ -120,14 +120,15 @@ assert(
   died.save.chapter_steps === EXPECT_LANDING_IDX + 1,
   `(a) post-death steps should be ${EXPECT_LANDING_IDX + 1}, got ${died.save.chapter_steps}`
 );
-// 播报落点文本必须取真实 save.scene：「命令之律」要在正文里，「入口」不能出现。
+// 播报落点文本必须取真实 save.scene：落点即链首入口，场景名与「的入口」
+// 都必须出现在正文里——播报与存档同账，不写死。
 assert(
   rep.includes(`「${died.save.scene_title}」`),
   `(a) rewind broadcast must name the real landing「${died.save.scene_title}」: ${rep.slice(-300)}`
 );
 assert(
-  !rep.includes("的入口"),
-  `(a) landing is act ${EXPECT_LANDING_IDX + 1}, not the entry — 「的入口」must not be claimed`
+  rep.includes("的入口"),
+  `(a) landing IS the entry (idx ${EXPECT_LANDING_IDX}) — broadcast must say 的入口: ${rep.slice(-300)}`
 );
 // GET /saves/:id 双源一致。
 const view = (await fetchSaveView(id)).save;
@@ -163,8 +164,8 @@ for (let i = 0; i < 3; i++) {
   prevScene = s.scene;
 }
 assert(
-  prevSteps >= 5,
-  `(b) after 3 pushes chapter_steps should reach >=5, got ${prevSteps}`
+  prevSteps >= EXPECT_LANDING_IDX + 4,
+  `(b) after 3 pushes chapter_steps should reach >=${EXPECT_LANDING_IDX + 4}, got ${prevSteps}`
 );
 
 db.prepare("DELETE FROM combat WHERE save_id = ?").run(id);
