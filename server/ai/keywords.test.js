@@ -57,6 +57,23 @@ test("resolveIntent: F137 意图覆盖（挥拳/出手/劈=attack，离开/撤�
   }
 });
 
+// F140 review 回归：「往回走」「回头」「退回去」「原路返回」是后退语义，
+// 不得被 advance 的裸「走」抢走；「继续走」「向前走」必须仍是 advance。
+test("resolveIntent: F140 后退词组归 flee，推进说法不被抢坏", () => {
+  const cases = [
+    ["往回走", "flee"],
+    ["回头", "flee"],
+    ["退回去", "flee"],
+    ["原路返回", "flee"],
+    ["继续走", "advance"],
+    ["向前走", "advance"],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(keywords.resolveIntent(input), expected, `resolveIntent "${input}"`);
+    assert.equal(fallback.parse(input).intent, expected, `fallback.parse "${input}"`);
+  }
+});
+
 test("resolveIntent: F137 反例——裸「打」不吞非战斗输入", () => {
   // 「打开背包」「打招呼」绝不能落 attack；它们落 unknown/observe 都可以，
   // 唯一硬约束是不许结算成攻击。
