@@ -173,7 +173,10 @@ if (!RUN_UI) {
       const page = await ctx.newPage();
       await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".gate-form input", { timeout: 15000 });
-      await page.fill(".gate-form input", `${name}-ui${attempt}`);
+      // F136：UI 建档名必须与 API 建档不同名（同名现在会触发「继续/
+      // 另起新档」对话框而非静默开档），且建档输入框 maxLength=20，
+      // 每次尝试换独立短名防截断撞名。
+      await page.fill(".gate-form input", `F129-${Date.now().toString(36)}-u${attempt}`.slice(0, 20));
       await page.click(".gate-form button[type=submit]");
       await page.waitForSelector(".status", { timeout: 15000 });
       const box = page.locator('input[aria-label="自由行动输入"]');
