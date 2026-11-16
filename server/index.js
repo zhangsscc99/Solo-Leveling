@@ -1165,6 +1165,141 @@ function skillGate(save, input, engaged) {
 // 真实移动内再进同一 boss 房不会强制重遇同一守关者。
 const BOSS_FLEE_COOLDOWN = 2;
 
+// ────────────────────────────────────────────────────────────────
+// F144/F145 补给点名/选取单一事实源：交战（combatTurn）与脱战
+// （peacefulItemOutcome）共用，不允许两处各写一套解析/数值口径。
+//   · 点名：「使用道具 X」「道具 X」「使用/服用/喝/吃 X」「use [item|potion] X」
+//     取动词后的词为物品名；先按目录名/id 精确命中，再做包含式模糊命中
+//     （「治疗药水」能定位「低级治疗药水」，多命中取回复量最低的一瓶）。
+//   · 裸指令（或使用/喝 + 「药/药水/道具」这类通称）：按当前最缺挑补给——
+//     HP 缺口百分比 ≥ MP 缺口百分比时优先治疗类（heal>0），否则优先回蓝类
+//     （mp>0）；同类里取回复量最低的一瓶（省资源口径保留）。
+// supplySelection 返回 { picked:{row,item}, want } 或
+// { error: "empty"|"not_found"|"useless", ... }，由调用方翻译成播报。
+// ────────────────────────────────────────────────────────────────
+const NAMED_ITEM_RE =
+  /(?:使用道具|使用|服用|道具|喝|吃|use(?:\s+(?:item|potion))?)\s*[:：]?\s*([^\s，。！？,.!?、；;]+)/i;
+const GENERIC_ITEM_WORDS = new Set([
+  "药", "药水", "药剂", "药品", "道具", "补给", "补给品", "物品", "东西",
+  "potion", "item", "medicine",
+]);
+
+function extractWantedItem(input) {
+  const m = String(input || "").match(NAMED_ITEM_RE);
+  let want = m ? m[1].trim() : "";
+  want = want.replace(/^[把来点些个瓶支]+/, "").replace(/[吧呢啊了哦嘛]+$/, "").trim();
+  if (!want || GENERIC_ITEM_WORDS.has(want.toLowerCase())) return "";
+  return want;
+}
+
+function supplySelection(save, input) {
+  const usable = store
+    .getInventory(save.id)
+    .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
+    .filter((x) => x.item && x.item.category === "consumable" && x.row.qty > 0);
+  if (!usable.length) return { error: "empty" };
+  const needHp = save.hp < save.max_hp;
+  const needMp = save.mp < save.max_mp;
+  const helps = (it) => (needHp && (it.heal || 0) > 0) || (needMp && (it.mp || 0) > 0);
+  const weakest = (a, b) =>
+    (a.item.heal || 0) + (a.item.mp || 0) - ((b.item.heal || 0) + (b.item.mp || 0));
+  const want = extractWantedItem(input);
+  if (want) {
+    let picked = usable.find((x) => x.item.name === want || x.item.id === want) || null;
+    if (!picked) {
+      const fuzzy = usable.filter(
+        (x) => x.item.name.includes(want) || want.includes(x.item.name)
+      );
+      if (fuzzy.length) picked = fuzzy.sort(weakest)[0];
+    }
+    if (!picked) return { error: "not_found", want };
+    if (!helps(picked.item)) return { error: "useless", picked };
+    return { picked, want };
+  }
+  const helpful = usable.filter((x) => helps(x.item));
+  if (!helpful.length) return { error: "useless" };
+  const hpMissingPct = (save.max_hp - save.hp) / Math.max(1, save.max_hp);
+  const mpMissingPct = (save.max_mp - save.mp) / Math.max(1, save.max_mp);
+  const preferHeal = hpMissingPct >= mpMissingPct;
+  const primary = helpful.filter((x) =>
+    preferHeal ? (x.item.heal || 0) > 0 : (x.item.mp || 0) > 0
+  );
+  return { picked: (primary.length ? primary : helpful).sort(weakest)[0], want };
+}
+
+// F145 恢复通道指路：补给拒绝文案的尾部固定带剩余休息次数（「休息 x/3」
+// 形态）与一条真实可达的恢复方式——配额在就指「休息」，配额耗尽时如实
+// 写死亡回溯兜底；不再是一句「留到战斗再用」的死话。
+function supplyHint(save) {
+  const st = restStatus(save, null);
+  const parts = [`本章休息 ${st.remaining}/${REST_LIMIT} 次`];
+  parts.push(
+    st.remaining > 0
+      ? "说「休息」恢复体力与魔力"
+      : "若伤重倒下，会被回溯至本章入口并恢复半数状态"
+  );
+  return `（${parts.join("；")}）`;
+}
+
+// F145 脱战补给：与 /saves/:id/item op:"use" 同口径结算——数值 clamp 到
+// 0..max、消耗 1 件、满值拒绝；点名/选取走 supplySelection（与交战态同一
+// 套，不是第二份数值逻辑）。零战斗结算：不占回合、不掷遭遇、不动 scene/
+// 位置——只有 hp/mp patch 与一条 system 日志。
+function peacefulItemOutcome(save, input) {
+  const sel = supplySelection(save, input);
+  const hint = supplyHint(save);
+  if (sel.error === "empty") {
+    return {
+      patch: null,
+      events: [],
+      refused: true,
+      content: `【系统】背包里已没有可用的补给。${hint}`,
+    };
+  }
+  if (sel.error === "not_found") {
+    return {
+      patch: null,
+      events: [],
+      refused: true,
+      content: `【系统】背包里没有名为「${sel.want}」的可用补给。${hint}`,
+    };
+  }
+  if (sel.error === "useless") {
+    return {
+      patch: null,
+      events: [],
+      refused: true,
+      content: sel.picked
+        ? `【系统】「${sel.picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。${hint}`
+        : `【系统】体力与魔力俱已满格，补给派不上用场。${hint}`,
+    };
+  }
+  const picked = sel.picked;
+  const item = picked.item;
+  const hp = item.heal ? clamp(save.hp + item.heal, 0, save.max_hp) : save.hp;
+  const mp = item.mp ? clamp(save.mp + item.mp, 0, save.max_mp) : save.mp;
+  if (hp === save.hp && mp === save.mp) {
+    return {
+      patch: null,
+      events: [],
+      refused: true,
+      content: `【系统】当前状态已满，「${item.name}」派不上用场。${hint}`,
+    };
+  }
+  if (picked.row.qty <= 1) invStmts.remove.run(save.id, picked.item.id);
+  else invStmts.setQty.run(picked.row.qty - 1, save.id, picked.item.id);
+  const deltas = [];
+  if (hp !== save.hp) deltas.push(`HP ${save.hp}→${hp}`);
+  if (mp !== save.mp) deltas.push(`MP ${save.mp}→${mp}`);
+  return {
+    patch: { hp, mp },
+    events: [],
+    content:
+      `【系统】已使用「${item.name}」。${deltas.join(" · ")}。` +
+      `（${itemLine(item)}，剩余 ×${picked.row.qty - 1}）`,
+  };
+}
+
 // 交战中统一走 engine/combat.js resolveTurn 结算一回合。种子由存档 +
 // 开战盐（enemy.seq，每场战斗唯一）+ 回合数构成，确定性可复现且场场
 // 不同；事件文案全部由引擎产出，本函数只做落库参数与播报拼装
@@ -1174,45 +1309,34 @@ const BOSS_FLEE_COOLDOWN = 2;
 function combatTurn(save, cbt, action, input, skill, opts) {
   let itemUse = null;
   if (action === "item") {
-    // 道具必须真实消耗且药效对版：玩家点名（「使用道具 低级治疗药水」）
-    // 优先；否则挑背包里对当前伤势/魔力真有帮助、回复量最低的一瓶先喝。
+    // 道具必须真实消耗且药效对版：玩家点名（「使用道具 X」「使用/喝/服用
+    // 治疗药水」）优先；裸指令按当前最缺（HP/MP 缺口百分比）挑同类里回复
+    // 量最低的一瓶先喝——点名/选取与脱战补给共用 supplySelection。
     // 选中物的真实 { name, heal, mp } 会传进回合结算——MP 药剂真回 MP、
     // 圣水真按 300 回，播报一律用物品本名。
-    const usable = store
-      .getInventory(save.id)
-      .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
-      .filter((x) => x.item && x.item.category === "consumable" && x.row.qty > 0);
-    if (!usable.length) {
+    const sel = supplySelection(save, input);
+    if (sel.error === "empty") {
       return { patch: null, content: "【系统】背包里已没有可用的补给。", events: [], refused: true };
     }
-    const needHp = save.hp < save.max_hp;
-    const needMp = save.mp < save.max_mp;
-    const helps = (it) => (needHp && (it.heal || 0) > 0) || (needMp && (it.mp || 0) > 0);
-    const named = String(input || "").match(/使用道具\s*[:：]?\s*(.+)$|道具\s*[:：]?\s*(.+)$/);
-    const want = named ? (named.slice(1).find((g) => g) || "").trim() : "";
-    let picked = want
-      ? usable.find((x) => x.item.name === want || x.item.id === want)
-      : null;
-    if (want && !picked) {
-      return { patch: null, content: `【系统】背包里没有名为「${want}」的可用补给。`, events: [], refused: true };
-    }
-    if (picked && !helps(picked.item)) {
+    if (sel.error === "not_found") {
       return {
         patch: null,
-        content: `【系统】「${picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。`,
+        content: `【系统】背包里没有名为「${sel.want}」的可用补给。`,
         events: [],
         refused: true,
       };
     }
-    if (!picked) {
-      const helpful = usable.filter((x) => helps(x.item));
-      if (!helpful.length) {
-        return { patch: null, content: "【系统】背包里的补给此刻都派不上用场。", events: [], refused: true };
-      }
-      picked = helpful.sort(
-        (a, b) => (a.item.heal || 0) + (a.item.mp || 0) - ((b.item.heal || 0) + (b.item.mp || 0))
-      )[0];
+    if (sel.error === "useless") {
+      return {
+        patch: null,
+        content: sel.picked
+          ? `【系统】「${sel.picked.item.name}」此刻派不上用场——伤势与魔力都不需要它。`
+          : "【系统】背包里的补给此刻都派不上用场。",
+        events: [],
+        refused: true,
+      };
     }
+    const picked = sel.picked;
     if (picked.row.qty <= 1) invStmts.remove.run(save.id, picked.item.id);
     else invStmts.setQty.run(picked.row.qty - 1, save.id, picked.item.id);
     itemUse = { name: picked.item.name, heal: picked.item.heal || 0, mp: picked.item.mp || 0 };
@@ -1457,10 +1581,15 @@ function peacefulCombatIntent(save, input, action) {
       events: [],
     };
   }
+  // F145：脱战补给走真实结算（peacefulItemOutcome）——真回血/回蓝、真扣
+  // 库存、不动场景；拒绝路径由 supplyHint 指路恢复通道，不再是
+  // 「补给留到战斗再用」的空话。
+  if (action === "item") {
+    return peacefulItemOutcome(save, input);
+  }
   const pool = proseEngine.poolFor(save.chapter);
   const lines = {
     defend: `【系统】${pool.defend}`,
-    item: `【系统】${pool.item}`,
   };
   return { patch: null, content: lines[action], events: [] };
 }
@@ -1697,6 +1826,7 @@ const INTENTS = [
         "「前进」推进剧情（消耗少量体力） · 「潜行」压低气息（消耗 5 MP）\n" +
         "「休息」恢复体力与魔力（每章 3 次，休憩会推进时间、可能惊动敌人） · 「存档」写入当前进度\n" +
         "「影子」查看编队 · 「影子出战 <名字>」遣影入阵 · 「影子撤回 <名字>」令其归队\n" +
+        "补给：「使用道具」自动选药，「使用/喝 <药名>」点名用药（交战与脱战均可）\n" +
         "遭遇战中：「攻击」「释放技能 <名字>」「防御」「使用道具」「逃跑」或「前进」尝试撤离（不推进主线）\n" +
         "其余自由输入将交由叙事层判定，未识别的动作不会改变状态。",
     }),
@@ -1991,7 +2121,7 @@ function resolveAction(save, input) {
     patch: null,
     events: [],
     content: cbt
-      ? `【系统】你正与${cbt.enemy.name}交战——「攻击」「释放技能 X」「防御」「使用道具」「逃跑」，或「前进」强行撤离。`
+      ? `【系统】你正与${cbt.enemy.name}交战——「攻击」「释放技能 X」「防御」「使用道具」或「使用/喝 <药名>」「逃跑」，或「前进」强行撤离。`
       // F137：兜底指令表之外补一句澄清问句——玩家最常见的真实意图就是
       // 「打」或「走」，给一个可执行的回话方向，不再是一句死话收尾。
       : `【系统】系统未识别该指令：「${input}」。可用：探索前进 / 环顾四周 / 攻击 / 休息 / 存档，输入「帮助」查看完整指令表。\n你是想攻击还是想离开？`,

@@ -74,6 +74,32 @@ test("resolveIntent: F140 后退词组归 flee，推进说法不被抢坏", () =
   }
 });
 
+// F144/F145 review 回归：「使用/服用/喝/吃 + 药名」归 item；
+// 「释放技能 X」「使用技能 X」必须仍走 skill，不被 item 抢走。
+test("resolveIntent: F144 点名补给归 item，技能说法不被 item 抢走", () => {
+  const cases = [
+    ["使用治疗药水", "item"],
+    ["喝治疗药水", "item"],
+    ["服用魔力药剂", "item"],
+    ["使用道具 低级治疗药水", "item"],
+    ["喝药", "item"],
+    ["释放技能 猛虎猛击", "skill"],
+    ["使用技能 猛虎猛击", "skill"],
+    ["施放技能", "skill"],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(keywords.resolveIntent(input), expected, `resolveIntent "${input}"`);
+    assert.equal(fallback.parse(input).intent, expected, `fallback.parse "${input}"`);
+  }
+});
+
+test("resolveIntent: F144 反例——喝彩/吃面不落 item", () => {
+  for (const input of ["喝彩", "吃面", "吃饭"]) {
+    assert.notEqual(keywords.resolveIntent(input), "item", `resolveIntent "${input}"`);
+    assert.notEqual(fallback.parse(input).intent, "item", `fallback.parse "${input}"`);
+  }
+});
+
 test("resolveIntent: F137 反例——裸「打」不吞非战斗输入", () => {
   // 「打开背包」「打招呼」绝不能落 attack；它们落 unknown/observe 都可以，
   // 唯一硬约束是不许结算成攻击。
