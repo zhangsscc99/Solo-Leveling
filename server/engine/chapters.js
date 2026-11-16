@@ -28,6 +28,12 @@ const CHAPTER_COUNT = 8;
 const VALID_REQUIRE_KEYS = ["min_level", "flag"];
 const VALID_EFFECT_KEYS = ["xp", "gold", "hp", "mp", "item", "flag"];
 
+// F133 场景叙述名（可选）：narr_name 是正文/场景显示名用的可读称呼，
+// 与内部 title（分类/守关者口径）解耦——title 可以是「玩家」这类内部
+// 占位串，narr_name 绝不可以。黑名单命中即加载期炸出来，不许带病进
+// 运行时让模板把内部串念给玩家看。
+const NARR_NAME_FORBIDDEN = new Set(["玩家", "todo", "undefined", "null", "test", "占位"]);
+
 let cached = null;
 let derived = null;
 
@@ -151,6 +157,15 @@ function validateChapters(data) {
       }
       if (!isNonEmptyString(scene.text)) {
         errors.push(`${at}.text 必须是非空叙述文本`);
+      }
+      if (scene.narr_name !== undefined) {
+        if (!isNonEmptyString(scene.narr_name)) {
+          errors.push(`${at}.narr_name 必须是非空字符串`);
+        } else if (NARR_NAME_FORBIDDEN.has(scene.narr_name.trim().toLowerCase())) {
+          errors.push(
+            `${at}.narr_name 是占位串「${scene.narr_name}」（叙述名必须是玩家可读的场景称呼）`
+          );
+        }
       }
       if (!VALID_KINDS.includes(scene.kind)) {
         errors.push(`${at}.kind 非法: ${JSON.stringify(scene.kind)}（应为 ${VALID_KINDS.join("/")}）`);

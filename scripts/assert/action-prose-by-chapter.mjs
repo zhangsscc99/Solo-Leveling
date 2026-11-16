@@ -61,9 +61,11 @@ async function observeTwice(id, tag) {
     const m = c.match(OBSERVE_TITLE_RE);
     assert(m, `${tag}: 第${i + 1}次观察未取 scene_title 开头: ${c.slice(0, 60)}`);
     const scene = raw.chapters.flatMap((ch) => ch.scenes).find((sc) => sc.id === before.scene);
+    // F133 口径：正文念的是 narr_name（场景显示名），缺省回退 title。
+    const narrName = scene && (scene.narr_name || scene.title);
     assert(
-      scene && stripWs(m[1]) === stripWs(scene.title),
-      `${tag}: 观察标题「${m[1]}」不是当前场景标题「${scene && scene.title}」`
+      scene && stripWs(m[1]) === stripWs(narrName),
+      `${tag}: 观察标题「${m[1]}」不是当前场景叙述名「${narrName}」`
     );
   }
   assert(c1 !== c2, `${tag}: 同场景连续两次观察文本必须不同`);
