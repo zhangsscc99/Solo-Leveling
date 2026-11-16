@@ -1690,7 +1690,29 @@ button {
 .gate-form input:focus-visible {
   outline: none;
   border-color: var(--system);
-  box-shadow: 0 0 0 1px var(--system-dim);
+  box-shadow:
+    0 0 0 1px var(--system-dim),
+    0 0 14px rgba(79, 200, 255, 0.22);
+}
+
+/* F156 主 CTA：觉醒页本身就是系统窗（全场唯一被允许发光的东西），
+   「觉醒」用实心系统青 + 微光，与哑光输入框拉开层级；形状仍是
+   2px 方角硬键，不引圆角色块。 */
+.gate-form .btn.primary {
+  background: linear-gradient(180deg, #6fd3ff 0%, #2b9cd6 100%);
+  border-color: var(--system);
+  color: #061521;
+  font-weight: 700;
+  box-shadow:
+    0 0 18px rgba(79, 200, 255, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.gate-form .btn.primary:hover:not(:disabled) {
+  color: #020b13;
+  box-shadow:
+    0 0 24px rgba(79, 200, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .gate-error {

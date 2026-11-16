@@ -9,12 +9,61 @@ import {
   Save,
 } from "../api";
 
-const CATEGORIES: { key: ItemCategory; label: string }[] = [
+// F148「关键」是前端归档页签，不是物品 category——后端契约不变，
+// 关键道具（任务/过门要用的东西）从材料堆里提出来单独成签。
+type InvTab = ItemCategory | "key";
+
+const TABS: { key: InvTab; label: string }[] = [
+  { key: "key", label: "关键" },
   { key: "weapon", label: "武器" },
   { key: "armor", label: "防具" },
   { key: "consumable", label: "消耗品" },
   { key: "material", label: "材料" },
 ];
+
+// 关键道具白名单：丢失/看不见会直接卡死主线的物品（传送门碎片是过门与
+// 任务结算的硬通货）。其余物品按自身 category 归档。
+const KEY_ITEM_IDS = new Set(["gate_shard"]);
+
+// 与 server/index.js LOOT_NAMES 同源：掉落物/任务物只有 item_id、不进
+// /items 目录，服务端播报靠这张表兜底中文名，背包同口径——查不到才退回
+// 原始 id，绝不让任何物品栈静默消失（F148）。
+const LOOT_FALLBACK: Record<string, string> = {
+  rune_shard: "符文碎片",
+  stone_core: "石核",
+  guardian_plate: "守卫铠片",
+  smiling_idol_eye: "笑脸神像之眼",
+  wolf_pelt: "狼皮",
+  cracked_fang: "裂齿",
+  beast_core: "兽核",
+  moonlit_hide: "月光兽皮",
+  venom_sac: "毒囊",
+  serpent_scale: "蛇鳞",
+  antidote_herb: "解毒草",
+  toxic_gland: "毒腺",
+  basilisk_venom: "蛇王毒液",
+  frost_dust: "霜尘",
+  ice_shard: "冰晶碎块",
+  ice_crystal: "冰晶",
+  eternal_frost_core: "永冻之核",
+  winter_queen_tear: "冬之女王之泪",
+  demon_iron: "恶魔铁",
+  knight_crest: "骑士徽记",
+  castle_key: "城堡钥匙",
+  demon_blade: "恶魔之刃",
+  baran_sigil: "巴兰印记",
+  beru_carapace: "蚁王甲壳",
+  ant_queen_essence: "蚁后精华",
+  shadow_essence: "暗影精粹",
+  monarch_fragment: "君主碎片",
+  kings_jaw: "王者之颚",
+  torn_scrap: "破损布片",
+  dim_crystal: "微光晶石",
+};
+
+function tabOf(item: Item): InvTab {
+  return KEY_ITEM_IDS.has(item.id) ? "key" : item.category;
+}
 
 const RARITY_LABEL: Record<ItemRarity, string> = {
   common: "常见",
@@ -30,11 +79,12 @@ const RARITY_ORDER: Record<ItemRarity, number> = {
   common: 3,
 };
 
-const EMPTY_TEXT: Record<ItemCategory, string> = {
+const EMPTY_TEXT: Record<InvTab, string> = {
+  key: "没有关键道具。传送门碎片这类过门硬通货会单独归在这里。",
   weapon: "武器格是空的。地下城里总有一把剑在等人捡。",
   armor: "防具格是空的。下一次突袭前，最好先把自己包起来。",
   consumable: "没有补给。药水会在最需要的时候见底。",
-  material: "没有素材。传送门碎片、核心、血——都是能换钱的东西。",
+  material: "没有素材。核心、血、晶石——都是能换钱的东西。",
 };
 
 function statLine(item: Item) {
@@ -74,20 +124,33 @@ export default function InventoryPanel({
   notice: string | null;
   onOp: (itemId: string, op: ItemOp) => void;
 }) {
-  const [cat, setCat] = useState<ItemCategory>("weapon");
+  const [cat, setCat] = useState<InvTab>("key");
   const catalog = useMemo(() => new Map(items.map((it) => [it.id, it])), [items]);
 
+  // F148 不吞栈：/items 目录查不到的 item_id（掉落物/任务物）合成兜底
+  // 条目归入「材料」，名字走 LOOT_FALLBACK，最后才退回原始 id。
   const rows = useMemo(
     () =>
       inventory
-        .map((row) => ({ row, item: catalog.get(row.item_id) }))
-        .filter((r): r is { row: InventoryRow; item: Item } => Boolean(r.item) && r.row.qty > 0),
+        .filter((row) => row.qty > 0)
+        .map((row) => ({
+          row,
+          item:
+            catalog.get(row.item_id) ??
+            ({
+              id: row.item_id,
+              name: LOOT_FALLBACK[row.item_id] ?? row.item_id,
+              category: "material",
+              rarity: "common",
+              desc: "战利品——系统目录未收录，按材料归档。",
+            } satisfies Item),
+        })),
     [inventory, catalog]
   );
 
   const counts = useMemo(() => {
-    const c: Record<ItemCategory, number> = { weapon: 0, armor: 0, consumable: 0, material: 0 };
-    for (const { row, item } of rows) c[item.category] += row.qty;
+    const c: Record<InvTab, number> = { key: 0, weapon: 0, armor: 0, consumable: 0, material: 0 };
+    for (const { item } of rows) c[tabOf(item)] += 1;
     return c;
   }, [rows]);
 
@@ -95,19 +158,21 @@ export default function InventoryPanel({
   // 免得玩家一进面板先看到空槽。
   useEffect(() => {
     if (counts[cat] > 0) return;
-    const next = CATEGORIES.find((c) => counts[c.key] > 0);
+    const next = TABS.find((c) => counts[c.key] > 0);
     if (next) setCat(next.key);
   }, [rows.length]);
 
   const shown = rows
-    .filter(({ item }) => item.category === cat)
+    .filter(({ item }) => tabOf(item) === cat)
     .sort(
       (a, b) =>
         RARITY_ORDER[a.item.rarity] - RARITY_ORDER[b.item.rarity] ||
         a.item.name.localeCompare(b.item.name, "zh-Hans-CN")
     );
 
-  const total = rows.reduce((n, { row }) => n + row.qty, 0);
+  // F148 计数口径与列表一致：「N 件」= 可见物品栈数（不是 qty 加总），
+  // 与 GET /saves/:id 返回的栈数一一对应。
+  const total = rows.length;
 
   return (
     <div className="inv">
@@ -134,7 +199,7 @@ export default function InventoryPanel({
       </div>
 
       <div className="inv-tabs" role="tablist" aria-label="背包分类">
-        {CATEGORIES.map((c) => (
+        {TABS.map((c) => (
           <button
             key={c.key}
             role="tab"
@@ -176,6 +241,7 @@ export default function InventoryPanel({
                 <div className="inv-row-meta">
                   {stat && <span className="inv-row-stat">{stat}</span>}
                   {equipped && <span className="inv-row-flag">已装备</span>}
+                  {KEY_ITEM_IDS.has(item.id) && <span className="inv-row-flag">关键道具</span>}
                 </div>
                 <p className="inv-row-desc">{item.desc}</p>
                 <div className="inv-row-acts">

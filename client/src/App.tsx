@@ -551,6 +551,44 @@ export default function App() {
     [dispatch]
   );
 
+  // F155「释放技能」开合回执：抽屉只本地开合、不走服务端，玩家需要一条
+  // .stage-col 里的系统行确认面板开了——口径与 F143 面板动词回执一致。
+  // 只在展开时写（收起不刷屏）；技能与可用性全部读 save.skills 视图，
+  // 与行动栏列表同一数据源，不新造数值。
+  const toggleBarSkills = useCallback(() => {
+    if (!save || !liveCombat) return;
+    if (barSkillOpen) {
+      setBarSkillOpen(false);
+      return;
+    }
+    setBarSkillOpen(true);
+    const parts = (save.skills ?? skills).map((s) => {
+      const unlocked = s.unlocked ?? s.learn_level <= save.level;
+      const cd = s.cooldown_remaining ?? 0;
+      const mpOk = s.mp_enough ?? save.mp >= s.mp_cost;
+      const canCast = s.can_cast ?? (unlocked && cd === 0 && mpOk);
+      if (canCast) return `${s.name}（MP ${s.mp_cost}）`;
+      const reason = !unlocked
+        ? `需 Lv.${s.learn_level}`
+        : cd > 0
+          ? `冷却中 ${cd} 回合`
+          : !mpOk
+            ? "MP 不足"
+            : (s.reason ?? "不可用");
+      return `${s.name}（${reason}）`;
+    });
+    setLog((l) => [
+      ...l,
+      {
+        id: Date.now(),
+        role: "system",
+        content: `【系统】已调出技能面板 · 可用：${parts.join("/") || "无"}`,
+      },
+    ]);
+  }, [save, skills, liveCombat, barSkillOpen]);
+
+  // F148 口径兜底：背包页签已在当前位时重开面板也要回灌——drawer 开合
+  // 纳入依赖，否则击杀后新掉落的栈在「背包」原位重开时仍显示旧计数。
   useEffect(() => {
     if (tab !== "inventory" || !save) return;
     getSave(save.id)
@@ -559,7 +597,7 @@ export default function App() {
         setEquipment(r.equipment);
       })
       .catch(() => {});
-  }, [tab, save]);
+  }, [tab, save, drawer]);
 
   // 任务面板打开时拉取；save 每次动作后变化 → 进度与倒计时顺带刷新。
   useEffect(() => {
@@ -630,7 +668,7 @@ export default function App() {
         // 交战态：1–4 槽位指向战斗四键，与按钮上的键帽提示一致。
         // 「释放技能」键只开合技能列表，不发指令。
         const b = COMBAT_BUTTONS[n - 1];
-        if (b.input === null) setBarSkillOpen((v) => !v);
+        if (b.input === null) toggleBarSkills();
         else dispatch(b.input);
       } else if (n >= 1 && n <= ACTION_BUTTONS.length && !liveCombat) {
         const b = ACTION_BUTTONS[n - 1];
@@ -643,7 +681,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, toggleBarSkills]);
 
   // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
   // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
@@ -1013,7 +1051,7 @@ export default function App() {
                           : "当前没有可攻击的目标"
                     }
                     onClick={() =>
-                      b.input === null ? setBarSkillOpen((v) => !v) : dispatch(b.input as string)
+                      b.input === null ? toggleBarSkills() : dispatch(b.input as string)
                     }
                   >
                     {challengeable ? "叫阵 · 攻击" : b.label}
