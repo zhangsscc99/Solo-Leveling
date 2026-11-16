@@ -177,7 +177,7 @@
 
 
 ## 第 4 轮试玩新增（2026-11-15 18:5x）
-- [ ] F094 战斗操作入口：行动栏（含移动端）直接给出「攻击 / 释放技能 / 防御 / 逃跑」，无敌人时按钮 disabled + 「当前没有可攻击的目标」；交战时「休息 / 潜行 / 存档 / 状态」必须明确拒绝或占回合，禁止「交战中免费回血」；技能按钮显示 `MP 消耗 / 冷却` 并按所选技能真实扣除
+- [x] F094 战斗操作入口：行动栏（含移动端）直接给出「攻击 / 释放技能 / 防御 / 逃跑」，无敌人时按钮 disabled + 「当前没有可攻击的目标」；交战时「休息 / 潜行 / 存档 / 状态」必须明确拒绝或占回合，禁止「交战中免费回血」；技能按钮显示 `MP 消耗 / 冷却` 并按所选技能真实扣除 ✅ (2026-11-15 cron; verify combat-actions-ui.mjs 绿，行为早前已落地)
   verify: node scripts/assert/combat-actions-ui.mjs
   risk: med
 - [x] F095 （阻断）第 1 章守关者死路：Lv.1 玩家 atk≈10、HP100，而 ch1 boss「石像守卫」按 Lv.5 生成（HP130、每回合打出 18–28），必败 → 回溯 → 再战无限死亡循环（线上实测连死 4 次仍 Lv.1）；须按章节期望等级重做遭遇缩放，让 Lv.1–2 + 新手装备在 ≤12 动作内打得过 ch1 守关者，ch1 首死触发濒死觉醒补偿，逃跑能真正脱离 boss 房 ✅ (2026-11-15 cron; 遭遇按章节期望等级重做缩放：ch1 守关者 HP130→75、单回合 18→13，Lv1–2 带药可打赢；首死濒死觉醒 +1 级，逃跑可真正撤回上一场景且 boss 房冷却 2 步；实测 21 动作通第 1 章 Lv.3 零死亡)
@@ -219,10 +219,10 @@
   risk: low
 
 ## 第 7 轮试玩新增（2026-11-15 23:1x，cron；F092/F098 同轮已合并）
-- [ ] F106 （阻断）门拒绝分支仍在扣资源：ch1 守关者未击杀时点「前进」回包 `【主线】「石像守卫」的威压仍封着出口——你无法越过守关者，只能退回「敬拜」。（体力消耗 HP 78→75 · MP 1→0）`——无位移、无推进却照扣 3 HP / 2 MP 并写消耗日志，连点可原地耗死（与 F096 声称的 refused 零消耗矛盾）。要求：所有「门未开 / 体力不足 / MP 不足」拒绝一律 `refused:true` 短路（零 HP/MP/scene/log 变更），并下发 `advance_mode` 把主按钮改写成「折返守关者」；新增 `gate-refusal-free.mjs` 覆盖守关者门、章节等级门、终章门三处
+- [x] F106 （阻断）门拒绝分支仍在扣资源：ch1 守关者未击杀时点「前进」回包 `【主线】「石像守卫」的威压仍封着出口——你无法越过守关者，只能退回「敬拜」。（体力消耗 HP 78→75 · MP 1→0）`——无位移、无推进却照扣 3 HP / 2 MP 并写消耗日志，连点可原地耗死（与 F096 声称的 refused 零消耗矛盾）。要求：所有「门未开 / 体力不足 / MP 不足」拒绝一律 `refused:true` 短路（零 HP/MP/scene/log 变更），并下发 `advance_mode` 把主按钮改写成「折返守关者」；新增 `gate-refusal-free.mjs` 覆盖守关者门、章节等级门、终章门三处 ✅ (2026-11-16 cron; 所有门拒绝 refused 零消耗 + advance_mode 换标；审查发现房内软锁另立 F121)
   verify: node scripts/assert/gate-refusal-free.mjs
   risk: med
-- [ ] F107 交战期装备/加点免费：**行为已由 F094 修**（实测线上交战中背包「装备」disabled + `title="交战中无法更换装备"`、面板下方提示「交战中无法使用或更换装备——补给请走战斗「道具」指令（占一回合）」），**仍缺断言**：`combat-actions-ui.mjs` 未覆盖 equip/spend。要求补 `combat-equip-gate.mjs`：交战中 `POST /item op=equip` 与 `/spend` 必须被拒且零回合零属性变化，非交战放行
+- [x] F107 交战期装备/加点免费：**行为已由 F094 修**（实测线上交战中背包「装备」disabled + `title="交战中无法更换装备"`、面板下方提示「交战中无法使用或更换装备——补给请走战斗「道具」指令（占一回合）」），**仍缺断言**：`combat-actions-ui.mjs` 未覆盖 equip/spend。要求补 `combat-equip-gate.mjs`：交战中 `POST /item op=equip` 与 `/spend` 必须被拒且零回合零属性变化，非交战放行 ✅ (2026-11-15 cron; 新增断言 combat-equip-gate.mjs，变异验证敏感)
   verify: node scripts/assert/combat-equip-gate.mjs
   risk: low
 - [ ] F108 页脚固定文案写成「面板 5–0」（应为 5–9，0 无快捷键）：改成 `面板 5–9` 或按视口只显示「5–9 / ESC」
@@ -243,3 +243,31 @@
 - [ ] F113 移动端底部操作区被战斗组撑高：F094 落地后非交战态也渲染 4 个 disabled 战斗键，390×844 下 footer 由 285px → **361px（占屏 43%）**，行动组挤成「探索前进/环顾四周/潜行/休息/攻击」5 键一行（每键 ≈62px 宽，小于四字标签的舒适宽度），叙事区只剩 ~360px。要求：非交战态把战斗组折叠成单行矮提示（或只在「战斗」二级入口里给出），交战时再展开四键；390px 下行动组最多 4 键一行。注意 F094 的断言 `combat-actions-ui.mjs` 第 (a) 段要求非交战四键 disabled 可见，改布局时同步改断言（改为「入口存在且 disabled」而不是「四个按钮常驻」）
   verify: node scripts/assert/combat-actions-ui.mjs
   risk: low
+
+## 第 8 轮试玩新增（2026-11-15 23:5x，cron；独立审查，47 次真实点击）
+- [x] F114 （阻断）死亡回溯把 `save.scene` 退回第 2 幕（ch1_law, scene_index=1），`chapter_steps` 仍保留 4/7 → 之后每次「前进」整幕复读、进度不动却照扣 HP/MP（实测 HP 84→81→152→149），地图「当前」与正在上演的守关战不一致。要求：进度由 `scene` 单点推导（`chapter_steps = pathIndex+1`）或回溯时场景与步数同步回退且不重复计费；播报的落点必须与 `save.scene` 一致 ✅ (2026-11-16 cron; chapter_steps 由 scene 单点推导、回溯退两幕且播报取真实落点、无位移零消耗)
+  verify: node scripts/assert/death-respawn-consistency.mjs
+  risk: med
+- [ ] F115 「回到地面/医院」场景 `ch1_surface` 仍刷地下城遭遇（石像残兵 Lv.2 HP 52/52 强制交战），叙事穿帮。要求：遭遇表按 `scene.kind` 分区或给场景 `no_encounter` 标记
+  verify: node scripts/assert/encounter-scene-kind.mjs
+  risk: med
+- [ ] F116 （= F093 复测未过）地图 Ch.2 写「锁定 · 需 Lv.5」，Lv.4 玩家点前进即进第 2 章（OR 软门 `level_ok || chapter_ok`）。要求：`unlockedFor` 改回 AND 硬门，或地图文案改「推荐 Lv.5 · 可强行进入（受压制）」，锁定态与放行不得并存
+  verify: node scripts/assert/chapter-unlock-and.mjs
+  risk: med
+- [ ] F117 章末 7/7 无「进入下一章」入口，切章藏在又一次扣费的「前进」里。要求：7/7 时 `advance_mode` 改主按钮为「进入第2章 · 每日任务」且该次不再扣体力
+  verify: node scripts/assert/chapter-end-cta.mjs
+  risk: low
+- [ ] F118 AI 降级零提示：`/ai-action` 回 `degraded:true` 时前端无任何提示，正文是与「环顾四周」首句逐字相同的模板句。要求：降级时气泡尾加「（系统叙事降级：按规则解析）」，观察模板句按场景轮换 ≥3 句
+  verify: node scripts/assert/degraded-banner.mjs
+  risk: low
+- [ ] F119 （并入 F113）移动端 390×844 `footer.actions` 实测 y=483 h=361 = 视口 42.8%，17 个按钮三行堆叠，正文区仅 483px。要求同 F113：战斗组非交战态折叠为单行入口、系统组收进抽屉，正文区 ≥60% 视口
+  verify: node scripts/assert/mobile-footer-budget.mjs
+  risk: med
+- [ ] F120 「休息」连续两次正文拼接重复：「体力一点点回到四肢。体力与魔力一点点回流，…」。要求：休息叙述按回合轮换且不重复上一句
+  verify: node scripts/assert/rest-narration.mjs
+  risk: low
+
+## 第 8 轮验收后审查（2026-11-16 01:xx，cron）
+- [ ] F121 （阻断，F106 回归）守关房内「前进」改为零位移 refused 后玩家没有可点的下一步：`advanceMode` 已换标「折返守关者」但人就在房内，行动栏四键在无交战时全 `disabled`（`title="当前没有可攻击的目标"`），唯一出路是在自由输入框手打「攻击」（`peacefulCombatIntent` 的 bossChallenge）——等于软锁。可达路径：守关战「逃跑」成功（F095 逃生阀）+「前进」落回房内。要求：`advanceMode` 增 `challenge_boss` 语义，主按钮改「叫阵守关者」并真 dispatch「攻击」，或该态下解禁行动栏「攻击」；房内文案指向可点按钮；`gate-refusal-free.mjs` 删掉以 `next_choices.length>0` 充当「有出路」的假绿断言，新增 UI 级断言 `boss-room-escape-ui.mjs`（真点开战）；顺带修 `saveView` 不再下发遗留 `main_steps`、F107 断言在全新 scratch DB 上因 equipment.json 残留 id 误红
+  verify: node scripts/assert/boss-room-escape-ui.mjs && node scripts/assert/gate-refusal-free.mjs
+  risk: med
