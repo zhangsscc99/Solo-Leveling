@@ -285,3 +285,6 @@
 - [ ] F126 部署/验收脚本继承泄漏的环境变量导致假红与**误回滚**：本轮 `ci-deploy.sh` 第 8 步 E2E 因 shell 里残留的 `E2E_BASE_URL=http://127.0.0.1:3082/game` / `API_BASE=…:3082` 打到不存在的端口，5/5 全红 → 触发 `rollback.sh` 把 `client/src` 检出回旧 ref（服务端仍是新代码），线上变成「新后端 + 旧前端」的混合态，且工作区出现 staged 反向改动。要求：`ci-deploy.sh` 与 `rollback.sh` 开头 `unset E2E_BASE_URL API_BASE E2E_NO_CLEANUP SL_VERIFY_API_BASE`（或用 `env -u` 包住 node 调用）；`rollback.sh` 只回滚构建产物/重启，不得改写 `client/src` 工作区（改 `git checkout $REF -- client/src` 为备份+构建，或回滚后 `git reset --hard` 前先拒绝在有未提交改动时执行）；`map-interactive` 类断言若连不上端口应报「环境错」而不是「业务回归」
   verify: node --test scripts/e2e/ci-deploy-env.test.mjs
   risk: med
+- [ ] F127 `scripts/report.sh` 全表汇总存在系统性假红：2026-11-16 02:35 / 02:42 两份报告都报 31 项 FAIL（PASS 38/39），但把同样的 FID 逐条单跑与按报告顺序串行复跑（F110→F117）**全部 PASS**（F112 24.06s、F113 26.37s、F116 10.74s、F117 16.40s）。现象集中在 UI/Playwright 类断言的超时型失败，怀疑 report.sh 的 `vout="$(./scripts/verify.sh "$fid" | tail -1)"; rc=$?` 取到的是 tail 的状态、或串行跑时未给每个断言独立 settle 预算（前一条断言的浏览器/DB 残留未清）。要求：`rc` 改为 `set -o pipefail` 下的显式 `if ! out=$(...)` 判定并保留完整输出到报告；每条断言跑前清 `e2e-*/verify-*` 存档；对超时型失败重跑一次再判；报告里 FAIL 行必须附断言原始错误行（现在只有 `[VERIFY] X FAIL`，无从定位）
+  verify: bash scripts/report.sh && ! grep -q 'F117 | FAIL' "$(ls -t docs/runs/*.md | head -1)"
+  risk: med
