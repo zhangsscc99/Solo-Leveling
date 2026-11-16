@@ -1416,11 +1416,38 @@ function peacefulCombatIntent(save, input, action) {
       events: [],
     };
   }
+  // F137 非交战「想离开」语义分两层（交战态已在 combatTurn 真结算，不经过
+  // 本函数）：
+  //   · escape_locked 场景（chapters.json 场景级数据字段，惩罚副本类）——
+  //     出口被系统封死：挂 refused 零消耗短路（与章节门同口径），正文给
+  //     真实可行的出路。既有 refused 语义本身就匹配「门拒绝」（零日志/
+  //     零位移），另挂 escape_locked 独立标记让前端/断言能区分这是
+  //     「副本封门」而非一般门禁拒绝。
+  //   · 普通场景——「想走」不是「前进」：零消耗诚实播报并指向真实推进
+  //     指令，绝不路由成 advance（F137 前「离开这里」被 advance 正则
+  //     抢走，惩罚副本门口一次输入直接撞进守关房）。
+  if (action === "flee") {
+    const scene = chaptersEngine.currentScene(save);
+    if (scene && scene.escape_locked === true) {
+      return {
+        patch: null,
+        content:
+          "【系统】退路已被封死——你无法撤离。只有击败守关者，或撑到副本终结，才能离开这里。",
+        events: [],
+        refused: true,
+        escape_locked: true,
+      };
+    }
+    return {
+      patch: null,
+      content: "【系统】此处没有交战，无需撤离；要推进剧情请说「前进」。",
+      events: [],
+    };
+  }
   const pool = proseEngine.poolFor(save.chapter);
   const lines = {
     defend: `【系统】${pool.defend}`,
     item: `【系统】${pool.item}`,
-    flee: `【系统】${pool.flee}`,
   };
   return { patch: null, content: lines[action], events: [] };
 }
@@ -1880,6 +1907,9 @@ function executeIntent(save, intentId, input) {
     rewards: built.rewards || null,
     grantMain: built.grantMain || null,
     refused: built.refused === true,
+    // F137：副本封门拒绝的独立标记——与一般 refused（门禁/交战忙碌）区分，
+    // 回包随 refused 一并下发，缺省不下发。
+    escape_locked: built.escape_locked === true,
   };
 }
 
@@ -1943,7 +1973,9 @@ function resolveAction(save, input) {
     events: [],
     content: cbt
       ? `【系统】你正与${cbt.enemy.name}交战——「攻击」「释放技能 X」「防御」「使用道具」「逃跑」，或「前进」强行撤离。`
-      : `【系统】系统未识别该指令：「${input}」。可用：探索前进 / 环顾四周 / 攻击 / 休息 / 存档，输入「帮助」查看完整指令表。`,
+      // F137：兜底指令表之外补一句澄清问句——玩家最常见的真实意图就是
+      // 「打」或「走」，给一个可执行的回话方向，不再是一句死话收尾。
+      : `【系统】系统未识别该指令：「${input}」。可用：探索前进 / 环顾四周 / 攻击 / 休息 / 存档，输入「帮助」查看完整指令表。\n你是想攻击还是想离开？`,
   };
 }
 
@@ -2470,17 +2502,22 @@ api.post("/action", (req, res) => {
   // 结算管线照跑：patch 本应为 null，谁把它改回带消耗谁就在响应里现形。
   if (outcome.refused) {
     const extra = applyOutcome(save.id, outcome);
-    return res.json({
+    const body = {
       reply: {
         id: --epilogueReplySeq,
         role: outcome.role || "system",
         content: extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content,
       },
+      // F137：回包显式带解析出的 intent——与 /ai-action 同一口径，
+      // 玩家与断言不必从文案反推这条输入被当成了什么。
+      intent: outcome.intent,
       save: saveView(store.getSave(save.id) || save),
       // F094：回包显性带拒绝标记——交战门禁/章节门/终章同一口径，
       // 前端与断言不必从文案反推「这次动作被拒了」。
       refused: true,
-    });
+    };
+    if (outcome.escape_locked) body.escape_locked = true;
+    return res.json(body);
   }
   store.appendLog(save.id, "user", input);
   // 真实结算事件随动作入账：战斗态/奖励/死亡回溯/每日任务都在
@@ -2494,9 +2531,12 @@ api.post("/action", (req, res) => {
   // F129：面板路由把目标面板 key 挂上回复——日志行只存 role/content，
   // panel 是回包附加字段不落库，前端凭它直接开对应抽屉。
   if (outcome.panel) reply.panel = outcome.panel;
-  const payload = { reply, save: saveView(store.getSave(save.id)) };
+  // F137：/action 回包同样带 intent（与 /ai-action 对齐）——自由输入
+  // 解析结果对外可见，「挥一拳→attack」「离开→flee」可观测、可断言。
+  const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
   if (outcome.shadows) payload.shadows = outcome.shadows;
   if (outcome.panel) payload.panel = outcome.panel;
+  if (outcome.escape_locked) payload.escape_locked = true;
   res.json(payload);
 });
 
@@ -2620,7 +2660,7 @@ api.post("/ai-action", async (req, res) => {
     // 拒绝态必须在此之前短路返回，日志表才真的零增长。
     if (outcome.refused) {
       const extra = applyOutcome(save.id, outcome);
-      return res.json({
+      const body = {
         reply: {
           id: --epilogueReplySeq,
           role: outcome.role || "system",
@@ -2630,7 +2670,10 @@ api.post("/ai-action", async (req, res) => {
         save: saveView(store.getSave(save.id) || fresh),
         refused: true,
         degraded,
-      });
+      };
+      // F137：副本封门拒绝与一般门禁拒绝同走 refused 短路，独立标记下发。
+      if (outcome.escape_locked) body.escape_locked = true;
+      return res.json(body);
     }
     store.appendLog(save.id, "user", input);
     const extra = applyOutcome(save.id, outcome);

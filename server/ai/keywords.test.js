@@ -35,3 +35,33 @@ test("resolveIntent: 无关键词/空输入返回 null（/action 走 unknown 占
   assert.equal(keywords.resolveIntent(42), null);
   assert.equal(fallback.parse("阿巴阿巴").intent, "observe");
 });
+
+// F137 review 回归：口语化攻击/脱离表述必须落到正确意图，
+// 「离开」归 flee 不再被 advance 抢走；裸「打」仍不得进 attack。
+test("resolveIntent: F137 意图覆盖（挥拳/出手/劈=attack，离开/撤离/回到=flee）", () => {
+  const cases = [
+    ["对着石像挥一拳", "attack"],
+    ["出手打它", "attack"],
+    ["劈它一刀", "attack"],
+    ["挥拳打它", "attack"],
+    ["揍他", "attack"],
+    ["离开这里", "flee"],
+    ["撤离副本", "flee"],
+    ["回到第1章", "flee"],
+    ["走人", "flee"],
+    ["脱战", "flee"],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(keywords.resolveIntent(input), expected, `resolveIntent "${input}"`);
+    assert.equal(fallback.parse(input).intent, expected, `fallback.parse "${input}"`);
+  }
+});
+
+test("resolveIntent: F137 反例——裸「打」不吞非战斗输入", () => {
+  // 「打开背包」「打招呼」绝不能落 attack；它们落 unknown/observe 都可以，
+  // 唯一硬约束是不许结算成攻击。
+  for (const input of ["打开背包", "打招呼", "打包行李"]) {
+    assert.notEqual(keywords.resolveIntent(input), "attack", `resolveIntent "${input}"`);
+    assert.notEqual(fallback.parse(input).intent, "attack", `fallback.parse "${input}"`);
+  }
+});
