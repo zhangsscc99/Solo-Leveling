@@ -1082,3 +1082,15 @@
 5. F136 同名重登静默开新档、F131 撤离文案按敌型分支、F110/F118/F120 叙述类文案。
 
 **方向建议**：下一轮若仍只有 1 车道，优先拿 F097（等级带宽，swe-2-max），它把 F128/F134 的死局从「机制断供」降级为「可打」；并顺手把 F109/F104 两条「verify 已绿但内容未修」的假绿条目补上真断言（verify 指向的错误口径本身是缺陷）。
+
+---
+
+## 2026-11-16 07:30 UTC 第 14 轮（F134 落地复核，devin swe-2-medium）
+
+**上线项**：F134（阻断）死亡回溯不返还休息次数。`settleDeath` 的 patch 增 `rest_used: 0`（与跨章重置同一语义），回溯播报补「休息次数已重置（3/3 次可用）」。
+
+**验收证据（非假绿）**：新断言 `death-rewind-rest-refill.mjs` 在**旧代码**（合并前线上 3020）实跑 FAIL——`rest {"available":false,"remaining":0,"reason":"本章休息次数已用完（0/3）"}`；合并部署后同一断言 PASS（`rest.remaining` 回满 3/3、DB `rest_used=0`、`deaths+1`，重复死亡幂等不累加），并从回溯落点跑 40 步真实路径确认无「全出口断供」。死亡类既有断言（death / death-progress-keep / death-respawn-consistency / rest-cost）全部无回归。
+
+**本轮死局清单变化**：第 13 轮第 1 项（F134 惩罚副本资源断供）**已关闭**。剩余痛感排序不变：F128/F097（惩罚副本数值与等级带宽，同根）、F109（休息角标「休息 3 4」）、F104（通关页开发备注）、F136（同名重登静默新档）。
+
+**本轮跳过项（诚实记录）**：① 第 3 步「真机试玩审视」未跑——部署后 CPU 被其它项目（DatingAgent vitest / jinshu jest）顶到 97–99%，`agent-gate.sh` 判定 red（`cpu_99pct`），按闸门规则不再开第二车道，改到下一轮；② `scripts/report.sh` 全表未跑，同因 CPU 饱和时 Playwright 串行易出 F127 类假红，本轮以 `verify.sh F134` + `ci-deploy.sh` 内置 5/5 E2E 作为门禁。
