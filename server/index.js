@@ -862,6 +862,18 @@ function advanceWithEncounter(save) {
     // boss 房再入冷却（F095 逃生阀），普通遭遇原地脱离，链首场景则原地
     // 脱离。绝不调用 advanceOutcome——同一次点击不得白嫖一次落点/穿章。
     const fleeRes = combatTurn(save, cbt, "flee", "前进", null, { retreatOnFlee: true });
+    // F103 死亡即收束：撤离掷逃把人打倒时，回合战报已被 combatTurn 清空，
+    // settleDeath 的「倒下/回溯」播报是唯一收尾——绝不能再拼「撤离失败」。
+    if (fleeRes.patch && fleeRes.patch.hp <= 0) {
+      return {
+        patch: fleeRes.patch,
+        content: fleeRes.content,
+        events: fleeRes.events || [],
+        combat: fleeRes.combat,
+        rewards: null,
+        grantMain: null,
+      };
+    }
     const fledOk =
       fleeRes.combat &&
       fleeRes.combat.op === "clear" &&
@@ -1257,6 +1269,12 @@ function combatTurn(save, cbt, action, input, skill, opts) {
   } else if (fled || patch.hp <= 0) {
     // 逃跑成功 / 玩家倒下：交战态都必须收敛。死亡由 settleDeath 统一结算。
     res.combat = { op: "clear" };
+    if (patch.hp <= 0) {
+      // F103 死亡即收束：回合战报/撤离句整体让位——applyOutcome 里
+      // settleDeath 的「倒下/回溯」播报是死亡回包的唯一收尾，攻击、
+      // 技能、前进撤离、遭遇与守关战五类致死路径由此统一形态。
+      res.content = "";
+    }
     // F095 逃生阀：守关 boss 房里的显式「逃跑」成功 = 真的脱离 boss 房，
     // 撤回本章主线链上一场景（没有上一场景则原地脱离），并挂 2 步再入
     // 冷却——冷却期重进 boss 房不会立刻重遇同一守关者，玩家永远有
