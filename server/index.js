@@ -60,10 +60,10 @@ function sceneView(save) {
   if (!chapter || !scene) return base;
   const total = chaptersEngine.chapterPath(chapter).length;
   const idx = chaptersEngine.pathIndexOf(chapter, scene.id);
-  // F098：主线计数取「当前位置」与「已到达最远步序（main_steps 高水位）」
-  // 的较大值——死亡回溯只退位置不退计数。scene_index 仍如实暴露真实站位。
-  const kept = Math.max(0, Math.trunc(Number(save.main_steps) || 0));
-  const steps = Math.min(total, Math.max(idx + 1, kept));
+  // F114 单一事实源：chapter_steps 只由当前场景在主线链上的位置推导
+  // （站位 + 1；站位不在链上记 0）——不再叠加 main_steps 高水位，
+  // 位置与进度是一本账：回溯退几幕，计数就退几幕。
+  const steps = Math.min(total, Math.max(0, idx + 1));
   const gate = chaptersEngine.unlockedFor(save, chapter);
   return {
     scene: scene.id,
@@ -605,39 +605,40 @@ function claimMainReward(saveId, chapterId) {
   return [`【主线】第${chapter.index}章主线达成，奖励入账 ${parts.join(" · ")}。`, ...lines];
 }
 
-// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章入口、
-// HP/MP 恢复至上限一半、deaths+1。返回播报行，未死返回 null。
+// F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至倒下处往前
+// 两幕（锚定本章入口）、HP/MP 恢复至上限一半、deaths+1。返回播报行，
+// 未死返回 null。
 // F095：第 1 章「首次」死亡是剧情事件——接入 ch1_death 濒死支线，
 // 系统提前完成绑定，一次性补满升级差额（实质 +1 级：满血上限、
 // 自由属性点入账），让死亡成为推进而不是零收益循环。触发条件
 // chapter===1 && deaths===0，终生只此一次；第 2 章起死亡仍是纯回溯。
-// F098：回溯只退位置不退主线——已到达的最远主线步序写入 main_steps
-// 高水位（saveView 的 chapter_progress 取站位与水位较大值），播报分行
-// 写清「落点回入口 / 主线计数保留」，两句话都是真实发生的，不互相矛盾。
+// F114：位置与主线计数一本账——chapter_steps 一律由场景位置推导，
+// 落点退两幕计数就退两幕，不再有「场景在第 2 幕、计数在第 4 步」的
+// 双账态；落点文案取回写后的真实存档场景（是入口写入口、是第 2 幕
+// 写第 2 幕），不写死。
 // 首死另发一次性保底 XP（DEATH_CONSOLATION_XP，终生一次，deaths>0 后不再
 // 发）——死亡给一条出路，但不是刷经验的门。
 const DEATH_CONSOLATION_XP = 30;
+// 回溯步幅：倒下处往前退几幕主线场景（锚定链首入口）。
+const DEATH_REWIND_SCENES = 2;
 
 function settleDeath(saveId) {
   const save = store.getSave(saveId);
   if (!save || save.hp > 0) return null;
   const chapter = chaptersEngine.getChapter(save.chapter) || chaptersEngine.getChapter(1);
   const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
-  const first = chapter ? chaptersEngine.firstSceneOf(chapter) : null;
-  // 倒下那一刻的站位也要计入水位：max(本次站位, 历史水位)，封顶链长。
   const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save.scene) : -1;
-  const kept = Math.min(
-    path.length,
-    Math.max(idx + 1, Math.trunc(Number(save.main_steps) || 0))
-  );
+  // 落点 = 倒下位置往前两幕（锚定入口）；站位不在链上（支线/悬空）时
+  // 落到链首——与「前进」的自愈落点同一口径。
+  const rewindIdx = path.length ? Math.max(0, Math.max(0, idx) - DEATH_REWIND_SCENES) : 0;
+  const landing = path.length ? path[rewindIdx] : chapter ? chaptersEngine.firstSceneOf(chapter) : null;
   const patch = {
     chapter: chapter ? chapter.index : 1,
-    scene: first ? first.id : null,
+    scene: landing ? landing.id : null,
     deaths: (Number(save.deaths) || 0) + 1,
     encounter_clock: 0,
     encounter_cd: 0,
   };
-  if (kept > 0) patch.main_steps = kept;
   const lines = ["【系统】你倒下了……视野在尖锐的警报声里碎成一片黑雪。"];
   const firstDeath = (Number(save.deaths) || 0) === 0;
 
@@ -697,16 +698,21 @@ function settleDeath(saveId) {
   patch.mp = Math.max(0, Math.round(halfOfMp * 0.5));
   store.updateSave(saveId, patch);
   store.clearCombat(saveId);
+  // 落点文案取回写后的真实存档场景：落在链首才说「入口」，落在第几幕
+  // 就写第几幕——播报与 save.scene 永远一致。
+  const landed = store.getSave(saveId);
+  const landedScene = landed ? chaptersEngine.currentScene(landed) : null;
+  const landedIdx = chapter && landedScene ? chaptersEngine.pathIndexOf(chapter, landedScene.id) : -1;
   lines.push(
-    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章的入口` +
-      `${first ? `「${first.title}」` : ""}，` +
+    `【系统】你被系统回溯至第${chapter ? chapter.index : 1}章` +
+      `${landedIdx === 0 ? "的入口" : ""}` +
+      `${landedScene ? `「${landedScene.title}」` : ""}，` +
       `伤势被时间抚平了一部分（HP/MP 恢复至上限的一半）。`
   );
-  if (chapter && path.length && kept > 0) {
-    const mark = path[kept - 1];
+  if (chapter && path.length && landedIdx >= 0) {
     lines.push(
-      `【系统】已保留：第${chapter.index}章 主线 ${kept}/${path.length}` +
-        `${mark ? ` · 「${mark.title}」` : ""}——走过的里程碑不会被回溯抹去。`
+      `【系统】回溯后本章主线停驻在 ${landedIdx + 1}/${path.length}` +
+        `「${landedScene.title}」——位置与进度同退，重走的路会重新计数。`
     );
   }
   return lines;
@@ -854,6 +860,25 @@ function advanceWithEncounter(save) {
     grantMain: null,
     refused: out.refused === true,
   };
+  // F114 无位移零消耗：结算出参没把玩家挪到新场景（patch.scene 缺省或
+  // 与原地相同）时，体力扣点必须剥掉、并把「（体力消耗…）」注脚改写为
+  // 「（本次没有消耗体力）」——「原地看旧文还掉血」不得在回溯态下复活。
+  // （F106 负责的门禁拒绝分支走 refused 短路，不在本车道动；这里只罩
+  // 「无位移⇒不扣费」这一层不变量。）
+  if (patch && !moved) {
+    let stripped = false;
+    if (patch.hp !== undefined && patch.hp !== save.hp) {
+      delete patch.hp;
+      stripped = true;
+    }
+    if (patch.mp !== undefined && patch.mp !== save.mp) {
+      delete patch.mp;
+      stripped = true;
+    }
+    if (stripped) {
+      res.content = res.content.replace(/（体力消耗 [^）]*）/g, "（本次没有消耗体力）");
+    }
+  }
   if (!moved) return res;
 
   // 跨章换地图：遭遇保底计数随地图归零；击杀冷却每次真实移动递减一格。
@@ -1688,20 +1713,6 @@ function applyOutcome(saveId, outcome) {
     }
     if (outcome.patch) {
       store.updateSave(saveId, outcome.patch);
-      // F098 主线高水位：落点在本章主线链上推进到第几步，main_steps 就
-      // 至少记到第几步（只进不退）；跨章落点换新章重新计。死亡回溯在其后
-      // 执行，只改 scene 不动水位——进度计数因此不被回溯抹掉。
-      const after = store.getSave(saveId);
-      const chAfter = after ? chaptersEngine.getChapter(after.chapter) : null;
-      const idxAfter = chAfter ? chaptersEngine.pathIndexOf(chAfter, after.scene) : -1;
-      const sameChapter = before && after && after.chapter === before.chapter;
-      const prevWater = sameChapter
-        ? Math.max(0, Math.trunc(Number(before.main_steps) || 0))
-        : 0;
-      const water = Math.max(prevWater, idxAfter + 1);
-      if (after && water !== Math.max(0, Math.trunc(Number(after.main_steps) || 0))) {
-        store.updateSave(saveId, { main_steps: water });
-      }
     }
     if (outcome.combat) {
       if (outcome.combat.op === "set") {
@@ -1804,9 +1815,9 @@ api.get("/chapters", (req, res) => {
     if (state === "current") {
       const scene = chaptersEngine.currentScene(save);
       const idx = scene ? chaptersEngine.pathIndexOf(chapter, scene.id) : -1;
-      // 与 saveView 同一口径：高水位只进不退——回溯后位置退、计数不退。
-      const kept = Math.max(0, Math.trunc(Number(save.main_steps) || 0));
-      steps = Math.min(mainTotal, Math.max(idx + 1, kept));
+      // 与 saveView 同一口径：进度由当前站位推导（位置 + 1），
+      // 不读高水位——地图「当前」与顶栏步数永不脱钩。
+      steps = Math.min(mainTotal, Math.max(0, idx + 1));
     }
     return { ...view, state, progress: { current: steps, target: mainTotal } };
   });

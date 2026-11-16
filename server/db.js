@@ -145,8 +145,9 @@ if (!saveCols.includes("boss_cleared_json")) {
 if (!saveCols.includes("skill_cd_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN skill_cd_json TEXT NOT NULL DEFAULT '{}'");
 }
-// F098 主线高水位：本章已到达的最远主线步序（1 基）。死亡回溯只退回
-// 位置（scene），不清水位——chapter_progress 取两者较大值，不倒退。
+// F098 主线高水位（遗留列）：本章已到达的最远主线步序（1 基）。
+// F114 起 chapter_progress 改由当前场景位置推导（位置 + 1，单一事实源），
+// 本列不再被读取/写入——仅作历史数据保留，不删列免迁移。
 if (!saveCols.includes("main_steps")) {
   db.exec("ALTER TABLE saves ADD COLUMN main_steps INTEGER NOT NULL DEFAULT 0");
 }
