@@ -208,7 +208,7 @@
 - [ ] F102 章节解锁口径三处不一致：地图 Ch.8 写死「需 Lv.70」、`chapter_unlock.level` 回包是 40、`chapters.json` 的 `unlock.level` 又是第三个值；玩家看到「锁定 · 需 Lv.70」却能直接走进去（F093 软门）。要求：地图/回包/数据单一事实源（`/api/chapters` 下发 `unlock.level` 与 `unlocked/blocked_reason`），前端不再写死数字；软门期间锁定态与「已开启」播报不得并存
   verify: node scripts/assert/chapter-unlock-single-source.mjs
   risk: med
-- [ ] F103 死亡回包自相矛盾：`你倒下了，战斗结束。` 紧跟 `【战斗】撤离失败，X 仍堵在面前——你寸步未移。`（交战中「前进」致死分支仍拼撤离失败文案）。要求：死亡即收束，不得再拼回合/撤离失败句；五条死亡日志统一形态（2026-11-16 cron 复查：`death.mjs` 绿但**未覆盖本条**——`server/index.js:871-874` 的 `fledOk` 判定把 `hp<=0` 也归入「撤离失败」，死亡分支仍会拼上「撤离失败」；需先补「死亡回包不得含『撤离失败』」断言再改代码，当前按假绿处理，不勾选）
+- [x] F103 死亡回包自相矛盾：`你倒下了，战斗结束。` 紧跟 `【战斗】撤离失败，X 仍堵在面前——你寸步未移。`（交战中「前进」致死分支仍拼撤离失败文案）。要求：死亡即收束，不得再拼回合/撤离失败句；五条死亡日志统一形态 ✅ (2026-11-16 cron devin; `advanceWithEncounter` 对 `hp<=0` 直接返回死亡结算、`combatTurn` 致死回合清空战报，settleDeath 播报成唯一收尾；`death.mjs` 驱动改「交战中前进→撤离掷逃反击致死」并加负向词表（撤离失败/仍堵在面前/寸步未移），隔离实例 3 连跑全绿、stash 服务端修复后红证指向「撤离失败」)
   verify: node scripts/assert/death.mjs
   risk: low
 - [ ] F104 通关页残留开发备注：结算面板写「注：战斗统计未接入，总击杀暂记「—」。」，而 `stats.kills` 有真实值。要求：删除该备注，`总击杀` 与存档 kills 同源渲染
@@ -240,7 +240,7 @@
 - [x] F112 断言可复现性（F105 追加）：`chapter-progress-ui.mjs`（F091 的 verify）连续 3 次 FAIL——「did not reach epilogue within the landing budget」，23:08 报告起就是红的，属断言驱动方式问题（靠 N 次 UI 动作走到终章，现在有守关者门后不可达）。要求改 DB 落点构造终章前存档再走 1-2 步 UI，或直接断言顶栏 `x/y` 与 panel 数据一致（仍保留一次真实 UI 断言） ✅ (2026-11-16 cron devin; 改 DB 落点构造终章前存档 + 1 步 UI，保留顶栏/API 一致性硬断言；5 连跑全绿，变异测试改坏 chapter_progress 立即红)
   verify: node scripts/assert/chapter-progress-ui.mjs && node scripts/assert/chapter-progress-ui.mjs
   risk: low
-- [ ] F113 移动端底部操作区被战斗组撑高：F094 落地后非交战态也渲染 4 个 disabled 战斗键，390×844 下 footer 由 285px → **361px（占屏 43%）**，行动组挤成「探索前进/环顾四周/潜行/休息/攻击」5 键一行（每键 ≈62px 宽，小于四字标签的舒适宽度），叙事区只剩 ~360px。要求：非交战态把战斗组折叠成单行矮提示（或只在「战斗」二级入口里给出），交战时再展开四键；390px 下行动组最多 4 键一行。注意 F094 的断言 `combat-actions-ui.mjs` 第 (a) 段要求非交战四键 disabled 可见，改布局时同步改断言（改为「入口存在且 disabled」而不是「四个按钮常驻」）
+- [x] F113 移动端底部操作区被战斗组撑高：F094 落地后非交战态也渲染 4 个 disabled 战斗键，390×844 下 footer 由 285px → **361px（占屏 43%）**，行动组挤成「探索前进/环顾四周/潜行/休息/攻击」5 键一行（每键 ≈62px 宽，小于四字标签的舒适宽度），叙事区只剩 ~360px。要求：非交战态把战斗组折叠成单行矮提示（或只在「战斗」二级入口里给出），交战时再展开四键；390px 下行动组最多 4 键一行。注意 F094 的断言 `combat-actions-ui.mjs` 第 (a) 段要求非交战四键 disabled 可见，改布局时同步改断言（改为「入口存在且 disabled」而不是「四个按钮常驻」）✅ (2026-11-16 cron devin; 非交战态折叠为单行 `.combat-entry`（disabled + 「当前没有可攻击的目标」），交战时展开四键；390×844 实测 footer 361→**181px(21.4%)**、正文 **528px(62.6%)**、行动组 4 键/行、每键 86px；系统组与战斗入口共享 meta 行横向滚动，1280 三栏不退化；(e) 段补 footer ≤30%/正文 ≥60%/按钮 ≥72px 预算)
   verify: node scripts/assert/combat-actions-ui.mjs
   risk: low
 
@@ -260,8 +260,8 @@
 - [ ] F118 AI 降级零提示：`/ai-action` 回 `degraded:true` 时前端无任何提示，正文是与「环顾四周」首句逐字相同的模板句。要求：降级时气泡尾加「（系统叙事降级：按规则解析）」，观察模板句按场景轮换 ≥3 句
   verify: node scripts/assert/degraded-banner.mjs
   risk: low
-- [ ] F119 （并入 F113）移动端 390×844 `footer.actions` 实测 y=483 h=361 = 视口 42.8%，17 个按钮三行堆叠，正文区仅 483px。要求同 F113：战斗组非交战态折叠为单行入口、系统组收进抽屉，正文区 ≥60% 视口
-  verify: node scripts/assert/mobile-footer-budget.mjs
+- [x] F119 （并入 F113）移动端 390×844 `footer.actions` 实测 y=483 h=361 = 视口 42.8%，17 个按钮三行堆叠，正文区仅 483px。要求同 F113：战斗组非交战态折叠为单行入口、系统组收进抽屉，正文区 ≥60% 视口 ✅ (2026-11-16 cron，随 F113 落地；实测 footer 181px(21.4%)、正文 528px(62.6%)，断言并入 `combat-actions-ui.mjs` (e) 段)
+  verify: node scripts/assert/combat-actions-ui.mjs
   risk: med
 - [ ] F120 「休息」连续两次正文拼接重复：「体力一点点回到四肢。体力与魔力一点点回流，…」。要求：休息叙述按回合轮换且不重复上一句
   verify: node scripts/assert/rest-narration.mjs
@@ -279,12 +279,33 @@
 - [x] F124 新档第一次「探索前进」= 原地落地 + 扣体力 + 掷遭遇：建档后顶栏已显示 1/7 但 `save.scene` 实为 null，首点播开场白全文却 `HP 100→97 · MP 20→18` + `【遭遇】石像残兵 Lv.3` + 每日任务「推进战线」完成，`chapter_progress` 仍 1/7；3 个新档全部复现。要求建档即写 `scene=ch1_double_gate`，或首点零消耗、不掷遭遇、不结算每日任务 ✅ (2026-11-16 cron devin; 建档写首幕 + `advanceOutcome` 对 `idx<0` 保留 scripted 自愈（零消耗/不掷怪/不结算），存量 `scene=null` 档实测自愈；断言直读 DB 列 `scene` 避免被 sceneView 自愈派生骗绿)
   verify: node scripts/assert/new-save-first-advance.mjs
   risk: low
-- [ ] F125 逃跑后重入守关房文案自相矛盾：逃跑成功撤回 3/7 → 再点前进进 4/7，回包是整段守关战开场白「巨像的拳落下来。你听见自己腿骨断裂的声音…」（还扣 `HP 88→85`），但 `combat=null`、`advance_mode=challenge_boss`；再叫阵写「你主动逼近满地残骸」而 `boss_cleared=[]`（守关者从未被击杀）。要求：再入 boss 房时零消耗、不复读开场战叙述，未击杀时不得出现「残骸」字样
+- [x] F125 逃跑后重入守关房文案自相矛盾：逃跑成功撤回 3/7 → 再点前进进 4/7，回包是整段守关战开场白「巨像的拳落下来。你听见自己腿骨断裂的声音…」（还扣 `HP 88→85`），但 `combat=null`、`advance_mode=challenge_boss`；再叫阵写「你主动逼近满地残骸」而 `boss_cleared=[]`（守关者从未被击杀）。要求：再入 boss 房时零消耗、不复读开场战叙述，未击杀时不得出现「残骸」字样 ✅ (2026-11-16 cron devin; 再入 boss 房（守关者未倒下、冷却压住落地遭遇）剥掉该步 HP/MP 代价并换 2 句轮转的中性「重新回到守关房」播报；逃跑/叫阵文案去掉「残骸」（改动前 red 证指向「守关者的残骸在身后缓缓凝聚」）；新断言 `boss-room-reentry-prose.mjs` 覆盖零消耗/无开场战句/无残骸/可继续叫阵，隔离实例 2 连跑全绿)
   verify: node scripts/assert/boss-room-reentry-prose.mjs
   risk: low
 - [ ] F126 部署/验收脚本继承泄漏的环境变量导致假红与**误回滚**：本轮 `ci-deploy.sh` 第 8 步 E2E 因 shell 里残留的 `E2E_BASE_URL=http://127.0.0.1:3082/game` / `API_BASE=…:3082` 打到不存在的端口，5/5 全红 → 触发 `rollback.sh` 把 `client/src` 检出回旧 ref（服务端仍是新代码），线上变成「新后端 + 旧前端」的混合态，且工作区出现 staged 反向改动。要求：`ci-deploy.sh` 与 `rollback.sh` 开头 `unset E2E_BASE_URL API_BASE E2E_NO_CLEANUP SL_VERIFY_API_BASE`（或用 `env -u` 包住 node 调用）；`rollback.sh` 只回滚构建产物/重启，不得改写 `client/src` 工作区（改 `git checkout $REF -- client/src` 为备份+构建，或回滚后 `git reset --hard` 前先拒绝在有未提交改动时执行）；`map-interactive` 类断言若连不上端口应报「环境错」而不是「业务回归」
   verify: node --test scripts/e2e/ci-deploy-env.test.mjs
   risk: med
+  - 2026-11-16 03:35 追加（升级为生产事故）：线上 pm2 进程带着 `DB_PATH=/tmp/mut.db` 跑了 1h45m，真实玩家存档全部写进 /tmp（已合并回 `data/game.db`，旧库留档 `.bak-20261116-033300`）。除 `unset` 外还要求：`ci-deploy.sh` 显式固定 `DB_PATH=/www/Solo-Leveling/data/game.db`（不依赖缺省值）；`/api/health` 回包带上 `db_path`，部署第 6 步断言其等于预期；`rollback.sh` 重启时同样固定 DB_PATH。
 - [ ] F127 `scripts/report.sh` 全表汇总存在系统性假红：2026-11-16 02:35 / 02:42 两份报告都报 31 项 FAIL（PASS 38/39），但把同样的 FID 逐条单跑与按报告顺序串行复跑（F110→F117）**全部 PASS**（F112 24.06s、F113 26.37s、F116 10.74s、F117 16.40s）。现象集中在 UI/Playwright 类断言的超时型失败，怀疑 report.sh 的 `vout="$(./scripts/verify.sh "$fid" | tail -1)"; rc=$?` 取到的是 tail 的状态、或串行跑时未给每个断言独立 settle 预算（前一条断言的浏览器/DB 残留未清）。要求：`rc` 改为 `set -o pipefail` 下的显式 `if ! out=$(...)` 判定并保留完整输出到报告；每条断言跑前清 `e2e-*/verify-*` 存档；对超时型失败重跑一次再判；报告里 FAIL 行必须附断言原始错误行（现在只有 `[VERIFY] X FAIL`，无从定位）
   verify: bash scripts/report.sh && ! grep -q 'F117 | FAIL' "$(ls -t docs/runs/*.md | head -1)"
   risk: med
+
+## 第 10 轮试玩新增（2026-11-16 03:30，cron；真人 500+ 动作 / 五面板 / 桌面+移动）
+- [ ] F128 （阻断）第 2 章惩罚副本死亡循环：ch2 任意战斗中死亡 → 回溯到 ch2_daily_quest →「前进」唯一出口是 ch2_penalty_gate → 强制遭遇「惩罚副本·毒牙蛇 Lv.5 HP200 攻24 boss:true」，Lv.4（攻 16、伤害恒 9）需 ~20 回合、蛇每回合反击 18，玩家 ~9 回合必死；自动化实测 50+ 次循环无一脱出（deaths 3→53），且界面没有任何「撤离」提示（真正的撤离键是自由输入「前进」，按钮「逃跑」反而可能失败）。要求：战斗面板在惩罚副本给出可见目标（「存活至副本结束 N/M 回合」）与撤离指引；或让 Lv.4 在该副本有可行打法（药水/技能/等级带宽钳制，与 F097 合并考虑）；断言：脚本从死亡回溯点连续 12 次「前进」必须能离开 ch2_penalty_gate（到达别的场景或完成副本），不得 12 次都停在惩罚副本→毒牙蛇
+  verify: node scripts/assert/ch2-penalty-escape.mjs
+  risk: high
+- [ ] F129 未识别指令直出开发占位句：自由输入「任务」→「指令已接收：「任务」。命运之线仍在编织中……（叙事引擎尚未接入，此处为占位回应。输入「帮助」查看当前可用指令。）」。要求：删掉「叙事引擎尚未接入/占位回应」字样，改为不出戏的系统措辞（如「系统未识别该指令，可用：探索前进/环顾四周/…」），并把面板名（背包/技能/属性/地图/任务/存档）直接路由到对应面板而不是当未识别指令。断言：任意未识别输入的回包不含「占位」「尚未接入」「命运之线仍在编织」
+  verify: node scripts/assert/no-placeholder-prose.mjs
+  risk: low
+- [ ] F130 所有面板页脚写死「面板 5–0」（`client/src/App.tsx:774`），移动端同样出现，疑似开发期调试串。要求：删除或改为有语义的面板位置提示（如「第 3 / 6 面板」），断言：打开每个面板后页脚文本不得匹配 `/面板\s*\d+\s*[–-]\s*\d+/`
+  verify: node scripts/assert/panel-footer-strings.mjs
+  risk: low
+- [ ] F131 撤离文案把「守关者残骸」模板套在普通精英怪上：从毒牙蛇（非守关者、且从未被击杀）撤离时播报「你且战且退，撤回了「惩罚副本」——守关者的残骸在身后缓缓凝聚」。要求：撤离文案按敌型与 boss_cleared 分支（普通怪=「它没有追出来」、已击杀 boss=残骸、未击杀 boss=仍守在门后），断言：普通遭遇撤离回包不得含「守关者」「残骸」
+  verify: node scripts/assert/flee-prose-by-enemy-kind.mjs
+  risk: low
+- [ ] F132 脱战后底部系统组「战斗」「存档」点击无任何可见反馈（无 tab 切换、无空态提示），而相邻战斗四键有「当前没有可攻击的目标」。要求：脱战时给出空态提示或禁用并说明原因；断言：非交战态点「战斗」后 300ms 内页面出现空态文案（含「没有交战」或「当前无战斗」）或按钮 aria-disabled
+  verify: node scripts/assert/idle-combat-tab-feedback.mjs
+  risk: low
+- [ ] F133 场景可叙述名缺失导致模板念内部标题：`ch1_awaken` 的 `title` 字面为「玩家」，环顾四周读成「你放慢呼吸，重新审视「玩家」」；且观察文案池仅 2 条，三次连点必逐字重复。要求：`chapters.json` 场景补 `narr_name`（≠ title，缺省回退 title），观察/环顾/撤离模板一律读 `narr_name`；观察文案池 ≥4 条且按场景轮转；断言：连续 3 次观察文本互不相同，且不得出现「「玩家」」
+  verify: node scripts/assert/observe-prose-pool.mjs
+  risk: low
