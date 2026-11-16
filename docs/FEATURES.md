@@ -338,7 +338,7 @@
 - [ ] F140 F137 同族漏网：「往回走」仍被 advance 抢走——实测 ch3 正常场景输「往回走」`scene` 从 `ch3_association` 真推进到 `ch3_retest`（方向与语义相反）。要求：flee 词表补 `往回|回头|退回去|原路返回`，并确认不把 advance 的裸「走」抢坏（「继续走」必须仍是 advance）。断言：非交战场景输「往回走」「原路返回」`scene` 不变且非 advance；「继续走」「向前走」仍是 advance。
   verify: node scripts/assert/backtrack-intent.mjs
   risk: low
-- [ ] F141 帮助文本被当成敌人名导致「幽灵战斗面板」：打一场仗 → 输「帮助」→ 刷新页面 → 战斗面板自动顶开显示「交战 第5回合 / 战中： Lv.- HP -/-」，玩家以为卡在一场看不见敌人的战斗里（`CombatPanel` 的 `ENEMY_RE` 把指令表里的「遭遇战中：」抓成敌人名，`TURN_RE` 抓到旧回合数）。要求：`ENEMY_RE`/推断逻辑排除系统指令表行（或以服务端结构化的 `combat` 字段为准，不再从日志正则反推）；断言：Playwright 打一场仗 → 输「帮助」→ 刷新 → 战斗面板不得显示「交战」；同场景真交战时面板仍正常显示。
+- [x] F141 帮助文本被当成敌人名导致「幽灵战斗面板」：打一场仗 → 输「帮助」→ 刷新页面 → 战斗面板自动顶开显示「交战 第5回合 / 战中： Lv.- HP -/-」，玩家以为卡在一场看不见敌人的战斗里（`CombatPanel` 的 `ENEMY_RE` 把指令表里的「遭遇战中：」抓成敌人名，`TURN_RE` 抓到旧回合数）。要求：`ENEMY_RE`/推断逻辑排除系统指令表行（或以服务端结构化的 `combat` 字段为准，不再从日志正则反推）；断言：Playwright 打一场仗 → 输「帮助」→ 刷新 → 战斗面板不得显示「交战」；同场景真交战时面板仍正常显示。 ✅ (2026-11-16 cron devin swe-2-high; `gateIndexes`/`detectCombatGate`/`inferContext` 改收 `{live, freshFrom}`：`save.combat` 非空直接判 engage（F088 单一事实源），脱战口径下只信本会话新写入且非指令表（`SYS_TABLE_RE`=可用指令|遭遇战中）的行，刷新回灌的旧战报与帮助指令表不再点亮面板；App 新增 `logBaseRef`（整页回灌 + enterSave 两处）并把基线透传给 `CombatPanel`；新断言 `ghost-combat-panel.mjs`（(a) 打仗→帮助→刷新不得出现「交战」面板，(b) 真交战刷新仍自动展开且敌名/回合正确）；隔离实例 3 连跑全绿，旧码红证显示「交战 第4回合 / 战中： Lv.2 HP —/—」；线上 3020 连跑 3 次 PASS、部署内置 E2E 5/5、F076/F132/F135/F109/F121 回归 PASS)
   verify: node scripts/assert/ghost-combat-panel.mjs
   risk: med
 - [ ] F142 拒绝往来不落库（minor）：refused 的输入与警告零日志，刷新后「离开这里」连同「你无法撤离」一并消失，玩家回查无据；F137 把更多日常输入变成 refused 后「被抹掉的对话」变多。要求：refused 输入仍写一条 user 日志 + 一条 system 拒绝文案（不产生任何数值结算/位移），或明确在回包标注 `logged:false` 并让前端保留本地气泡。断言：封门拒绝后 `GET /api/saves/:id` 的日志含该输入与拒绝文案，且 hp/mp/xp/scene 零变化。
