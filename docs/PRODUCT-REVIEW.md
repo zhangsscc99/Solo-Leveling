@@ -1270,3 +1270,12 @@
 - 本轮车道 A（server）：**F146 + F150 + F151 + F153 + F154**（兜底语境 / 叫阵可输入 + 拒绝文案轮换 / 疑问句不判攻击 / 最后一瓶口径 / item 意图收窄）。
 - 本轮车道 B（client）：**F148 + F155 + F156**（背包计数与关键道具可见 / 技能面板回执 / 首屏 CTA）。
 - 未修（下一轮）：F147 配发装备不自动穿、F152 软门文案自相矛盾、F128/F097 惩罚副本数值与等级带宽（risk high，需 max 单独车道）、F078/F118 AI 降级玩家无感、F142 refused 不落库。
+
+### 本轮契约变更记账（断言口径跟着改的，不是削弱强度）
+1. `scripts/assert/free-input-intent.mjs` (g)：原断言把「你是想攻击还是想离开？」写成**期望值**——正是 F146 要拆掉的那句。改为三条更强断言：必须回显玩家原文、**不得**含该固定问句、必须给出与场景相关的可做之事（`观察|前进`）。变异敏感性保留（旧码跑必红）。
+2. `scripts/e2e/panels.mjs`：背包页签数 4 → 5（F148 新增「关键」页签），并逐个核对「关键/武器/防具/消耗品/材料」五个分类都在——比只数个数更严。
+3. devin 新建的断言文件名与 FEATURES 里登记的 verify 路径不一致（`unknown-fallback-context` vs `unknown-followup-context`、`inventory-count-parity` vs `bag-count-consistency`），已 `git mv` 对齐 FEATURES（source of truth 仍是 FEATURES）。
+4. boss 拒绝计数放在进程内存（devin 说明）：拒绝是零日志短路，没有存档字段可挂，重启归零。语义上满足「同一存档连续被拒」，但**跨重启不保持**——若以后要求持久计数，需要动存档结构（risk med，单独开条目）。
+
+### 部署踩到的坑（本轮实锤）
+- 第一次 `ci-deploy.sh` 在 E2E 步骤红（`panels` 断言 4 tabs），触发 `rollback.sh` 把 `client/src` 检出回旧 ref（F126 描述的老毛病）→ 工作区变成「新后端 + 旧前端」的 staged 反向改动。处理：`git checkout HEAD -- client/src` 恢复 + 重新 build + 修 e2e 断言 → 二次部署 `DEPLOY OK`（内置 E2E 5/5）。教训：**改前端可见结构（页签数/按钮文案）前，先 grep `scripts/e2e` 与 `scripts/assert` 里的结构断言**，否则部署闸门会把整轮打回滚。
