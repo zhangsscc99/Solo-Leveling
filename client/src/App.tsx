@@ -362,6 +362,10 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [combatOpen, setCombatOpen] = useState(false);
   const [barSkillOpen, setBarSkillOpen] = useState(false);
+  // F132 系统键就地反馈：脱战「战斗」空态 /「存档」进度与确认共用的
+  // 短提示条（底栏上缘浮现，计时自动消散）。
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
 
@@ -432,10 +436,19 @@ export default function App() {
     setStatNotice(null);
   }, []);
 
+  // 连续两次提示只重置计时与文案——同一 .sys-toast 槽位不换元素。
+  const showToast = useCallback((text: string) => {
+    setToast({ id: Date.now(), text });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
+
+  // 返回本次指令是否真的发到服务端并收回回包（调用方据此决定是否
+  // 播报完成态——如「存档已写入」）；busy/空输入/异常都算没落成。
   const dispatch = useCallback(
-    async (text: string) => {
+    async (text: string): Promise<boolean> => {
       const trimmed = text.trim();
-      if (!trimmed || !save || busy) return;
+      if (!trimmed || !save || busy) return false;
       setBusy(true);
       setLog((l) => [...l, { id: Date.now(), role: "user", content: trimmed }]);
       try {
@@ -449,11 +462,13 @@ export default function App() {
         if (panel && PANEL_TAB_KEYS.has(panel as TabKey)) {
           openTab(panel as TabKey);
         }
+        return true;
       } catch {
         setLog((l) => [
           ...l,
           { id: Date.now() + 1, role: "system", content: "【警报】与系统的连接中断。请检查网络后重试。" },
         ]);
+        return false;
       } finally {
         setBusy(false);
       }
@@ -781,7 +796,9 @@ export default function App() {
             />
           </div>
           <div className="side-foot">
-            <span>面板 5–0</span>
+            <span>
+              第 {tabs.findIndex((t) => t.key === tab) + 1} / {tabs.length} 面板
+            </span>
             <span className="foot-esc">ESC 关闭</span>
             <span className="foot-tap">点 × 关闭</span>
           </div>
@@ -789,6 +806,11 @@ export default function App() {
       </aside>
 
       <footer className="actions">
+        {toast && (
+          <div key={toast.id} className="sys-toast" role="status">
+            {toast.text}
+          </div>
+        )}
         <div className="actions-main">
           <div className="action-groups">
             <div className="btn-group">
@@ -870,18 +892,20 @@ export default function App() {
                 );
               })}
               {/* F094/F113 战斗四键：交战态整组展开（键帽 1–4）；守关房
-                  叫阵态（challengeBoss）同样展开且只解禁「攻击」——守关者
-                  就封在出口，原地叫阵即开战，与主按钮同一结算路径。
-                  其余非交战态不再常驻四个 disabled 键（F113/F119 高度
-                  预算）：折叠为下方 .combat-entry 单行矮入口。 */}
+                  叫阵态（challengeBoss）只留承担开战的那一键（F135——
+                  「释放技能/防御/逃跑」的 disabled 残键像半截战斗栏，
+                  不再渲染），按钮文案自带「叫阵」，点击就地开战，与主
+                  按钮同一「攻击」结算路径。其余非交战态四键折叠为下方
+                  .combat-entry 单行矮入口（F113/F119 高度预算）。 */}
               {(liveCombat || challengeBoss) &&
                 COMBAT_BUTTONS.map((b, i) => {
-                const challengeable = challengeBoss && b.input === "攻击";
+                const challengeable = challengeBoss && !liveCombat && b.input === "攻击";
+                if (challengeBoss && !liveCombat && !challengeable) return null;
                 const disabled = busy || (!liveCombat && !challengeable);
                 return (
                   <button
                     key={b.label}
-                    className={`btn${liveCombat && i === 0 ? " primary" : ""}${
+                    className={`btn${(liveCombat && i === 0) || challengeable ? " primary" : ""}${
                       b.input === null && barSkillOpen ? " on" : ""
                     }`}
                     disabled={disabled}
@@ -900,7 +924,7 @@ export default function App() {
                       b.input === null ? setBarSkillOpen((v) => !v) : dispatch(b.input as string)
                     }
                   >
-                    {b.label}
+                    {challengeable ? "叫阵 · 攻击" : b.label}
                     {liveCombat && <kbd>{i + 1}</kbd>}
                   </button>
                 );
@@ -941,7 +965,12 @@ export default function App() {
               ))}
               <button
                 className="btn"
-                onClick={() => setCombatOpen((v) => !v)}
+                onClick={() => {
+                  // F132：脱战点开的是空面板（挂在 stage 列顶，长日志
+                  // 滚到底后不在视口内），先给一行就地可见的空态提示。
+                  if (!liveCombat) showToast("当前没有交战目标");
+                  setCombatOpen((v) => !v);
+                }}
                 title="战斗面板开关"
               >
                 战斗
@@ -950,7 +979,13 @@ export default function App() {
                 className="btn"
                 disabled={busy || Boolean(save.combat)}
                 title={save.combat ? "交战中无法存档" : undefined}
-                onClick={() => dispatch("存档")}
+                onClick={() => {
+                  // F132：点击即给就地反馈；回包落地后换成完成确认。
+                  showToast("正在写入存档…");
+                  void dispatch("存档").then((ok) => {
+                    if (ok) showToast(`存档已写入 · 存档 #${save.id}`);
+                  });
+                }}
               >
                 存档
               </button>

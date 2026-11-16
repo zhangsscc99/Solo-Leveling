@@ -82,10 +82,14 @@ async function body(page) {
     await atkBtn.isEnabled(),
     "action bar「攻击」must be enabled in challenge_boss state (title: 守关者就在面前 — 叫阵开战)"
   );
-  // 其余三键仍锁——叫阵态只开「攻击」这一条口子。
+  // 其余三键不再渲染残键（F135）——叫阵态只留承担开战的「叫阵 · 攻击」。
   for (const label of ["释放技能", "防御", "逃跑"]) {
-    assert(await barBtn(page, label).isDisabled(), `「${label}」should stay disabled with no engagement`);
+    assert(
+      (await barBtn(page, label).count()) === 0,
+      `「${label}」stray key should not render in challenge_boss state (F135)`
+    );
   }
+  assert(/叫阵/.test(await atkBtn.innerText()), `challenge attack button should carry「叫阵」copy`);
 
   // ── 真点主按钮 → 真实开战（不是只断言「有按钮」）─────────────────
   const [resp] = await Promise.all([

@@ -3095,3 +3095,29 @@ button {
     color: var(--tick);
   }
 }
+
+/* F132 脱战系统组轻反馈：就地浮现的一行短提示（战斗空态 / 存档进度
+   与确认）。锚在底栏上缘居中，绝对定位不占布局、不拦截点击；文案
+   由 App 计时自动消散。 */
+.actions {
+  position: relative;
+}
+
+.sys-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + var(--sp-2));
+  transform: translateX(-50%);
+  z-index: 15;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--hull-2);
+  border: 1px solid var(--system-dim);
+  border-radius: var(--r-hard);
+  box-shadow: 0 0 14px rgba(79, 200, 255, 0.16);
+  color: var(--system);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
