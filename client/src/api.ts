@@ -152,6 +152,8 @@ export interface Skill {
   power: number;
   rarity: ItemRarity;
   learn_level: number;
+  // F111 服务端随 save.skills 下发的引擎同源预计伤害区间（目录接口不带）。
+  damage_preview?: { min: number; max: number };
   // F081 服务端随 save.skills 下发的可释放性（旧 /skills 目录响应不带）。
   unlocked?: boolean;
   cooldown_remaining?: number;

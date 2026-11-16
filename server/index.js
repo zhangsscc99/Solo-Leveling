@@ -948,10 +948,38 @@ function engagedTarget(cbt) {
   return Boolean(cbt && cbt.enemy && Math.max(0, Number(cbt.enemy.hp) || 0) > 0);
 }
 
+// F111 预计伤害区间：由 combat.js damageRange 产出——与 resolveTurn
+// 结算同一条 computeDamage（力量含装备折算、暴击上下限、rank 压制、
+// 目标减伤），面板与「造成 X 点伤害」回包同一事实源，前端不再按
+// 「威力」猜伤害。目标池 = 本章小怪模板 + 守关 boss + 当前交战敌人
+// （如有）：区间覆盖玩家在本章真正会打到的 def/rank 谱系。
+function skillDamagePreview(save, skill, cbt) {
+  // 与 combatTurn 注入引擎的玩家实体同一口径（stats + 装备折算）。
+  const equip = equipView(save.id);
+  const stats = statsEngine.sanitizeStats({ stats: save.stats });
+  stats.strength += (equip.atk || 0) / 1.6;
+  stats.vitality += (equip.def || 0) / 0.8;
+  const attacker = { rank: save.rank, stats };
+  const ch = Math.max(1, Math.trunc(Number(save.chapter) || 1));
+  const table = encounterEngine.CHAPTER_ENEMIES[ch] || encounterEngine.CHAPTER_ENEMIES[8];
+  const baseLv = encounterEngine.mobLevel(ch);
+  const targets = (table.mobs || []).map((m) =>
+    encounterEngine.makeEnemy({
+      ...m,
+      level: baseLv + Math.max(0, Math.trunc(Number(m.levelBonus) || 0)),
+      hp: m.hp || 1,
+      xp: m.xp || 1,
+    })
+  );
+  if (table.boss) targets.push(encounterEngine.spawnBoss(ch));
+  if (cbt && cbt.enemy && typeof cbt.enemy === "object") targets.push(cbt.enemy);
+  return combatEngine.damageRange(attacker, skill, targets);
+}
+
 // 单个技能的可释放视图：unlocked/cooldown_remaining/mp_enough/engaged/
 // can_cast/reason 全部服务端结算，与 skillGate 的判定顺序严格一致——
 // 前端按钮 disabled + 提示文案只读这些字段，不再本地复刻规则。
-function skillCastView(save, skill, engaged) {
+function skillCastView(save, skill, engaged, cbt) {
   const unlocked = skill.learn_level <= save.level;
   const cooldown_remaining = skillCdLeft(save, skill.id);
   const mp_enough = Number(save.mp) >= skill.mp_cost;
@@ -972,12 +1000,13 @@ function skillCastView(save, skill, engaged) {
     engaged,
     can_cast: reason === null,
     reason,
+    damage_preview: skillDamagePreview(save, skill, cbt),
   };
 }
 
 function skillViews(save, cbt) {
   const engaged = engagedTarget(cbt);
-  return SKILLS.map((s) => skillCastView(save, s, engaged));
+  return SKILLS.map((s) => skillCastView(save, s, engaged, cbt));
 }
 
 // 「释放技能 X」前置校验：名字解析、已习得、冷却走完、MP 足够（按

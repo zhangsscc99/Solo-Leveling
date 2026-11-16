@@ -2956,3 +2956,11 @@ button {
   line-height: 1.9;
   color: #c8d6ec;
 }
+
+/* ── F111 技能预计伤害（服务端 damage_preview 下发，与引擎同源）──────
+   「威力 N」单值已被结算区间取代——玩家按这个数字决策，用系统色把它
+   从 MP/冷却等次要元信息里抬出来；无预览字段（纯目录回包）时不渲染。 */
+.skill-dmg {
+  color: var(--system);
+  text-shadow: 0 0 8px var(--system-dim);
+}
