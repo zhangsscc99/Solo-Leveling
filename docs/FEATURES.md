@@ -307,7 +307,7 @@
 - [ ] F132 脱战后底部系统组「战斗」「存档」点击无任何可见反馈（无 tab 切换、无空态提示），而相邻战斗四键有「当前没有可攻击的目标」。要求：脱战时给出空态提示或禁用并说明原因；断言：非交战态点「战斗」后 300ms 内页面出现空态文案（含「没有交战」或「当前无战斗」）或按钮 aria-disabled
   verify: node scripts/assert/idle-combat-tab-feedback.mjs
   risk: low
-- [ ] F133 场景可叙述名缺失导致模板念内部标题：`ch1_awaken` 的 `title` 字面为「玩家」，环顾四周读成「你放慢呼吸，重新审视「玩家」」；且观察文案池仅 2 条，三次连点必逐字重复。要求：`chapters.json` 场景补 `narr_name`（≠ title，缺省回退 title），观察/环顾/撤离模板一律读 `narr_name`；观察文案池 ≥4 条且按场景轮转；断言：连续 3 次观察文本互不相同，且不得出现「「玩家」」
+- [x] F133 场景可叙述名缺失导致模板念内部标题：`ch1_awaken` 的 `title` 字面为「玩家」，环顾四周读成「你放慢呼吸，重新审视「玩家」」；且观察文案池仅 2 条，三次连点必逐字重复。要求：`chapters.json` 场景补 `narr_name`（≠ title，缺省回退 title），观察/环顾/撤离模板一律读 `narr_name`；观察文案池 ≥4 条且按场景轮转；断言：连续 3 次观察文本互不相同，且不得出现「「玩家」」 ✅ (2026-11-16 cron devin swe-2-medium; `ch1_awaken` 补 `narr_name=「冰冷的石殿」`，`sceneNarrName()` 统一供观察/折返/撤离落点/死亡回溯/守关房再入/`scene_title` 使用，`chapters.js` 加载期拒收占位 narr_name（玩家/TODO/undefined/null/test/占位）；prose 每章 observe 池 2→4 条（GENERIC 同步），同场景 3 连观察互异；新断言 `observe-prose-pool.mjs`（3 连互异 + 禁念「玩家」 + <120 字不复读 + 删 narr_name/池缩回 2 条/注入占位三重变异敏感），旧代码上线端口跑该断言即时红证（第 3 条观察与第 1 条逐字相同）；线上实测 3 连观察四条文案互异)
   verify: node scripts/assert/observe-prose-pool.mjs
   risk: low
 
