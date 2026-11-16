@@ -63,7 +63,7 @@ const LOOT_FALLBACK = {
 
 const NAME = `F148-${Date.now().toString(36)}`;
 
-await run("inventory-count-parity", async ({ page }) => {
+await run("bag-count-consistency", async ({ page }) => {
   await createSave(page, NAME);
   const saveId = await page.evaluate(() => Number(localStorage.getItem("solo_leveling_save_id")));
   assert(saveId > 0, "save_id missing in localStorage");

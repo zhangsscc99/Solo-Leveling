@@ -11,7 +11,16 @@ const PANELS = [
     check: async (page) => {
       await page.waitForSelector(".inv");
       const tabs = await page.locator(".inv-tabs .inv-tab").count();
-      assert(tabs === 4, `inventory has 4 category tabs (got ${tabs})`);
+      // F148 起背包多出「关键」页签（传送门碎片等主线硬通货单独成签），
+      // 断言口径由 4 类改为 5 类：新增页签不得吞掉原有四个分类。
+      assert(tabs === 5, `inventory has 5 tabs incl. 关键 (got ${tabs})`);
+      const tabText = await page.locator(".inv-tabs .inv-tab").allInnerTexts();
+      for (const label of ["关键", "武器", "防具", "消耗品", "材料"]) {
+        assert(
+          tabText.some((t) => t.trim().startsWith(label)),
+          `inventory tab ${label} missing (got ${tabText.join(",")})`
+        );
+      }
       const slots = await page.locator(".inv-slots .inv-slot").count();
       assert(slots >= 2, `equipment slots rendered (got ${slots})`);
       const rows = await page.locator(".inv-rows > li").count();
