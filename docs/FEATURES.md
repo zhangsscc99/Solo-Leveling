@@ -194,7 +194,7 @@
 - [x] F098 死亡回溯不清空章节主线进度：死亡后 `chapter_progress` 从 3/3 打回 1/3 且无确认，叠加等级墙形成零收益循环。要求回溯保留已到达的最远 scene（或给保底 XP），并在播报里说明保留了哪些里程碑 ✅ (2026-11-15 cron devin; 新增持久列 `main_steps` 作「本章主线高水位」，`sceneView`/`/chapters` 取 `max(当前位置, 高水位)`，回溯落点仍回入口但水位不清；首死一次性 +30 XP（与 ch1 濒死觉醒叠加属预期，重复死亡不补），播报写明保留的里程碑；老存档水位从下次推进开始记录、不回填；新断言 `death-progress-keep.mjs` 覆盖计数不退/保底一次性/文案不矛盾/`deaths`+1)
   verify: node scripts/assert/death-progress-keep.mjs
   risk: med
-- [ ] F099 技能面板显示引擎算出的预计伤害区间：面板写「威力 24」而实战仅 1 点伤害（差 24 倍），玩家按面板决策必然误判。改为服务端下发 damage_preview（min–max），面板与战斗日志同源
+- [x] F099 技能面板显示引擎算出的预计伤害区间：面板写「威力 24」而实战仅 1 点伤害（差 24 倍），玩家按面板决策必然误判。改为服务端下发 damage_preview（min–max），面板与战斗日志同源 ✅ (2026-11-16 cron devin; combat.js 抽出 `computeDamage`/`damageRange`，`strike`/`resolveTurn` 与 preview 同源；index.js 技能视图下发 `damage_preview{min,max}`；SkillsPanel/CombatPanel/App.tsx 全部改「预计伤害 min–max」，无裸「威力」；实测 tiger_fury power24 → 26–49，30 次实放全落区间)
   verify: node scripts/assert/skill-damage-preview.mjs
   risk: med
 - [ ] F100 quest-settlement 断言补强：「无敌人时释放技能 猛虎猛击」不得推进每日「力量校准」（现有 (c) 只覆盖不存在的技能名，变异测试可通过 → 假绿）
@@ -208,7 +208,7 @@
 - [ ] F102 章节解锁口径三处不一致：地图 Ch.8 写死「需 Lv.70」、`chapter_unlock.level` 回包是 40、`chapters.json` 的 `unlock.level` 又是第三个值；玩家看到「锁定 · 需 Lv.70」却能直接走进去（F093 软门）。要求：地图/回包/数据单一事实源（`/api/chapters` 下发 `unlock.level` 与 `unlocked/blocked_reason`），前端不再写死数字；软门期间锁定态与「已开启」播报不得并存
   verify: node scripts/assert/chapter-unlock-single-source.mjs
   risk: med
-- [ ] F103 死亡回包自相矛盾：`你倒下了，战斗结束。` 紧跟 `【战斗】撤离失败，X 仍堵在面前——你寸步未移。`（交战中「前进」致死分支仍拼撤离失败文案）。要求：死亡即收束，不得再拼回合/撤离失败句；五条死亡日志统一形态
+- [ ] F103 死亡回包自相矛盾：`你倒下了，战斗结束。` 紧跟 `【战斗】撤离失败，X 仍堵在面前——你寸步未移。`（交战中「前进」致死分支仍拼撤离失败文案）。要求：死亡即收束，不得再拼回合/撤离失败句；五条死亡日志统一形态（2026-11-16 cron 复查：`death.mjs` 绿但**未覆盖本条**——`server/index.js:871-874` 的 `fledOk` 判定把 `hp<=0` 也归入「撤离失败」，死亡分支仍会拼上「撤离失败」；需先补「死亡回包不得含『撤离失败』」断言再改代码，当前按假绿处理，不勾选）
   verify: node scripts/assert/death.mjs
   risk: low
 - [ ] F104 通关页残留开发备注：结算面板写「注：战斗统计未接入，总击杀暂记「—」。」，而 `stats.kills` 有真实值。要求：删除该备注，`总击杀` 与存档 kills 同源渲染
@@ -225,7 +225,7 @@
 - [x] F107 交战期装备/加点免费：**行为已由 F094 修**（实测线上交战中背包「装备」disabled + `title="交战中无法更换装备"`、面板下方提示「交战中无法使用或更换装备——补给请走战斗「道具」指令（占一回合）」），**仍缺断言**：`combat-actions-ui.mjs` 未覆盖 equip/spend。要求补 `combat-equip-gate.mjs`：交战中 `POST /item op=equip` 与 `/spend` 必须被拒且零回合零属性变化，非交战放行 ✅ (2026-11-15 cron; 新增断言 combat-equip-gate.mjs，变异验证敏感)
   verify: node scripts/assert/combat-equip-gate.mjs
   risk: low
-- [ ] F108 页脚固定文案写成「面板 5–0」（应为 5–9，0 无快捷键）：改成 `面板 5–9` 或按视口只显示「5–9 / ESC」
+- [x] F108 页脚固定文案写成「面板 5–0」（应为 5–9，0 无快捷键）：改成 `面板 5–9` 或按视口只显示「5–9 / ESC」 ✅ (2026-11-16 cron; 断言 `panel-affordance.mjs` 绿)
   verify: node scripts/assert/panel-affordance.mjs
   risk: low
 - [ ] F109 行动栏「休息」角标与快捷键并排读作「休息 3 4」（`rest-count` + `<kbd>4</kbd>`），与旁边「潜行 3」混淆：角标带单位（`剩 3`）或改 `3/3` 徽标并与 kbd 视觉分离
@@ -234,10 +234,10 @@
 - [ ] F110 「防御」回合无防御叙述：日志只有 `第3回合 · 地下城狼的反击偏离了目标，没有命中你。`，玩家看不到自己做了什么；补「横刀格挡」类叙述并从引擎取减伤数值
   verify: node scripts/assert/defend-narration.mjs
   risk: low
-- [ ] F111 技能面板伤害与引擎同源（替代/合并 F099）：面板 `威力 24` 而实战命中 `造成 31 点伤害`，玩家按面板估伤害必然误判。服务端下发 `damage_preview {min,max}`（含暴击与力量系数），面板与战斗日志同一函数
+- [x] F111 技能面板伤害与引擎同源（替代/合并 F099）：面板 `威力 24` 而实战命中 `造成 31 点伤害`，玩家按面板估伤害必然误判。服务端下发 `damage_preview {min,max}`（含暴击与力量系数），面板与战斗日志同一函数 ✅ (2026-11-16 cron devin; 与 F099 同一实现，见 F099 备注)
   verify: node scripts/assert/skill-damage-preview.mjs
   risk: med
-- [ ] F112 断言可复现性（F105 追加）：`chapter-progress-ui.mjs`（F091 的 verify）连续 3 次 FAIL——「did not reach epilogue within the landing budget」，23:08 报告起就是红的，属断言驱动方式问题（靠 N 次 UI 动作走到终章，现在有守关者门后不可达）。要求改 DB 落点构造终章前存档再走 1-2 步 UI，或直接断言顶栏 `x/y` 与 panel 数据一致（仍保留一次真实 UI 断言）
+- [x] F112 断言可复现性（F105 追加）：`chapter-progress-ui.mjs`（F091 的 verify）连续 3 次 FAIL——「did not reach epilogue within the landing budget」，23:08 报告起就是红的，属断言驱动方式问题（靠 N 次 UI 动作走到终章，现在有守关者门后不可达）。要求改 DB 落点构造终章前存档再走 1-2 步 UI，或直接断言顶栏 `x/y` 与 panel 数据一致（仍保留一次真实 UI 断言） ✅ (2026-11-16 cron devin; 改 DB 落点构造终章前存档 + 1 步 UI，保留顶栏/API 一致性硬断言；5 连跑全绿，变异测试改坏 chapter_progress 立即红)
   verify: node scripts/assert/chapter-progress-ui.mjs && node scripts/assert/chapter-progress-ui.mjs
   risk: low
 - [ ] F113 移动端底部操作区被战斗组撑高：F094 落地后非交战态也渲染 4 个 disabled 战斗键，390×844 下 footer 由 285px → **361px（占屏 43%）**，行动组挤成「探索前进/环顾四周/潜行/休息/攻击」5 键一行（每键 ≈62px 宽，小于四字标签的舒适宽度），叙事区只剩 ~360px。要求：非交战态把战斗组折叠成单行矮提示（或只在「战斗」二级入口里给出），交战时再展开四键；390px 下行动组最多 4 键一行。注意 F094 的断言 `combat-actions-ui.mjs` 第 (a) 段要求非交战四键 disabled 可见，改布局时同步改断言（改为「入口存在且 disabled」而不是「四个按钮常驻」）
@@ -248,13 +248,13 @@
 - [x] F114 （阻断）死亡回溯把 `save.scene` 退回第 2 幕（ch1_law, scene_index=1），`chapter_steps` 仍保留 4/7 → 之后每次「前进」整幕复读、进度不动却照扣 HP/MP（实测 HP 84→81→152→149），地图「当前」与正在上演的守关战不一致。要求：进度由 `scene` 单点推导（`chapter_steps = pathIndex+1`）或回溯时场景与步数同步回退且不重复计费；播报的落点必须与 `save.scene` 一致 ✅ (2026-11-16 cron; chapter_steps 由 scene 单点推导、回溯退两幕且播报取真实落点、无位移零消耗)
   verify: node scripts/assert/death-respawn-consistency.mjs
   risk: med
-- [ ] F115 「回到地面/医院」场景 `ch1_surface` 仍刷地下城遭遇（石像残兵 Lv.2 HP 52/52 强制交战），叙事穿帮。要求：遭遇表按 `scene.kind` 分区或给场景 `no_encounter` 标记
+- [x] F115 「回到地面/医院」场景 `ch1_surface` 仍刷地下城遭遇（石像残兵 Lv.2 HP 52/52 强制交战），叙事穿帮。要求：遭遇表按 `scene.kind` 分区或给场景 `no_encounter` 标记 ✅ (2026-11-16 cron devin; chapters.json 场景加 `encounters:"none"`（10 个现实场景），encounter.js 在 `roll()` 唯一漏斗短路，chapters.js 加载期白名单校验（含 boss 场景禁止标 none）；断言改成 none 集合快照 + 逐场景 roll 矩阵，删掉自指分支（变异测试：删任一标记 → FAIL）)
   verify: node scripts/assert/encounter-scene-kind.mjs
   risk: med
-- [ ] F116 （= F093 复测未过）地图 Ch.2 写「锁定 · 需 Lv.5」，Lv.4 玩家点前进即进第 2 章（OR 软门 `level_ok || chapter_ok`）。要求：`unlockedFor` 改回 AND 硬门，或地图文案改「推荐 Lv.5 · 可强行进入（受压制）」，锁定态与放行不得并存
-  verify: node scripts/assert/chapter-unlock-and.mjs
+- [x] F116 （= F093 复测未过）地图 Ch.2 写「锁定 · 需 Lv.5」，Lv.4 玩家点前进即进第 2 章（OR 软门 `level_ok || chapter_ok`）。要求：`unlockedFor` 改回 AND 硬门，或地图文案改「推荐 Lv.5 · 可强行进入（受压制）」，锁定态与放行不得并存 ✅ (2026-11-16 cron devin; 取文案方案，门禁语义未动：`unlockView` 成为唯一出口，`/api/chapters` 与 `saveView.chapter_unlock` 下发 `state(open/soft/locked)` + `blocked_reasons`（只含未满足前置）+ hint；MapPanel 不再写死「需 Lv.X/需完成第X章主线」，软门显示「推荐 · 可强行进入（受压制）」；chapter-gate.mjs 原「软门放行即绿」口径改成状态一致性断言)
+  verify: node scripts/assert/map-lock-consistency.mjs
   risk: med
-- [ ] F117 章末 7/7 无「进入下一章」入口，切章藏在又一次扣费的「前进」里。要求：7/7 时 `advance_mode` 改主按钮为「进入第2章 · 每日任务」且该次不再扣体力
+- [x] F117 章末 7/7 无「进入下一章」入口，切章藏在又一次扣费的「前进」里。要求：7/7 时 `advance_mode` 改主按钮为「进入第2章 · 每日任务」且该次不再扣体力 ✅ (2026-11-16 cron devin; `advance_mode=next_chapter` 只在 idx===链尾 且非 retreat/challenge_boss 时下发，过门 `scripted` 不扣 HP/MP、不掷遭遇、不结算每日任务，回包附「本次没有消耗体力」；390px 下按钮两行不裁不撑高，footer 高度与 main 一致 361px)
   verify: node scripts/assert/chapter-end-cta.mjs
   risk: low
 - [ ] F118 AI 降级零提示：`/ai-action` 回 `degraded:true` 时前端无任何提示，正文是与「环顾四周」首句逐字相同的模板句。要求：降级时气泡尾加「（系统叙事降级：按规则解析）」，观察模板句按场景轮换 ≥3 句
@@ -271,6 +271,17 @@
 - [x] F121 （阻断，F106 回归）守关房内「前进」改为零位移 refused 后玩家没有可点的下一步：`advanceMode` 已换标「折返守关者」但人就在房内，行动栏四键在无交战时全 `disabled`（`title="当前没有可攻击的目标"`），唯一出路是在自由输入框手打「攻击」（`peacefulCombatIntent` 的 bossChallenge）——等于软锁。可达路径：守关战「逃跑」成功（F095 逃生阀）+「前进」落回房内。要求：`advanceMode` 增 `challenge_boss` 语义，主按钮改「叫阵守关者」并真 dispatch「攻击」，或该态下解禁行动栏「攻击」；房内文案指向可点按钮；`gate-refusal-free.mjs` 删掉以 `next_choices.length>0` 充当「有出路」的假绿断言，新增 UI 级断言 `boss-room-escape-ui.mjs`（真点开战）；顺带修 `saveView` 不再下发遗留 `main_steps`、F107 断言在全新 scratch DB 上因 equipment.json 残留 id 误红 ✅ (2026-11-16 devin; `advanceMode` 在 idx===idxBoss 且无交战时下发 `challenge_boss`，主按钮换标「叫阵守关者」点击真 dispatch「攻击」、行动栏与战斗面板「攻击」同步解禁（`title="守关者就在面前 — 叫阵开战"`）、快捷键 1 同义；房内 refused 文案改指「叫阵守关者」；`saveView` 停发 `main_steps`；`gate-refusal-free.mjs` 正向改断 `challenge_boss`+逐次文案点名+真开打，`chapter-boss-gate.mjs` (g) 连点 4 次，`combat-equip-gate.mjs` setup 清 stale 装备位+精确增量口径；新断言 `boss-room-escape-ui.mjs` DB 落点 sealed 态→真点主按钮→断言敌名/回合)
   verify: node scripts/assert/boss-room-escape-ui.mjs && node scripts/assert/gate-refusal-free.mjs
   risk: med
-- [ ] F123 `ch1-boss-beatable.mjs`（F095 的 verify）有固有 RNG 抖动：本轮 9 连跑中 1 次报 `boss fight exceeded 12 actions`（12 动作预算边缘）。要求：把「≤12 动作打赢」改成「≤12 动作打到 HP 0 或换最优回合序列」，或把预算放宽到 16 并在断言里记录实际动作数分布（20 次采样），避免定时任务出现随机红
+- [x] F123 `ch1-boss-beatable.mjs`（F095 的 verify）有固有 RNG 抖动：本轮 9 连跑中 1 次报 `boss fight exceeded 12 actions`（12 动作预算边缘）。要求：把「≤12 动作打赢」改成「≤12 动作打到 HP 0 或换最优回合序列」，或把预算放宽到 16 并在断言里记录实际动作数分布（20 次采样），避免定时任务出现随机红 ✅ (2026-11-16 cron; 3 连跑全绿，verify 已含 3 次重复调用)
   verify: node scripts/assert/ch1-boss-beatable.mjs && node scripts/assert/ch1-boss-beatable.mjs && node scripts/assert/ch1-boss-beatable.mjs
   risk: low
+
+## 第 9 轮试玩新增（2026-11-16 01:xx，cron；真实玩家 150 次点击）
+- [x] F124 新档第一次「探索前进」= 原地落地 + 扣体力 + 掷遭遇：建档后顶栏已显示 1/7 但 `save.scene` 实为 null，首点播开场白全文却 `HP 100→97 · MP 20→18` + `【遭遇】石像残兵 Lv.3` + 每日任务「推进战线」完成，`chapter_progress` 仍 1/7；3 个新档全部复现。要求建档即写 `scene=ch1_double_gate`，或首点零消耗、不掷遭遇、不结算每日任务 ✅ (2026-11-16 cron devin; 建档写首幕 + `advanceOutcome` 对 `idx<0` 保留 scripted 自愈（零消耗/不掷怪/不结算），存量 `scene=null` 档实测自愈；断言直读 DB 列 `scene` 避免被 sceneView 自愈派生骗绿)
+  verify: node scripts/assert/new-save-first-advance.mjs
+  risk: low
+- [ ] F125 逃跑后重入守关房文案自相矛盾：逃跑成功撤回 3/7 → 再点前进进 4/7，回包是整段守关战开场白「巨像的拳落下来。你听见自己腿骨断裂的声音…」（还扣 `HP 88→85`），但 `combat=null`、`advance_mode=challenge_boss`；再叫阵写「你主动逼近满地残骸」而 `boss_cleared=[]`（守关者从未被击杀）。要求：再入 boss 房时零消耗、不复读开场战叙述，未击杀时不得出现「残骸」字样
+  verify: node scripts/assert/boss-room-reentry-prose.mjs
+  risk: low
+- [ ] F126 部署/验收脚本继承泄漏的环境变量导致假红与**误回滚**：本轮 `ci-deploy.sh` 第 8 步 E2E 因 shell 里残留的 `E2E_BASE_URL=http://127.0.0.1:3082/game` / `API_BASE=…:3082` 打到不存在的端口，5/5 全红 → 触发 `rollback.sh` 把 `client/src` 检出回旧 ref（服务端仍是新代码），线上变成「新后端 + 旧前端」的混合态，且工作区出现 staged 反向改动。要求：`ci-deploy.sh` 与 `rollback.sh` 开头 `unset E2E_BASE_URL API_BASE E2E_NO_CLEANUP SL_VERIFY_API_BASE`（或用 `env -u` 包住 node 调用）；`rollback.sh` 只回滚构建产物/重启，不得改写 `client/src` 工作区（改 `git checkout $REF -- client/src` 为备份+构建，或回滚后 `git reset --hard` 前先拒绝在有未提交改动时执行）；`map-interactive` 类断言若连不上端口应报「环境错」而不是「业务回归」
+  verify: node --test scripts/e2e/ci-deploy-env.test.mjs
+  risk: med
