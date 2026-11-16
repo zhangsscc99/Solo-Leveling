@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import { InventoryRow, Item, LogEntry, Save, Skill } from "../api";
 
 /* ────────────────────────────────────────────────
-   战斗面板：服务端暂无结构化战斗态字段，
-   这里从最近日志文本里推断战斗上下文（敌人名 /
-   回合数 / 伤害与治疗数值），做成渐进增强覆盖层。
+   战斗面板：save.combat（服务端交战态）是唯一事实源；
+   日志文本只做渐进增强（敌名 / 回合数 / 伤害与治疗飘字），
+   且脱战口径下指令表行与刷新前旧行一律不算交战信号（F141）。
    推断不到敌人时仍可由「战斗」入口手动打开。
 ──────────────────────────────────────────────── */
 
@@ -19,14 +19,25 @@ const HEAL_RE = /恢复\s*(\d+)\s*点生命/g;
 const END_RE = /战斗结束|脱离战斗|成功逃跑|已经倒下|倒下了/;
 const LEVEL_RE = /Lv\.\s*(\d+)|等级\s*(\d+)/;
 const SEGMENT_RE = /遭遇|第\s*1\s*回合/;
+// F141 系统指令表行：「帮助」回包里的「可用指令：…遭遇战中：「攻击」…」
+// 是指令说明不是战报，行内「遭遇战中：」不得被 ENEMY_RE 抓成敌人名。
+const SYS_TABLE_RE = /可用指令|遭遇战中/;
 
-// 交战门控：只有「遭遇X / 第N回合」这类明确信号才算进入战斗态——
-// 开场白与日常叙述里的「战斗」「受到」「倒下」等泛词一律不算。
+// 交战门控：save.combat（live）是第一信号；脱战时只信本会话新写入的
+// 战报行（「遭遇X / 第N回合」）——指令表行与刷新回灌的旧行一律不算，
+// 开场白与日常叙述里的「战斗」「受到」「倒下」等泛词同样不算。
 // 最近一条结束语（END_RE）命中即收束；同一条内交战与结束同时出现时结束优先。
 export type CombatGate = "engage" | "ended" | null;
 
-function gateIndexes(log: LogEntry[]): { engage: number; end: number } {
+export interface GateOpts {
+  live: boolean; // save.combat 非空（服务端真实交战态，唯一事实源，见 F088）
+  freshFrom?: number; // 会话内新日志的起始下标；此前的行是回灌旧行
+}
+
+function gateIndexes(log: LogEntry[], opts: GateOpts): { engage: number; end: number } {
   const tail = log.slice(-SCAN);
+  const offset = log.length - tail.length;
+  const freshFrom = opts.freshFrom ?? 0;
   let engage = -1;
   let end = -1;
   for (let i = 0; i < tail.length; i++) {
@@ -35,7 +46,10 @@ function gateIndexes(log: LogEntry[]): { engage: number; end: number } {
     // 内嵌原输入，真实战斗信号仍由服务端行触发，不受影响。
     if (tail[i].role === "user") continue;
     const c = tail[i].content;
-    if (ENEMY_RE.test(c) || TURN_RE.test(c)) engage = i;
+    // 脱战口径：旧行与指令表行不计入交战——刷新后历史战报不得重新点亮
+    // 面板；服务端交战（live）时不设限，战报行原样参与推断兜底。
+    const countable = opts.live || (offset + i >= freshFrom && !SYS_TABLE_RE.test(c));
+    if (countable && (ENEMY_RE.test(c) || TURN_RE.test(c))) engage = i;
     if (END_RE.test(c)) end = i;
   }
   return { engage, end };
@@ -43,8 +57,10 @@ function gateIndexes(log: LogEntry[]): { engage: number; end: number } {
 
 // 供 App 判定面板开合：
 //   "engage" → 自动展开；"ended" → 收束关闭；null → 不干预（保留手动开关）。
-export function detectCombatGate(log: LogEntry[]): CombatGate {
-  const { engage, end } = gateIndexes(log);
+export function detectCombatGate(log: LogEntry[], opts: GateOpts): CombatGate {
+  // 服务端交战态优先：结构字段非空直接判 engage，不走日志正则反推。
+  if (opts.live) return "engage";
+  const { engage, end } = gateIndexes(log, opts);
   if (end >= engage && end >= 0) return "ended";
   if (engage >= 0) return "engage";
   return null;
@@ -67,13 +83,19 @@ export interface Floater {
   value: number;
 }
 
-function inferContext(log: LogEntry[]): CombatContext {
+function inferContext(log: LogEntry[], opts: GateOpts): CombatContext {
   const tail = log.slice(-SCAN);
-  const { engage, end } = gateIndexes(log);
+  const offset = log.length - tail.length;
+  const freshFrom = opts.freshFrom ?? 0;
+  const { engage, end } = gateIndexes(log, opts);
   let enemyName: string | null = null;
   let enemyLevel: number | null = null;
   let turn: number | null = null;
-  for (const e of tail) {
+  for (let i = 0; i < tail.length; i++) {
+    const e = tail[i];
+    // 与门控同口径：指令表行与刷新前旧行不喂展示字段——否则敌名会被
+    // 「遭遇战中：」覆盖、回合数会被旧战报回填。
+    if (!opts.live && (offset + i < freshFrom || SYS_TABLE_RE.test(e.content))) continue;
     const enc = e.content.match(ENEMY_RE);
     if (enc) enemyName = enc[1];
     const counter = e.content.match(COUNTER_RE);
@@ -171,6 +193,7 @@ function CombatGauge({
 export default function CombatPanel({
   save,
   log,
+  logBase = 0,
   skills,
   inventory,
   items,
@@ -181,6 +204,7 @@ export default function CombatPanel({
 }: {
   save: Save;
   log: LogEntry[];
+  logBase?: number;
   skills: Skill[];
   inventory: InventoryRow[];
   items: Item[];
@@ -191,7 +215,10 @@ export default function CombatPanel({
 }) {
   const [mode, setMode] = useState<"skill" | "item" | null>(null);
 
-  const inferred = useMemo(() => inferContext(log), [log]);
+  const inferred = useMemo(
+    () => inferContext(log, { live: Boolean(save.combat), freshFrom: logBase }),
+    [log, save.combat, logBase]
+  );
   // F088 单一事实源：save.combat（服务端交战态）优先；日志推断只做
   // 兼容兜底（面板开合信号与无真实敌人数据时的「未知目标」槽位）。
   const ctx = useMemo<CombatContext>(() => {
