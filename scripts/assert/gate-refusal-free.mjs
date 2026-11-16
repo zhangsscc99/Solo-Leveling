@@ -6,12 +6,15 @@
 //   (a) 守关者门（boss 房 / 章尾）：守关者未击杀 + 站在 boss 房（ch1 链中、
 //       ch2 链尾两形态），连续 POST /action 前进 6 次 → 每次 refused===true、
 //       hp/mp/scene/chapter_progress 完全不变、响应正文不得出现「体力消耗」、
-//       /log 条数零增长。正向：next_choices 非空、advance_mode ===
-//       "retreat_to_boss"，房内「攻击」叫阵能把守关者逼回战场（拒绝不是
-//       死路）。章尾（idx > boss）玩家另有出路：advance_mode 同样下发
-//       retreat_to_boss，「前进」折返回守关房落地真打——这一支是真实位移
-//       （照付体力），不能也改成 refused，否则章尾玩家没有任何后退动作、
-//       永久卡死（历史缺陷）。
+//       /log 条数零增长。F121 正向出路必须可执行（next_choices 只是文案
+//       字段，客户端不渲染也不执行，拿它当「有出路」是假绿）：房内
+//       advance_mode === "challenge_boss"（前端据此把主按钮换标「叫阵
+//       守关者」、点击即发起「攻击」）、每次拒绝文案点名可点的「叫阵守
+//       关者」按钮，且对该口子真实 POST /action {input:"攻击"} 能开战
+//       （combat 出现、enemy.name === 守关者真名）。章尾（idx > boss）
+//       玩家另有出路：advance_mode 下发 retreat_to_boss，「前进」折返回
+//       守关房落地真打——这一支是真实位移（照付体力），不能也改成
+//       refused，否则章尾玩家没有任何后退动作、永久卡死（历史缺陷）。
 //   (b) 章节等级门：unlockedFor 自 F093 起是 OR 软门（等级 OR 上一章通关，
 //       chapters.js 注释明示留待 F093 收尾补回 AND 硬门）——save.chapter
 //       永远等于 unlock.chapter，chapter 条件恒真，「!gate.ok → refused」
@@ -30,10 +33,11 @@
 //   变异敏感性：boss 房「前进」退位扣费旧口径 → (a) 的 refused/零消耗/
 //   日志零增长必 FAIL；refused 分支若带非空 patch（applyOutcome 照跑，
 //   服务端故意留的后门）→ hp/mp/scene/clock 断言必 FAIL；advanceMode
-//   改回 idx>idxBoss → (a) 的房内 retreat_to_boss 断言必 FAIL（前端主
-//   按钮退回「探索前进」）；章尾 retreat 也改 refused → (a3) 的
-//   「真实位移+落地战」断言必 FAIL（同时玩家被永久卡死）；epilogue 短
-//   路丢 refused → (c) 必 FAIL。
+//   删掉 challenge_boss 口子（退回 retreat_to_boss/advance）→ (a1)/(a2)
+//   的房内 challenge_boss 断言必 FAIL（前端主按钮随之失去可点出路，
+//   F121 软锁回归）；拒绝文案不点名「叫阵守关者」→ 逐次文案断言必
+//   FAIL；章尾 retreat 也改 refused → (a3) 的「真实位移+落地战」断言
+//   必 FAIL（同时玩家被永久卡死）；epilogue 短路丢 refused → (c) 必 FAIL。
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,7 +125,6 @@ async function snapshot(id) {
     chapter: s.chapter,
     chapter_progress: s.chapter_progress,
     encounter_clock: s.encounter_clock,
-    next_choices: s.next_choices,
     advance_mode: s.advance_mode,
     combat: s.combat,
     logLen: await logCount(id),
@@ -187,16 +190,21 @@ async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null
     before.scene === CH1_BOSS.id && before.chapter === 1 && before.combat === null,
     `(a1) setup broken: ${before.scene} ch${before.chapter} combat=${JSON.stringify(before.combat)}`
   );
-  // 正向：被门挡住的玩家有出路——服务端下发折返语义 + 房内仍留抉择。
+  // F121 正向：被门挡住的玩家必须有一条可执行的出路——服务端下发
+  // challenge_boss（前端主按钮换标「叫阵守关者」、点击发起「攻击」），
+  // 且每次拒绝文案点名这个真实可点的按钮。next_choices 只是文案字段
+  // （客户端不渲染也不执行），绝不再拿它充当「有出路」。
   assert(
-    before.advance_mode === "retreat_to_boss",
-    `(a1) advance_mode must be retreat_to_boss while sealed in-room, got ${before.advance_mode}`
+    before.advance_mode === "challenge_boss",
+    `(a1) advance_mode must be challenge_boss while sealed in-room, got ${before.advance_mode}`
   );
-  assert(
-    Array.isArray(before.next_choices) && before.next_choices.length > 0,
-    `(a1) sealed save must still expose choices: ${JSON.stringify(before.next_choices)}`
-  );
-  const after = await assertFreeRefusal(id, before, "(a1) ch1 in-room");
+  const after = await assertFreeRefusal(id, before, "(a1) ch1 in-room", {
+    perPress: (r, i) =>
+      assert(
+        r.reply.content.includes("叫阵守关者"),
+        `(a1) push#${i + 1} refusal must name the clickable「叫阵守关者」button: ${r.reply.content.slice(-200)}`
+      ),
+  });
   // 正向出路：房内「攻击」= 主动叫阵，守关者被逼回战场（逃生阀不没收
   // 「想打」的权利）——拒绝不是死路。
   const fight = await act(id, "攻击");
@@ -231,11 +239,27 @@ async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null
     `(a2) setup broken: ${before.scene} ch${before.chapter}`
   );
   assert(
-    before.advance_mode === "retreat_to_boss",
-    `(a2) advance_mode must be retreat_to_boss, got ${before.advance_mode}`
+    before.advance_mode === "challenge_boss",
+    `(a2) advance_mode must be challenge_boss (in-room even at chain tail), got ${before.advance_mode}`
   );
-  await assertFreeRefusal(id, before, "(a2) ch2 tail-room");
-  console.log(`    (a2) ch2 tail boss room sealed: 6x refused, free`);
+  await assertFreeRefusal(id, before, "(a2) ch2 tail-room", {
+    perPress: (r, i) =>
+      assert(
+        r.reply.content.includes("叫阵守关者"),
+        `(a2) push#${i + 1} refusal must name the clickable「叫阵守关者」button: ${r.reply.content.slice(-200)}`
+      ),
+  });
+  // 同构出路：链尾守关房的「攻击」叫阵同样真开守关战——拒绝不是死路。
+  const fight = await act(id, "攻击");
+  assert(
+    fight.save.combat && fight.save.combat.enemy && fight.save.combat.enemy.boss === true,
+    `(a2) in-room challenge must spawn the guardian: ${JSON.stringify(fight.save.combat)}`
+  );
+  assert(
+    fight.save.combat.enemy.name === CH2_BOSS.title,
+    `(a2) challenged enemy should be「${CH2_BOSS.title}」, got ${fight.save.combat.enemy.name}`
+  );
+  console.log(`    (a2) ch2 tail boss room sealed: 6x refused, free, exit via 攻击`);
 }
 
 // ── (a3) 守关者门：ch1 章尾（idx > boss），守关者未击杀 ──────────────

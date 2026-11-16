@@ -401,6 +401,10 @@ export default function App() {
   // 打开的面板不会被后续日志强行关掉，engage 持续期内手动收起的面板
   // 也不会被下一条日志重新顶开。
   const liveCombat = Boolean(save && save.combat);
+  // F121 守关房叫阵态：守关者未击杀 + 人已在 boss 场景 + 无交战——
+  // 服务端 advance_mode 下发 "challenge_boss"，主按钮换标「叫阵守关者」
+  // （点击发起「攻击」开战），行动栏「攻击」同步解禁。
+  const challengeBoss = Boolean(save && save.advance_mode === "challenge_boss");
   const liveRef = useRef(false);
   useEffect(() => {
     if (liveCombat && !liveRef.current) setCombatOpen(true);
@@ -594,13 +598,15 @@ export default function App() {
       } else if (n >= 1 && n <= ACTION_BUTTONS.length && !liveCombat) {
         const b = ACTION_BUTTONS[n - 1];
         // 终章态快捷键 1 与按钮同义：不再发「前进」，直接开结算。
+        // 守关房叫阵态快捷键 1 与「叫阵守关者」同义：发「攻击」就地开战。
         if (b.input === "前进" && cleared) openTab("ending");
+        else if (b.input === "前进" && challengeBoss) dispatch("攻击");
         else dispatch(b.input);
       } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss]);
 
   const onCreate = useCallback(
     async (e: FormEvent) => {
@@ -788,10 +794,15 @@ export default function App() {
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
                 // 不再发这条必拒指令。F096/F106：守关者未击杀被门挡时
-                // （房内出口被封 / 站在 boss 场景之后含章尾）主按钮按服务端
-                // advance_mode 换标「折返守关者」，不在前端猜场景。
+                // （站在 boss 场景之后含章尾）主按钮按服务端 advance_mode
+                // 换标「折返守关者」，不在前端猜场景。F121：人已站在守关
+                // 房内时主按钮换标「叫阵守关者」——点击发起「攻击」就地
+                // 开战（与自由输入「攻击」同一服务端结算），这是房内唯一
+                // 可点的出路。
                 const retreatToBoss =
                   b.input === "前进" && save.advance_mode === "retreat_to_boss";
+                const challenge =
+                  b.input === "前进" && save.advance_mode === "challenge_boss";
                 if (b.input === "前进" && save.at_epilogue) {
                   return (
                     <button
@@ -810,25 +821,30 @@ export default function App() {
                     key={b.label}
                     className={`btn${b.primary ? " primary" : ""}`}
                     disabled={busy || restBlocked}
-                    onClick={() => dispatch(b.input)}
+                    onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
                       (restBlocked && (restInfo?.reason || "暂时无法休息")) ||
-                      (retreatToBoss
-                        ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
-                        : `快捷键 ${i + 1}`)
+                      (challenge
+                        ? `守关者就在面前 · 叫阵开战 · 快捷键 ${i + 1}`
+                        : retreatToBoss
+                          ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
+                          : `快捷键 ${i + 1}`)
                     }
                     aria-disabled={busy || restBlocked}
                   >
-                    {retreatToBoss ? "折返守关者" : b.label}
+                    {challenge ? "叫阵守关者" : retreatToBoss ? "折返守关者" : b.label}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     <kbd>{i + 1}</kbd>
                   </button>
                 );
               })}
               {/* F094 战斗四键常驻：交战中可用（键帽 1–4），无交战 disabled
-                  + 可见提示——玩家不必靠战斗面板/快捷键猜入口。 */}
+                  + 可见提示——玩家不必靠战斗面板/快捷键猜入口。
+                  F121：守关房叫阵态（challengeBoss）「攻击」解禁——守关者
+                  就封在出口，原地叫阵即开战，与主按钮同一结算路径。 */}
               {COMBAT_BUTTONS.map((b, i) => {
-                const disabled = busy || !liveCombat;
+                const challengeable = challengeBoss && b.input === "攻击";
+                const disabled = busy || (!liveCombat && !challengeable);
                 return (
                   <button
                     key={b.label}
@@ -843,7 +859,9 @@ export default function App() {
                         ? b.input === null
                           ? `展开技能列表 · 快捷键 ${i + 1}`
                           : `快捷键 ${i + 1}`
-                        : "当前没有可攻击的目标"
+                        : challengeable
+                          ? "守关者就在面前 — 叫阵开战"
+                          : "当前没有可攻击的目标"
                     }
                     onClick={() =>
                       b.input === null ? setBarSkillOpen((v) => !v) : dispatch(b.input as string)
@@ -854,7 +872,11 @@ export default function App() {
                   </button>
                 );
               })}
-              {!liveCombat && <span className="bar-combat-hint">当前没有可攻击的目标</span>}
+              {!liveCombat && (
+                <span className="bar-combat-hint">
+                  {challengeBoss ? "守关者封着出口——叫阵即开战" : "当前没有可攻击的目标"}
+                </span>
+              )}
             </div>
             <div className="btn-group btn-group-sys">
               <span className="group-label">系统</span>

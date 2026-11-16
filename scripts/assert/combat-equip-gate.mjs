@@ -20,14 +20,48 @@ import { assert, ok, post, makeSave, act, fetchSaveView, clearCombat } from "./_
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const Database = require("better-sqlite3");
+const ITEMS = require(path.join(ROOT, "server", "data", "items.json"));
 const dbPath =
   process.env.DB_PATH || process.env.SL_GAME_DB || path.join(ROOT, "data", "game.db");
 const db = new Database(dbPath);
 
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const KNIFE = ITEMS.find((i) => i.id === "rusty_hunting_knife");
+assert(KNIFE && KNIFE.atk > 0, "oracle: rusty_hunting_knife missing atk in items.json");
 
 const id = await makeSave("combat-equip-gate");
 const doAct = (input) => act(id, input);
+
+// equipment.json 是按 save_id 留存的边车文件，不随删档/换库清理——全新
+// scratch DB 回收到的 id 可能继承旧装备位（残留武器 atk 高于猎刀时，
+// 正向断言「atk 增大」会假红）。setup 先把本 id 的遗留装备位清到真空：
+// 背包临时塞一件同名物再反复「丢弃」，qty 归零触发服务端 clearSlot——
+// 全部走真实 API + DB，位清空后正向断言按「空 → knife」的增量口径判定。
+{
+  for (const slot of ["weapon", "armor"]) {
+    for (let t = 0; t < 8; t++) {
+      const cur = (await fetchSaveView(id)).equipment;
+      const eq = cur && cur[slot];
+      if (!eq || !eq.item_id) break;
+      db.prepare(
+        "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, ?, 1) " +
+          "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = qty + 1"
+      ).run(id, eq.item_id);
+      const { status } = await post(`/saves/${id}/item`, { item_id: eq.item_id, op: "discard" });
+      assert(status === 200, `setup: discard stale ${slot}「${eq.item_id}」failed (HTTP ${status})`);
+    }
+  }
+  const cleared = await fetchSaveView(id);
+  assert(
+    !cleared.equipment.weapon && !cleared.equipment.armor,
+    `setup: stale equipment not cleared: ${JSON.stringify(cleared.equipment)}`
+  );
+  // 丢弃动作可能顺带把背包里的猎刀一并清掉——正向装备断言需要它，补足 1 把。
+  db.prepare(
+    "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, 'rusty_hunting_knife', 1) " +
+      "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = MAX(qty, 1)"
+  ).run(id);
+}
 
 // 前置：留出可分配的自由点（spend 正向/负向都要先决条件 free_points>0）。
 db.prepare("UPDATE saves SET free_points = 3 WHERE id = ?").run(id);
@@ -133,8 +167,14 @@ const statsBase = base.save.stats;
 const freeBase = Number(base.save.free_points) || 0;
 assert(freeBase > 0, "setup: no free_points for positive spend check");
 
-// 3) equip 正向：200 + 武器位真实落位 + 面板攻/防加成真实变化。
+// 3) equip 正向：200 + 武器位从空真实落位 + 面板攻/防加成精确增量
+//    （setup 已把装备位清到真空，atk 增量必须恰好等于猎刀面板 atk，
+//    残留装备位造成的「不增反降/假绿」两边都被钉死）。
 {
+  assert(
+    !base.equipment.weapon,
+    `setup: weapon slot should be empty after clearing, got ${JSON.stringify(base.equipment.weapon)}`
+  );
   const { status, body } = await post(`/saves/${id}/item`, {
     item_id: "rusty_hunting_knife",
     op: "equip",
@@ -146,8 +186,8 @@ assert(freeBase > 0, "setup: no free_points for positive spend check");
     `weapon slot not equipped after successful equip: ${JSON.stringify(v.equipment)}`
   );
   assert(
-    (v.equipment.atk || 0) > (base.equipment.atk || 0),
-    `equip atk bonus did not change: ${base.equipment.atk} -> ${v.equipment.atk}`
+    (v.equipment.atk || 0) === (base.equipment.atk || 0) + KNIFE.atk,
+    `equip atk bonus must increase by exactly knife atk ${KNIFE.atk}: ${base.equipment.atk} -> ${v.equipment.atk}`
   );
 }
 

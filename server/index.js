@@ -142,14 +142,18 @@ function restStatus(save, combat) {
 // 身后（含主线链尾，多为旧档冷却期穿房的落点）时，「前进」的真实语义是
 // 折返回守关房再战而非继续推进。主按钮据此换标「折返守关者」：模式由
 // 服务端按主线链位置下发，前端不猜场景。
-// F106：人站在守关房内时出口同样被门封死（房内「前进」是零消耗拒绝），
-// 主按钮也换标「折返守关者」——被门挡住的提示不该显示「探索前进」。
+// F106/F121：人站在守关房内且无交战时出口被门封死（房内「前进」是零
+// 消耗拒绝），主按钮的真实语义是「叫阵」——就地发起「攻击」逼守关者
+// 现形再战（peacefulCombatIntent 的 bossChallenge 分支压过再入冷却）。
+// 房内仍显示「折返守关者」是自相矛盾的软锁：人已在房内、战斗键又无
+// 交战目标全灭，玩家没有任何可点的下一步。
 function advanceMode(save) {
   const chapter = chaptersEngine.getChapter(save && save.chapter);
   const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
   const idxBoss = path.findIndex((s) => s && s.kind === "boss");
   const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save && save.scene) : -1;
   if (idxBoss >= 0 && idx >= idxBoss && !bossCleared(save, chapter.id)) {
+    if (idx === idxBoss && !store.getCombat(save.id)) return "challenge_boss";
     return "retreat_to_boss";
   }
   return "advance";
@@ -161,7 +165,7 @@ function saveView(save) {
   if (!save) return save;
   const combat = store.getCombat(save.id);
   const cleared = endingEngine.hasCleared(save);
-  return {
+  const view = {
     ...save,
     ...sceneView(save),
     free_points: Number(save.free_points) || 0,
@@ -177,6 +181,11 @@ function saveView(save) {
     at_epilogue: cleared,
     xp_to_next: progression.xpToNext(save.level),
   };
+  // main_steps 是 F114 起不再读写的遗留高水位列（chapter_steps 改由
+  // 场景位置单源推导）——不再随视图下发，避免第三方把陈旧高水位当成
+  // 第二套进度账与 chapter_steps 对不上。
+  delete view.main_steps;
+  return view;
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -487,14 +496,16 @@ function advanceOutcome(save) {
     //      零 HP/MP、零位移、零日志、零事件（与章节门/终章同口径）。
     //      F106：旧口径「退回上一景并扣体力」是顺序倒置——位移结算
     //      先于门禁成立，线上玩家在房内连点被原地耗死。现在拒绝不改
-    //      落点，出路只剩击败守关者（房内「攻击」可逼它现形再战；
-    //      守关战里的逃跑/阵亡仍按战斗结算位移），不再由「前进」代劳。
+    //      落点，出路只剩击败守关者（F121：房内主按钮已换标「叫阵守关
+    //      者」、点击即发起「攻击」逼它现形；守关战里的逃跑/阵亡仍按
+    //      战斗结算位移），不再由「前进」代劳。文案必须指向玩家真实
+    //      可点的按钮名——指向自由输入框手打指令是不可发现的死路。
     return {
       patch: null,
       refused: true,
       content:
         `【主线】「${chapterBossName(chapter)}」的威压仍封着出口——` +
-        `你无法越过守关者，唯有击败它才能前行（「攻击」可逼它现形再战）。\n` +
+        `你无法越过守关者，唯有击败它才能前行（点「叫阵守关者」逼它现形再战）。\n` +
         `（本次没有消耗体力）`,
     };
   }

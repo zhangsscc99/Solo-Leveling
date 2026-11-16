@@ -214,8 +214,14 @@ export default function CombatPanel({
   // 「是否交战」是唯一事实源：gate=engage 时五键可用（仅 busy 才锁），
   // 敌人名缺失只是显示「未知目标」，不再单独禁用按键；
   // null / ended 态才显示空态提示并禁用全部按键。
+  // F121：守关房叫阵态（服务端 advance_mode === "challenge_boss"：
+  // 守关者未击杀 + 人已在 boss 房 + 无交战）「攻击」解禁——原地叫阵
+  // 逼守关者现形，与行动栏/主按钮同一结算路径。
+  const challengeable = !ctx.inCombat && save.advance_mode === "challenge_boss";
   const actDisabled = busy || !ctx.inCombat;
+  const attackDisabled = busy || (!ctx.inCombat && !challengeable);
   const actTitle = ctx.inCombat ? undefined : "当前没有交战目标";
+  const attackTitle = ctx.inCombat ? undefined : challengeable ? "守关者就在面前 — 叫阵开战" : actTitle;
   const learned = useMemo(
     () => skills.filter((s) => s.unlocked ?? s.learn_level <= save.level),
     [skills, save.level]
@@ -300,9 +306,9 @@ export default function CombatPanel({
       <div className="combat-acts" role="group" aria-label="战斗行动">
         <button
           className="combat-btn primary"
-          disabled={actDisabled}
-          aria-disabled={actDisabled}
-          title={actTitle}
+          disabled={attackDisabled}
+          aria-disabled={attackDisabled}
+          title={attackTitle}
           onClick={() => act("攻击")}
         >
           攻击

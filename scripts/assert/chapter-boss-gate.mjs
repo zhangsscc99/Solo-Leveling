@@ -374,29 +374,30 @@ async function fightOut(id, { max = 60 } = {}) {
     !step1.save.combat || !step1.save.combat.enemy || !step1.save.combat.enemy.boss,
     `(g) step1: cooldown re-entry must not force the same boss`
   );
-  // ② 房内再前进：出口被守关者封住——F106 零消耗拒回，原地不动。
-  const step2 = await act(id, "前进");
-  assert(step2.save.chapter === 1, `(g) step2 changed chapter: ${step2.save.chapter}`);
-  assert(
-    step2.refused === true,
-    `(g) step2: advance inside the boss room must be refused, got ${JSON.stringify(step2.refused)}`
-  );
-  assert(
-    step2.save.scene === CH1_BOSS_SCENE.id,
-    `(g) step2: sealed exit must keep the save inside ${CH1_BOSS_SCENE.id}, got ${step2.save.scene}`
-  );
-  assert(
-    step2.save.hp === step1.save.hp && step2.save.mp === step1.save.mp,
-    `(g) step2: sealed-exit refusal must be free: ${step1.save.hp}/${step1.save.mp} -> ${step2.save.hp}/${step2.save.mp}`
-  );
-  // ③ 再前进：同样零消耗拒回，连点耗不死人。
-  const step3 = await act(id, "前进");
-  assert(step3.save.chapter === 1, `(g) step3 changed chapter: ${step3.save.chapter}`);
-  assert(
-    step3.refused === true && step3.save.scene === CH1_BOSS_SCENE.id,
-    `(g) step3 slipped or paid: refused=${step3.refused} scene=${step3.save.scene}`
-  );
-  // ④ 出路仍在：房内「攻击」叫阵把守关者逼回战场——拒绝不是死路。
+  // ② 房内再前进：出口被守关者封住——F106 零消耗拒回，连点多少次都
+  // 原地不动、耗不死人；且每次回包都把 challenge_boss 出路带在身上
+  // （F121：前端据此把主按钮换标「叫阵守关者」，房内不再是死路）。
+  for (let k = 0; k < 4; k++) {
+    const stepK = await act(id, "前进");
+    assert(stepK.save.chapter === 1, `(g) sealed push#${k + 1} changed chapter: ${stepK.save.chapter}`);
+    assert(
+      stepK.refused === true,
+      `(g) sealed push#${k + 1} must be refused, got ${JSON.stringify(stepK.refused)}`
+    );
+    assert(
+      stepK.save.scene === CH1_BOSS_SCENE.id,
+      `(g) sealed push#${k + 1} slipped out of ${CH1_BOSS_SCENE.id}: ${stepK.save.scene}`
+    );
+    assert(
+      stepK.save.hp === step1.save.hp && stepK.save.mp === step1.save.mp,
+      `(g) sealed push#${k + 1} was not free: ${step1.save.hp}/${step1.save.mp} -> ${stepK.save.hp}/${stepK.save.mp}`
+    );
+    assert(
+      stepK.save.advance_mode === "challenge_boss",
+      `(g) sealed push#${k + 1} must keep the challenge_boss exit: ${stepK.save.advance_mode}`
+    );
+  }
+  // ③ 出路仍在：房内「攻击」叫阵把守关者逼回战场——拒绝不是死路。
   const reengaged = await act(id, "攻击");
   assert(
     reengaged.save.combat && reengaged.save.combat.enemy && reengaged.save.combat.enemy.boss,

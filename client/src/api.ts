@@ -73,8 +73,10 @@ export interface Save {
   at_epilogue: boolean;
   // F096 收尾：守关者未击杀而人站在 boss 场景之后（含章尾）时主按钮的
   // 真实语义——"retreat_to_boss" = 折返回守关房再战，"advance" = 正常
-  // 推进。服务端按主线链位置下发，前端只按字段换标。
-  advance_mode: "advance" | "retreat_to_boss";
+  // 推进。F121：人已站在守关房内且无交战时下发 "challenge_boss"——
+  // 主按钮换标「叫阵守关者」、点击发起「攻击」就地开战。
+  // 服务端按主线链位置下发，前端只按字段换标。
+  advance_mode: "advance" | "retreat_to_boss" | "challenge_boss";
   // F074 场景运行时字段（saveView 派生，服务端结算）：
   // 当前场景 + 本章主线进度 steps/total + 本章 unlock 软门判定。
   scene: string | null;
