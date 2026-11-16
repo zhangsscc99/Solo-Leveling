@@ -12,18 +12,29 @@
 // 词表与匹配顺序统一来自 ./keywords —— /action 的 resolveAction 用的也是
 // 同一张 INTENT_MATCHERS（单一事实源）。影子三条句首锚定，其余七条沿用
 // main 的子串语义；两条路径不会再出现一边锚定一边不锚定的漂移。
-const { INTENT_MATCHERS } = require("./keywords");
+const { INTENT_MATCHERS, QUESTION_FORM, QUESTION_SKIP, namesASupply } = require("./keywords");
 
 const RULES = INTENT_MATCHERS;
 
-function parse(input) {
+// parse(input, supplyNames)——supplyNames 为可选的背包补给名清单，
+// 与 /action 的 resolveIntent 同一 F154 点名兜底：词尾表之外、但点名
+// 了背包真实补给的叫法也判 item（没点名或没搭使用动词都不算）。
+function parse(input, supplyNames) {
   try {
     const text = typeof input === "string" ? input.trim() : "";
     if (text) {
+      // F151 疑问句守卫与 /action 同一事实源：提问/复述兜底句不命中
+      // 战斗意图——AI 降级路径同样不能把「你是想攻击还是想离开？」
+      // 解析成一次白挨打的攻击。
+      const question = QUESTION_FORM.test(text);
       for (const rule of RULES) {
+        if (question && QUESTION_SKIP.has(rule.intent)) continue;
         if (rule.match.test(text)) {
           return { intent: rule.intent, args: {} };
         }
+      }
+      if (!question && namesASupply(text, supplyNames)) {
+        return { intent: "item", args: {} };
       }
     }
   } catch {

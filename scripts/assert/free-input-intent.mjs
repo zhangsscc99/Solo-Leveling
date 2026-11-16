@@ -14,8 +14,9 @@
 //       提示，绝不路由成 advance。
 //   (f) 「回到第1章」——无论普通场景还是封门副本，不得回「未识别」、
 //       不得改 scene。
-//   (g) 乱码「阿巴阿巴」——兜底指令表之后必须带澄清问句
-//       「你是想攻击还是想离开？」。
+//   (g) 乱码「阿巴阿巴」——脱战兜底按 F146 语境生成：必须回显玩家原文
+//       （「系统未识别该指令：「X」」），不再固定追问「你是想攻击还是想
+//       离开？」，且给出与当前场景相关的可做之事。
 //
 //   落点/交战锻造走 DB 直写（同 gate-refusal-free.mjs 取径）。
 //   (a) 的命中判定吃回合种子 combat:{save_id}:{seq}:{turn}——脚本用引擎
@@ -27,7 +28,8 @@
 //
 //   变异敏感性：attack/flee 词表回退（旧正则）→ (a)(b)(c)(d)(f) 全 FAIL；
 //   escape_locked 分支删掉 → (c)(d) FAIL（scene 会走/文案不对）；
-//   advance 正则加回「离开」→ (b)(c) FAIL；兜底句删掉问句 → (g) FAIL。
+//   advance 正则加回「离开」→ (b)(c) FAIL；兜底丢掉输入回显或退回
+//   固定问句（F146 回归）→ (g) FAIL。
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -262,14 +264,22 @@ const PENALTY_BOSS = "ch2_poison_fang";
     console.log("[OK] (f) 普通场景「回到第1章」→ 非未识别、零位移");
   }
 
-  // (g) 乱码：兜底指令表 + 澄清问句
+  // (g) 乱码：回显原文 + 语境化可做之事，不再固定追问攻击/离开（F146）
   {
     const r = await act(id, "阿巴阿巴");
     assert(
-      r.reply.content.includes("你是想攻击还是想离开"),
-      `(g)「阿巴阿巴」缺澄清问句：${r.reply.content.slice(-160)}`
+      r.reply.content.includes("「阿巴阿巴」"),
+      `(g) 未识别兜底必须回显玩家原文：${r.reply.content.slice(-160)}`
     );
-    console.log("[OK] (g) 未识别兜底带「你是想攻击还是想离开？」");
+    assert(
+      !r.reply.content.includes("你是想攻击还是想离开"),
+      `(g) F146 脱战兜底不得再固定追问攻击/离开：${r.reply.content.slice(-160)}`
+    );
+    assert(
+      /观察|前进/.test(r.reply.content),
+      `(g) 兜底须给出与场景相关的可做之事：${r.reply.content.slice(-160)}`
+    );
+    console.log("[OK] (g) 未识别兜底回显原文 + 语境化可做之事（F146）");
   }
 }
 
