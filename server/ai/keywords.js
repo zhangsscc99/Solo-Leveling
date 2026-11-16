@@ -17,15 +17,20 @@ const INTENT_MATCHERS = [
   { intent: "shadow_undeploy", match: UNDEPLOY_COMMAND },
   { intent: "shadow_formation", match: FORMATION_COMMAND },
   // F088 战斗意图：无交战时由遭遇表判定能否开战，交战中走 resolveTurn。
-  { intent: "attack", match: /攻击|打击|砍|斩|刺|击杀|消灭|猎杀|attack|strike|fight/i },
+  // F137：补口语化攻击表述（挥拳/出手/劈/揍/砸/打它）——「对着石像挥一拳」
+  // 此前落未识别，交战中白输一回合。仍不加裸「打」：会吞掉「打开背包」
+  // 「打招呼」这类非战斗输入。
+  { intent: "attack", match: /攻击|打击|砍|斩|刺|击杀|消灭|猎杀|挥[^，。！？]{0,3}拳|挥刀|劈|打它|打你|揍|出手|砸|attack|strike|fight/i },
   { intent: "skill", match: /释放技能|施放技能|使用技能|施放|咏唱|释放|skill|cast/i },
   { intent: "defend", match: /防御|格挡|招架|防守|defend|block|guard/i },
   { intent: "item", match: /使用道具|道具|喝药|吃药|use item|use potion|item/i },
-  { intent: "flee", match: /逃跑|逃离|撤退|逃走|flee|escape|retreat/i },
+  // F137：补脱离语义（离开/撤离/回到/走人……）。「离开」此前被 advance
+  // 抢走——惩罚副本门口输「离开这里」反而推进撞守关者，方向与语义相反。
+  { intent: "flee", match: /逃跑|逃离|撤退|逃走|离开|撤离|回到|回去|返回|脱战|溜走|走人|flee|escape|retreat/i },
   { intent: "status", match: /状态|面板|属性|status|stat/i },
   { intent: "help", match: /帮助|指令|help/i },
   { intent: "observe", match: /观察|查看|环顾|四周|环境|看|look|inspect/i },
-  { intent: "advance", match: /前进|继续|探索|走|移动|离开|进入|深入|前行|advance|explore|go|move|continue/i },
+  { intent: "advance", match: /前进|继续|探索|走|移动|进入|深入|前行|advance|explore|go|move|continue/i },
   { intent: "sneak", match: /潜行|藏匿|隐蔽|躲|sneak|stealth|hide/i },
   { intent: "rest", match: /休息|睡觉|休整|小憩|恢复|rest|sleep/i },
   { intent: "save", match: /存档|保存|save/i },
