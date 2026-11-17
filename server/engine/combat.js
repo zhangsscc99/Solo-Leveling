@@ -164,6 +164,83 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
   return { hit: true, crit, dmg };
 }
 
+// ============================================================================
+// F169 敌方阶段反应（纯叙述层，不改任何数值）
+//
+// 敌人 HP 首次下破 50% / 25% 两个阈值时，向本回合事件流末尾追加一句
+// 敌人自身的阶段反应。模板按 kind/id/name 分池：石像类（石像/巨像/守
+// 卫）写裂纹碎石，狼犬类写低吼呲牙绕后，蛇虫类写嘶鸣鳞片摩擦，其余走
+// 通用池（喘息/摇晃/黑血）。每阶段 ≥3 条变体，按 (turn + enemy.seq)
+// 轮换——不消耗 RNG 抽取，同 seed 下 hp/mp/敌 hp 逐回合与旧版完全相等；
+// opts.phases === false 可整体关闭（供数值对照测试）。敌人倒下（含一击
+// 秒杀）的回合不追加——死亡已有专门的收束句。
+// ============================================================================
+const ENEMY_PHASE_STAGES = [
+  { key: "half", at: 0.5 },
+  { key: "low", at: 0.25 },
+];
+
+const ENEMY_PHASE_TEMPLATES = {
+  stone: {
+    half: [
+      "{name}的躯干绽开第一道裂纹，碎石簌簌而落。",
+      "裂纹爬上{name}的肩甲，它的动作第一次透出滞涩。",
+      "{name}的关节卡响了一声，石屑从缝隙里崩落。",
+    ],
+    low: [
+      "{name}半边身子爬满裂纹，像一尊随时会散架的旧像。",
+      "碎石不断从{name}身上剥落，它的重心已经开始摇晃。",
+      "{name}的胸口透出细密的裂光，石臂抬得一次比一次沉。",
+    ],
+  },
+  beast: {
+    half: [
+      "{name}低吼着退开半步，绕到你侧翼呲出了牙。",
+      "{name}压低身形，喉咙里滚出一串受伤的低吼。",
+      "{name}甩了甩头上的血，小步绕着换了个方向逼近。",
+    ],
+    low: [
+      "{name}的呼吸开始发抖，却仍呲着牙不肯退。",
+      "{name}夹着尾侧过身，压低的呜咽里缠着凶性。",
+      "{name}踉跄半步又稳住，红着眼从侧翼重新咬住你的影子。",
+    ],
+  },
+  serpent: {
+    half: [
+      "{name}发出一阵嘶鸣，鳞片刮擦着地面收紧了身位。",
+      "{name}嘶嘶吐信，受伤的躯体反而缠得更紧。",
+      "{name}的鳞片摩擦出沙沙声，它弓起身子重新蓄力。",
+    ],
+    low: [
+      "{name}的嘶鸣变得又急又哑，躯干痉挛般抽动。",
+      "{name}贴地滑行时拖出一道湿痕，鳞片已不再服帖。",
+      "{name}的芯子吐得越来越快，残缺的身体绷成一张弓。",
+    ],
+  },
+  generic: {
+    half: [
+      "{name}重重喘了口气，攻势里第一次露出空隙。",
+      "{name}摇晃了一下，黑血顺着伤口淌了下来。",
+      "{name}低低哼了一声，脚步不复先前稳当。",
+    ],
+    low: [
+      "{name}浑身是伤，黑血不断滴落，却仍死死盯着你。",
+      "{name}喘得越来越急，伤口涌出的黑血已经止不住。",
+      "{name}已摇摇欲坠，眼里的凶光却没有散。",
+    ],
+  },
+};
+
+// 敌型分池：kind/id（英文模板键）与中文名关键词一起看，全不命中走通用池。
+function enemyPhaseKind(enemy) {
+  const e = enemy && typeof enemy === "object" ? enemy : {};
+  const tag = `${e.kind || ""} ${e.id || ""} ${e.name || ""}`.toLowerCase();
+  if (/石像|巨像|守卫|守护|statue|golem|guard/.test(tag)) return "stone";
+  if (/狼|犬|wolf|hound/.test(tag)) return "beast";
+  if (/蛇|虫|蚁|serpent|worm|ant/.test(tag)) return "serpent";
+  return "generic";
+}
+
 function resolveTurn(state, action, seed, opts) {
   const events = [];
   const src = state && typeof state === "object" ? state : {};
@@ -217,6 +294,8 @@ function resolveTurn(state, action, seed, opts) {
   const defending = action === "defend";
   const defendMult = defending ? DEFEND_MULT : 1;
   let fled = false;
+  // F169：阶段阈值判定用的回合前敌方 HP——必须在任何 strike 之前快照。
+  const enemyHpBefore = enemy.hp;
 
   // 玩家行动：与旧版行为一致，但技能伤害系数与 MP 消耗由智力决定。
   const playerActs = () => {
@@ -330,6 +409,28 @@ function resolveTurn(state, action, seed, opts) {
     defendEv.text = "你摆出防御姿态，稳稳压住重心。";
   }
 
+  // F169 敌方阶段反应：敌人存活且 HP 首次下破 50% / 25% → 向事件流末尾
+  // 追加一句敌人自身的反应（倒下/秒杀回合不追加）。变体按 (回合 + 开战
+  // 盐 seq) 轮换，不走 RNG、不动数值——同 seed 下结算与旧版逐回合一致。
+  if (options.phases !== false && enemy.hp > 0 && enemy.maxHp > 0) {
+    const fracBefore = enemyHpBefore / enemy.maxHp;
+    const fracAfter = enemy.hp / enemy.maxHp;
+    const seq = Math.max(0, Math.trunc(S.num(enemy.seq)));
+    const turnNo = Math.max(0, Math.trunc(S.num(src.turn)));
+    const pool = ENEMY_PHASE_TEMPLATES[enemyPhaseKind(enemy)];
+    ENEMY_PHASE_STAGES.forEach((stage, i) => {
+      if (fracBefore > stage.at && fracAfter <= stage.at) {
+        const lines = pool[stage.key];
+        events.push({
+          type: "phase",
+          side: "enemy",
+          stage: stage.key,
+          text: lines[(turnNo + seq + i) % lines.length].replace(/\{name\}/g, enemyName),
+        });
+      }
+    });
+  }
+
   next.turn = S.num(src.turn) + 1;
 
   const narration =
@@ -349,4 +450,6 @@ module.exports = {
   computeDamage,
   skillMultOf,
   damageRange,
+  enemyPhaseKind,
+  ENEMY_PHASE_TEMPLATES,
 };
