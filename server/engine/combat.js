@@ -127,17 +127,134 @@ function sanitizeEntity(entity) {
   return out;
 }
 
+// ============================================================================
+// F189 回合播报变体池：命中 / 暴击 / 未命中 / 闪避四类事件各 ≥3 条模板，
+// 按守方敌型分语域（石像写石屑裂纹滞涩、狼犬写低吼绕后、蛇虫写嘶鸣鳞片、
+// 其余走通用池）。模板占位：{label} 攻方动作名、{name} 守方名、{dmg} 伤害。
+//
+// 选句由 strike 的 vctx 完成：下标 = (回合数 + 开战盐 seq + 本回合内同侧
+// 同类事件序号) % 池长——不吃 RNG 抽取，同 seed 数值与旧版逐回合相等；
+// 回合数单调递增 ⇒ 相邻回合同侧同类事件必然落不同下标，整句不逐字复读。
+// 守方是玩家（「你」）时走通用池：敌型语域描写的是守方躯体，玩家没有
+// 石躯/鳞片可写。
+//
+// 既有断言口径保留：命中句仍含「造成 {dmg} 点伤害」，未命中/闪避句仍
+// 点名 {name}。
+// ============================================================================
+const STRIKE_TEMPLATES = {
+  generic: {
+    hit: [
+      "{label}命中{name}，造成 {dmg} 点伤害。",
+      "{label}落在{name}身上，造成 {dmg} 点伤害。",
+      "{name}硬生生吃了{label}一记，造成 {dmg} 点伤害。",
+    ],
+    crit: [
+      "{label}正中{name}要害，暴击造成 {dmg} 点伤害！",
+      "{label}抓住破绽直取{name}，暴击造成 {dmg} 点伤害！",
+      "{label}爆发出全力轰在{name}身上，暴击造成 {dmg} 点伤害！",
+    ],
+    miss: [
+      "{label}偏离了目标，没有命中{name}。",
+      "{label}擦着{name}的身边掠过，没能命中它。",
+      "{name}险险避开，{label}落了个空。",
+    ],
+    dodge: [
+      "{name}侧身一闪，{label}落空了。",
+      "{name}向旁一闪，{label}扑了个空。",
+      "{name}脚下错步闪开，{label}落了个空。",
+    ],
+  },
+  stone: {
+    hit: [
+      "{label}命中{name}，造成 {dmg} 点伤害。",
+      "{label}砸在{name}的石躯上，崩下一片石屑，造成 {dmg} 点伤害。",
+      "{label}凿得{name}碎石飞溅，裂纹顺着石面爬开，造成 {dmg} 点伤害。",
+    ],
+    crit: [
+      "{label}正中{name}要害，暴击造成 {dmg} 点伤害！",
+      "{label}精准凿进{name}的旧裂纹，暴击造成 {dmg} 点伤害！",
+      "{label}轰进{name}的关节缝里，石屑炸开，暴击造成 {dmg} 点伤害！",
+    ],
+    miss: [
+      "{label}偏离了目标，没有命中{name}。",
+      "{name}滞涩地挪开半步，{label}凿了个空。",
+      "{label}磕在{name}肩甲边缘滑开，没能命中{name}。",
+    ],
+    dodge: [
+      "{name}侧身一闪，{label}落空了。",
+      "{name}的石躯僵硬一旋，{label}贴着石面闪了个空。",
+      "{name}关节卡响着侧闪半步，{label}落了个空。",
+    ],
+  },
+  beast: {
+    hit: [
+      "{label}命中{name}，造成 {dmg} 点伤害。",
+      "{label}落在{name}的侧腹，它低吼着踉跄，造成 {dmg} 点伤害。",
+      "{name}想绕到侧翼时被{label}截住，造成 {dmg} 点伤害。",
+    ],
+    crit: [
+      "{label}正中{name}要害，暴击造成 {dmg} 点伤害！",
+      "{label}趁{name}扑空的瞬间贯进软肋，暴击造成 {dmg} 点伤害！",
+      "{label}撕开{name}的旧伤，暴击造成 {dmg} 点伤害！",
+    ],
+    miss: [
+      "{label}偏离了目标，没有命中{name}。",
+      "{name}压低身形一窜，{label}从它背上掠过，没能命中。",
+      "{name}低吼着绕到侧翼，{label}扑了个空。",
+    ],
+    dodge: [
+      "{name}侧身一闪，{label}落空了。",
+      "{name}四肢一蹬闪开半步，{label}擦着爪尖落空。",
+      "{name}贴着地面滑闪开，{label}落了个空。",
+    ],
+  },
+  serpent: {
+    hit: [
+      "{label}命中{name}，造成 {dmg} 点伤害。",
+      "{label}刮过{name}的鳞片，嘶鸣声里渗出黑血，造成 {dmg} 点伤害。",
+      "{label}劈进{name}的鳞缝，造成 {dmg} 点伤害。",
+    ],
+    crit: [
+      "{label}正中{name}要害，暴击造成 {dmg} 点伤害！",
+      "{label}顺着{name}的鳞缝直刺而入，暴击造成 {dmg} 点伤害！",
+      "{label}挑开{name}护住要害的鳞片，暴击造成 {dmg} 点伤害！",
+    ],
+    miss: [
+      "{label}偏离了目标，没有命中{name}。",
+      "{name}嘶鸣着弓身一缩，{label}落了空。",
+      "{name}贴地滑出一道弧线，{label}没能命中它。",
+    ],
+    dodge: [
+      "{name}侧身一闪，{label}落空了。",
+      "{name}鳞片刮地一闪，{label}擦身而过落空。",
+      "{name}嘶嘶吐信向后闪开，{label}落了个空。",
+    ],
+  },
+};
+
 // 解析一次攻击/技能：命中 → 暴击 → 伤害。修改 defender 并追加事件。
-function strike({ attacker, defender, attackerSide, defenderSide, defenderName, def, rng, events, mult = 1, label }) {
+function strike({ attacker, defender, attackerSide, defenderSide, defenderName, def, rng, events, mult = 1, label, vkind = "generic", vctx = null }) {
+  // 变体下标：回合数 + 开战盐 + 本回合内同侧同类事件的序号，纯轮换不掷骰。
+  const lineOf = (type) => {
+    const pool = (STRIKE_TEMPLATES[vkind] || STRIKE_TEMPLATES.generic)[type] || STRIKE_TEMPLATES.generic[type];
+    const c = vctx && typeof vctx === "object" ? vctx : { turn: 0, salt: 0, counts: {} };
+    const counts = c.counts && typeof c.counts === "object" ? c.counts : {};
+    const key = `${attackerSide}:${type}`;
+    const nth = counts[key] || 0;
+    counts[key] = nth + 1;
+    const idx = (Math.max(0, Math.trunc(S.num(c.turn))) + Math.max(0, Math.trunc(S.num(c.salt))) + nth) % pool.length;
+    return pool[idx]
+      .replace(/\{label\}/g, label)
+      .replace(/\{name\}/g, defenderName);
+  };
   const hit = S.hitChance(attacker, defender);
   if (!rng.chance(hit)) {
     const dodge = rng.chance(0.6);
+    const type = dodge ? "dodge" : "miss";
     events.push({
-      type: dodge ? "dodge" : "miss",
+      type,
       side: defenderSide,
-      text: dodge
-        ? `${defenderName}侧身一闪，${label}落空了。`
-        : `${label}偏离了目标，没有命中${defenderName}。`,
+      text: lineOf(type),
     });
     return { hit: false, dodge };
   }
@@ -146,13 +263,12 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
   // rank，不消耗任何随机数——同 seed 下的 RNG 抽取序列不变）。
   const dmg = computeDamage(attacker, def, { mult, crit, defenderRank: defender.rank });
   defender.hp = clamp(defender.hp - dmg, 0, defender.maxHp);
+  const type = crit ? "crit" : "hit";
   events.push({
-    type: crit ? "crit" : "hit",
+    type,
     side: attackerSide,
     value: dmg,
-    text: crit
-      ? `${label}正中${defenderName}要害，暴击造成 ${dmg} 点伤害！`
-      : `${label}命中${defenderName}，造成 ${dmg} 点伤害。`,
+    text: lineOf(type).replace(/\{dmg\}/g, dmg),
   });
   if (defender.hp <= 0) {
     events.push({
@@ -297,6 +413,16 @@ function resolveTurn(state, action, seed, opts) {
   // F169：阶段阈值判定用的回合前敌方 HP——必须在任何 strike 之前快照。
   const enemyHpBefore = enemy.hp;
 
+  // F189 文案轮换上下文：由本次 resolveTurn 的入参（回合数 + 开战盐）
+  // 与局部计数构成，不挂模块级状态——同输入同输出，并发存档互不串味。
+  // counts 在一次结算内共享，保证同回合同侧同类多条事件也错开下标。
+  const vctx = {
+    turn: Math.max(0, Math.trunc(S.num(src.turn))),
+    salt: Math.max(0, Math.trunc(S.num(enemy.seq))),
+    counts: {},
+  };
+  const enemyKind = enemyPhaseKind(enemy);
+
   // 玩家行动：与旧版行为一致，但技能伤害系数与 MP 消耗由智力决定。
   const playerActs = () => {
     switch (action) {
@@ -306,6 +432,7 @@ function resolveTurn(state, action, seed, opts) {
           attackerSide: "player", defenderSide: "enemy",
           defenderName: enemyName, def: S.defenseFor(enemy),
           rng, events, label: "你的攻击",
+          vkind: enemyKind, vctx,
         });
         break;
       case "skill":
@@ -318,6 +445,7 @@ function resolveTurn(state, action, seed, opts) {
             attackerSide: "player", defenderSide: "enemy",
             defenderName: enemyName, def: S.defenseFor(enemy),
             rng, events, mult: skillMult, label: skillLabel,
+            vkind: enemyKind, vctx,
           });
         }
         break;
@@ -365,6 +493,7 @@ function resolveTurn(state, action, seed, opts) {
       attackerSide: "enemy", defenderSide: "player",
       defenderName: "你", def: S.defenseOf(player),
       rng, events, mult: defendMult, label: `${enemyName}的反击`,
+      vkind: "generic", vctx,
     });
     if (!ev) return;
     // 措辞抽取放在 strike 之后：防御回合的命中/暴击判定序列与旧版
@@ -452,4 +581,5 @@ module.exports = {
   damageRange,
   enemyPhaseKind,
   ENEMY_PHASE_TEMPLATES,
+  STRIKE_TEMPLATES,
 };

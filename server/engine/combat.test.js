@@ -927,4 +927,105 @@ function assertSaneResult(r, input) {
   }
 }
 
+// --- F189 回合文案变体：相邻回合不逐字复读、同 seed 数值序列与旧版全等 ---
+{
+  const { STRIKE_TEMPLATES, enemyPhaseKind } = require("./combat");
+
+  // ① 模板池契约：每敌型 × 每事件类型 ≥3 条变体；命中/暴击含「造成 {dmg}
+  //    点伤害」，未命中/闪避点名 {name}，全部带 {label} 且为中文。
+  for (const kind of Object.keys(STRIKE_TEMPLATES)) {
+    for (const type of ["hit", "crit", "miss", "dodge"]) {
+      const pool = STRIKE_TEMPLATES[kind][type];
+      assert.ok(Array.isArray(pool) && pool.length >= 3, `${kind}.${type} 变体不足 3 条`);
+      for (const t of pool) {
+        assert.ok(CJK.test(t), `${kind}.${type} 非中文：${t}`);
+        assert.ok(t.includes("{label}") || t.includes("{name}"), `${kind}.${type} 缺占位：${t}`);
+        if (type === "hit" || type === "crit") {
+          assert.ok(t.includes("造成 {dmg} 点伤害"), `${kind}.${type} 缺事实子串：${t}`);
+        } else {
+          assert.ok(t.includes("{name}"), `${kind}.${type} 未点名守方：${t}`);
+        }
+      }
+      assert.ok(new Set(pool).size === pool.length, `${kind}.${type} 池内有重复条目`);
+    }
+  }
+
+  // ② 相邻回合文案不全等：同 seed 前缀打一场 8 回合对石像守卫的战斗，
+  //    收集玩家侧命中/未命中事件的句子（数字归一化后）——相邻两回合
+  //    不得出现逐字相同的整句。
+  {
+    let s = {
+      turn: 1,
+      player: { hp: 5000, maxHp: 5000, mp: 20, maxMp: 20, level: 5, rank: "D",
+        stats: { strength: 5, agility: 0, vitality: 50, intelligence: 0, perception: 0 } },
+      enemy: { id: "stone_guardian", name: "石像守卫", seq: 7, hp: 5000, maxHp: 5000, level: 3, rank: "E",
+        stats: { strength: 4, agility: 0, vitality: 6, intelligence: 4, perception: 5 } },
+    };
+    const norm = (t) => t.replace(/\d+/g, "#");
+    const linesPerTurn = [];
+    for (let t = 0; t < 8 && s.enemy.hp > 0; t++) {
+      const r = resolveTurn(s, "attack", `f189-variety-${s.turn}`);
+      linesPerTurn.push(r.events.map((e) => norm(e.text)).join(" · "));
+      s = r.state;
+    }
+    assert.ok(linesPerTurn.length >= 4, `用例前提：应打满 4 回合，实际 ${linesPerTurn.length}`);
+    for (let i = 1; i < linesPerTurn.length; i++) {
+      assert.notStrictEqual(
+        linesPerTurn[i], linesPerTurn[i - 1],
+        `相邻回合事件文案逐字重复：${linesPerTurn[i]}`
+      );
+    }
+    // 石像语域真的生效：8 回合里至少出现一次石屑/裂纹/滞涩措辞。
+    assert.ok(
+      linesPerTurn.some((l) => /石屑|裂纹|滞涩|石躯|关节/.test(l)),
+      "石像守卫的战斗播报应带石像语域"
+    );
+    // 通用池敌（哥布林）不得借石像措辞。
+    let g = { turn: 1,
+      player: { hp: 5000, maxHp: 5000, mp: 20, maxMp: 20, level: 5, rank: "D",
+        stats: { strength: 5, agility: 999, vitality: 50, intelligence: 0, perception: 0 } },
+      enemy: { id: "goblin", name: "哥布林", seq: 1, hp: 5000, maxHp: 5000, level: 3, rank: "E",
+        stats: { strength: 4, agility: 0, vitality: 6, intelligence: 4, perception: 5 } } };
+    for (let t = 0; t < 8; t++) {
+      const r = resolveTurn(g, "attack", `f189-generic-${g.turn}`);
+      for (const e of r.events) {
+        if (e.side === "player") {
+          assert.ok(!/石屑|石躯|裂纹|滞涩/.test(e.text), `通用池敌人混入石像措辞：${e.text}`);
+        }
+      }
+      g = r.state;
+    }
+  }
+
+  // ③ 同 seed 数值黄金值：旧实现逐回合跑出的 (玩家hp, 玩家mp, 敌hp) 序列
+  //    必须逐回合全等——变体选取不吃 RNG，任何数值漂移都说明抽取序列被污染。
+  {
+    const GOLDEN = [
+      { php: 4999, pmp: 20, ehp: 4995 },
+      { php: 4998, pmp: 20, ehp: 4992 },
+      { php: 4997, pmp: 20, ehp: 4989 },
+      { php: 4996, pmp: 20, ehp: 4989 },
+      { php: 4995, pmp: 20, ehp: 4986 },
+      { php: 4995, pmp: 20, ehp: 4983 },
+      { php: 4994, pmp: 20, ehp: 4983 },
+      { php: 4993, pmp: 20, ehp: 4983 },
+    ];
+    let s = {
+      turn: 1,
+      player: { hp: 5000, maxHp: 5000, mp: 20, maxMp: 20, level: 5, rank: "D",
+        stats: { strength: 5, agility: 0, vitality: 50, intelligence: 0, perception: 0 } },
+      enemy: { id: "stone_guardian", name: "石像守卫", seq: 7, hp: 5000, maxHp: 5000, level: 3, rank: "E",
+        stats: { strength: 4, agility: 0, vitality: 6, intelligence: 4, perception: 5 } },
+    };
+    for (let t = 0; t < GOLDEN.length; t++) {
+      const r = resolveTurn(s, "attack", `combat:1:7:${s.turn}`);
+      assert.strictEqual(r.state.player.hp, GOLDEN[t].php, `t${t + 1} 玩家 hp 偏离黄金值`);
+      assert.strictEqual(r.state.player.mp, GOLDEN[t].pmp, `t${t + 1} 玩家 mp 偏离黄金值`);
+      assert.strictEqual(r.state.enemy.hp, GOLDEN[t].ehp, `t${t + 1} 敌 hp 偏离黄金值`);
+      assert.strictEqual(r.state.turn, s.turn + 1);
+      s = r.state;
+    }
+  }
+}
+
 console.log("OK");
