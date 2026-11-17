@@ -33,7 +33,9 @@ const sceneTextById = new Map();
 for (const c of raw.chapters) for (const s of c.scenes) sceneTextById.set(s.id, s.text);
 
 const CH1_FORBIDDEN = ["石像", "石门", "石砖"];
-const OBSERVE_TITLE_RE = /你放慢呼吸，重新审视「(.+?)」/;
+// F178 后标题仍在「」内、旧模板句已删：观察正文须以「场景名」开头。
+const OBSERVE_TITLE_RE = /^「(.+?)」/;
+const OBSERVE_OLD_TEMPLATE = "重新审视";
 
 // 同一存档两次观察：返回 [c1, c2]（去空白文本），并断言免费口径。
 async function observeTwice(id, tag) {
@@ -57,6 +59,10 @@ async function observeTwice(id, tag) {
     assert(
       [...c].length < [...sceneText].length * 0.5,
       `${tag}: 第${i + 1}次观察复述整幕（${[...c].length} >= ${[...sceneText].length}*0.5）`
+    );
+    assert(
+      !c.includes(OBSERVE_OLD_TEMPLATE),
+      `${tag}: 第${i + 1}次观察回归旧模板句（含「${OBSERVE_OLD_TEMPLATE}」）: ${c.slice(0, 60)}`
     );
     const m = c.match(OBSERVE_TITLE_RE);
     assert(m, `${tag}: 第${i + 1}次观察未取 scene_title 开头: ${c.slice(0, 60)}`);

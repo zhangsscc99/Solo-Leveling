@@ -20,6 +20,7 @@ const aiGateway = require("./ai/gateway");
 const aiValidate = require("./ai/validate");
 const aiContext = require("./ai/context");
 const aiFallback = require("./ai/fallback");
+const entityDetail = require("./ai/entity-detail");
 const intentRules = require("./ai/keywords");
 
 const VERSION = "0.1.0";
@@ -371,9 +372,17 @@ const invStmts = {
 // F092 动作文案计数：同一句式的重复动作（观察/潜行）按已产出的叙述行数
 // 轮转到池内下一条——确定性可复现（同一日志序列必得同一文本），且同场景
 // 连续两次「观察」绝不重文。
+// F178：观察行不再以旧模板句开头，计数口径改认正文尾注里的观察标记——
+// OBSERVE_MARK 与 observe 构建器共用同一常量，日后改措辞不会再把计数清零。
+const OBSERVE_MARK = "仍可说「观察」再看一处";
+const OBSERVE_TAIL = `（${OBSERVE_MARK}，或说「前进」）`;
+// F181：实体细节句的轮换按 (save_id, entity) 记——observe 构建器与
+// unknownSceneLine 共用同一份计数（与 unknownAckSeq 同口径），同一存档
+// 同一实体第二次观察必换文。
+const observeEntitySeq = new Map();
 const proseStmts = {
   observeCount: db.prepare(
-    "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE '你放慢呼吸，重新审视%'"
+    `SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE '%${OBSERVE_MARK}%'`
   ),
   sneakCount: db.prepare(
     "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'user' AND content = '潜行'"
@@ -2295,21 +2304,38 @@ const INTENTS = [
   {
     id: "observe",
     role: "narrator",
-    build: (save) => {
+    build: (save, input) => {
       const chapter = chaptersEngine.getChapter(save.chapter);
       const scene = chapter ? chaptersEngine.currentScene(save) : null;
       if (!scene) {
-        return { patch: null, content: "你环顾四周，只有浓得化不开的黑暗。" };
+        return { patch: null, content: `你环顾四周，只有浓得化不开的黑暗。${OBSERVE_TAIL}` };
       }
       // 「观察」是免费环顾：不写 save.scene、不扣 HP/MP。分支推进留给
       // 显式 choice_id 指令，绝不按 label 猜测。
-      // F092/F101 新口径：不再整段复读场景正文——短句观察取本章 prose 池，
-      // 按本档已产出的观察行数轮转，同场景连点两次必然不同文。
+      // F092/F101 口径保留：短句观察按本档已产出的观察行数轮转，同场景
+      // 连点两次必然不同文。F178/F181：正文不再套「重新审视」模板句——
+      // 玩家点名的场景实体给该实体专属细节（按 save×entity 轮换），未
+      // 点名时按场景真实在场的实体轮转，都没有才回落本章 prose 池；
+      // 尾注统一挂 OBSERVE_TAIL（观察动词提示 + observeCount 计数标记）。
       const n = (proseStmts.observeCount.get(save.id) || {}).n || 0;
-      const line = proseEngine.pick(proseEngine.poolFor(chapter.index).observe, n);
+      const blob = `${scene.title || ""}\n${scene.narr_name || ""}\n${scene.text || ""}`;
+      let entity = entityDetail.extractEntity(input);
+      if (!entity) {
+        const present = entityDetail.entitiesIn(blob);
+        if (present.length) entity = present[n % present.length];
+      }
+      let line;
+      if (entity) {
+        const key = `${save.id}|ent|${entity}`;
+        const k = observeEntitySeq.get(key) || 0;
+        observeEntitySeq.set(key, k + 1);
+        line = entityDetail.detail(entity, k);
+      } else {
+        line = proseEngine.pick(proseEngine.poolFor(chapter.index).observe, n);
+      }
       return {
         patch: null,
-        content: `你放慢呼吸，重新审视「${sceneNarrName(scene)}」。${line}`,
+        content: `「${sceneNarrName(scene)}」——${line}${OBSERVE_TAIL}`,
       };
     },
   },
@@ -2700,6 +2726,14 @@ const UNKNOWN_GENERIC_LINES = [
   ({ title }) => `你试着这么做了。「${title}」的一切照旧，没有回应，也没有阻拦。`,
 ];
 
+// F180 回显共指去重：模板里的 `${entity}上的X` 在 entity 与 X 同名时会
+// 叠出「刻痕上的刻痕」。插入名词与模板已有名词同指时改落「表面」表述，
+// 不删整句回显（F076/F129 客户端依赖输入回显保留）。
+const DUP_ENTITY_RE = /([一-鿿]{2,4})上的\1/g;
+function dedupEcho(line) {
+  return String(line || "").replace(DUP_ENTITY_RE, "$1表面");
+}
+
 const unknownAckSeq = new Map();
 // F176：自由输入兜底回包的「眼下可以做…输入「帮助」」指令表尾巴按存档
 // 只给一次（与 bossGatePushes 同口径的进程内计数）——自然语言长句每句
@@ -2728,28 +2762,42 @@ function unknownSceneLine(save, input) {
     const key = `${save.id}|pickup`;
     const n = (unknownAckSeq.get(key) || 0) + 1;
     unknownAckSeq.set(key, n);
-    return freeAction.pickupOutcome(input, res.target, res.exists_in_scene, {
-      takeable: !freeAction.FIXTURE_ENTITIES.has(res.target),
-      anchor: freeAction.sceneAnchor(UNKNOWN_SCENE_ENTITIES, blob),
-      variant: n - 1,
-    });
+    return dedupEcho(
+      freeAction.pickupOutcome(input, res.target, res.exists_in_scene, {
+        takeable: !freeAction.FIXTURE_ENTITIES.has(res.target),
+        anchor: freeAction.sceneAnchor(UNKNOWN_SCENE_ENTITIES, blob),
+        variant: n - 1,
+      })
+    );
   }
   // 查看族点名了非场景物 → 明确否认，不得换个场景物作答。
   if (famKey === "inspect" && res.named_by_player && !res.exists_in_scene) {
     const key = `${save.id}|deny`;
     const n = (unknownAckSeq.get(key) || 0) + 1;
     unknownAckSeq.set(key, n);
-    return freeAction.denyLine(
-      res.target,
-      freeAction.sceneAnchor(UNKNOWN_SCENE_ENTITIES, blob),
-      n - 1
+    return dedupEcho(
+      freeAction.denyLine(
+        res.target,
+        freeAction.sceneAnchor(UNKNOWN_SCENE_ENTITIES, blob),
+        n - 1
+      )
     );
+  }
+  // F181：玩家点名的场景实体（裂缝/石碑/石像/长明灯/石门/壁画）回实体
+  // 专属细节——换措辞问同一实体不再复读同一条词族模板；按 save×entity
+  // 轮换（与 observe 构建器共用 observeEntitySeq），未命中实体保持现状。
+  const detailEntity = entityDetail.extractEntity(input);
+  if (detailEntity) {
+    const key = `${save.id}|ent|${detailEntity}`;
+    const k = observeEntitySeq.get(key) || 0;
+    observeEntitySeq.set(key, k + 1);
+    return dedupEcho(entityDetail.detail(detailEntity, k));
   }
   const pool = fam ? fam.lines : UNKNOWN_GENERIC_LINES;
   const key = `${save.id}|${famKey}`;
   const n = (unknownAckSeq.get(key) || 0) + 1;
   unknownAckSeq.set(key, n);
-  return pool[(n - 1) % pool.length]({ title, entity });
+  return dedupEcho(pool[(n - 1) % pool.length]({ title, entity }));
 }
 
 function unknownFallbackContent(save, input) {
