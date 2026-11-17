@@ -1458,6 +1458,27 @@ export default function App() {
                 <span className="bar-combat-hint">守关者封着出口——叫阵即开战</span>
               )}
             </div>
+            {/* F196 分支选项：当前场景有 ≥2 个真实选项时铺一排选项键，
+                点击发「选择 <id>」文本指令（服务端按 choice_id 归属判定，
+                与口述同一结算路径）。选项带 effects 时代价小字随 save
+                下发的 cost 字段渲染（「体力 −5」），前端不自算。 */}
+            {!liveCombat && save.next_choices && save.next_choices.length >= 2 && (
+              <div className="btn-group">
+                <span className="group-label">选择</span>
+                {save.next_choices.map((c) => (
+                  <button
+                    key={c.id}
+                    className="btn"
+                    disabled={busy}
+                    title={c.cost ? `代价：${c.cost}` : c.label}
+                    onClick={() => dispatch(`选择 ${c.id}`)}
+                  >
+                    {c.label}
+                    {c.cost ? <span className="rest-count">{c.cost}</span> : null}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* F177「休息」死键的就地原因：title 在触屏等于不存在——
                 禁用态在四键下方常驻一行小字，文案原样透传服务端
                 save.rest.reason（单一事实源，前端不另写措辞）；可休息

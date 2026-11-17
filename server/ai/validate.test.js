@@ -32,6 +32,7 @@ test("INTENTS is a frozen list that matches server/index.js", () => {
       "help",
       "observe",
       "advance",
+      "choice",
       "sneak",
       "rest",
       "save",
