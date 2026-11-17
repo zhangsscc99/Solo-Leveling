@@ -2624,15 +2624,42 @@ function unknownSceneLine(save, input) {
   const scene = chaptersEngine.currentScene(save);
   const title = scene ? sceneNarrName(scene) : "此地";
   const blob = scene ? `${scene.title || ""}\n${scene.text || ""}` : "";
-  // 玩家点名的实体优先（「石阶上的刻痕」就答石阶），其次取场景正文里
-  // 真实出现的物——回应永远落在双方共指的东西上。
-  const entity =
-    UNKNOWN_SCENE_ENTITIES.find((e) => input.includes(e)) ||
-    UNKNOWN_SCENE_ENTITIES.find((e) => blob.includes(e)) ||
-    "四周";
+  // F162：共指与动作族交给 free-action 解析——玩家点名但不在静态
+  // 词表里的物不再被整段丢弃，拾取动词不再被答成「检查」。
+  const freeAction = require("./ai/free-action");
+  const res = freeAction.resolveTarget(input, UNKNOWN_SCENE_ENTITIES, blob);
+  const entity = res.target;
   const fam = UNKNOWN_SCENE_LINES.find((f) => f.match.test(input));
+  const famKey = fam ? fam.key : "generic";
+  const verb = freeAction.verbFamily(input);
+  // 拾取族独立成池：捡/拾/拿/揣/收必须给后果叙述。inspect 与场景
+  // 物三族（carve/statue/door）都让位——「捡起石碑上的刻痕」该答
+  // 刻痕拿不走，不是再念一遍刻痕模板；listen/blood/smell/bag 四族
+  // 维持既有行为与轮换。
+  const PICKUP_OVERRIDE = new Set(["generic", "inspect", "carve", "statue", "door"]);
+  if (verb === "pickup" && PICKUP_OVERRIDE.has(famKey)) {
+    const key = `${save.id}|pickup`;
+    const n = (unknownAckSeq.get(key) || 0) + 1;
+    unknownAckSeq.set(key, n);
+    return freeAction.pickupOutcome(input, res.target, res.exists_in_scene, {
+      takeable: !freeAction.FIXTURE_ENTITIES.has(res.target),
+      anchor: freeAction.sceneAnchor(UNKNOWN_SCENE_ENTITIES, blob),
+      variant: n - 1,
+    });
+  }
+  // 查看族点名了非场景物 → 明确否认，不得换个场景物作答。
+  if (famKey === "inspect" && res.named_by_player && !res.exists_in_scene) {
+    const key = `${save.id}|deny`;
+    const n = (unknownAckSeq.get(key) || 0) + 1;
+    unknownAckSeq.set(key, n);
+    return freeAction.denyLine(
+      res.target,
+      freeAction.sceneAnchor(UNKNOWN_SCENE_ENTITIES, blob),
+      n - 1
+    );
+  }
   const pool = fam ? fam.lines : UNKNOWN_GENERIC_LINES;
-  const key = `${save.id}|${fam ? fam.key : "generic"}`;
+  const key = `${save.id}|${famKey}`;
   const n = (unknownAckSeq.get(key) || 0) + 1;
   unknownAckSeq.set(key, n);
   return pool[(n - 1) % pool.length]({ title, entity });
