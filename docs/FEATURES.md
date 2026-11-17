@@ -453,3 +453,14 @@
 - F169 ✅ devin swe-2-high：`combat.js` 新增 `ENEMY_PHASE_TEMPLATES`（stone/beast/serpent/generic × half/low 各 3 句）+ 阈值判定（回合前 HP 快照，仅在敌人存活且非死亡回合触发，按 `turn+seq` 轮换不走 RNG）；断言 combat-enemy-phases PASS（旧码红证）+ combat.test.js 116 行新用例；数值逐回合与旧码一致。
 - F170 ✅ devin swe-2-medium：`/ai-action` 在 `degraded` 时改走 `resolveAction(fresh, input)`（与 `/action` 同一规则入口），修掉「降级把自由输入的具象否认换成通用观察模板」的线上回归；断言 ai-degraded-parity PASS（两个新档分别打两端点，正文逐字一致）。
 - 收尾：单元测试 228/228、run-all 6/6、`ci-deploy.sh` 两次 DEPLOY OK、线上双视口实拉全绿（console error 0 / overflowX 0）。
+
+## 第 26 轮真实玩家走查新增（2026-11-17，cron；见 docs/PRODUCT-REVIEW.md 本轮小节）
+- [ ] F171 （P0 产品真实性）AI 叙事在线上从未启用：玩家每条自由输入的攻击/否认/叙述都由规则模板生成，回包尾注「（系统叙事降级：按规则解析）」、顶栏常驻「叙事引擎：规则模式（AI 暂不可用）」。根因不是模型不可用，而是 `server/ai/gateway.js` 只读 `OPENCODE_GO_API_KEY`，线上 pm2 进程里只有 `AI_ALIYUN_API_KEY / AI_ALIYUN_BASE_URL / AI_ALIYUN_MODEL`，日志稳定输出 `[ai] skipped request: no API key configured`。要求：① 启动时（`server/index.js` 或 gateway 模块内）无依赖地读取仓库根 `.env`（已被 gitignore）填充 `process.env`，`OPENCODE_GO_API_KEY` 因此可在部署后生效；② 供应商兜底：`OPENCODE_GO_API_KEY` 缺失而 `AI_ALIYUN_API_KEY` 存在时，改打 `AI_ALIYUN_BASE_URL` + `AI_ALIYUN_MODEL`（DashScope OpenAI 兼容端点，不发送 `x-opencode-session`），`isConfigured()` 为真；③ 两条路径的失败码（`no-key` / `http` / `timeout` / `parse` / `network`）语义不变，`generate()` 永不抛出；④ 不得把任何密钥写入日志、返回值或 git 跟踪文件；⑤ 现有 `server/ai/gateway.test.js` 全绿。断言：`node scripts/assert/ai-provider-config.mjs` —— (a) 清空 `OPENCODE_GO_API_KEY` 后注入临时 `.env`，`isConfigured()` 必须为 true；(b) 仅给 `AI_ALIYUN_*` 时用 fetch 桩断言 URL 命中 `AI_ALIYUN_BASE_URL`、body.model 等于 `AI_ALIYUN_MODEL`、且**不含** `x-opencode-session` 头；(c) 给 `OPENCODE_GO_API_KEY` 时仍打 `opencode.ai` 且带 `x-opencode-session`；(d) 两者都缺时返回 `code:"no-key"` 且不发请求
+  verify: node scripts/assert/ai-provider-config.mjs
+  risk: med
+- [ ] F172 （P1 视觉/桌面）1440 桌面视口版心塌向左侧、留出约 300px 空洞，快捷键小标签像调试角标：实测中央叙事卡片偏窄且不居中，右侧栏下方大片空白，「战斗」在行动栏与系统键各出现一次、「背包」在页签与系统键各出现一次，1–9 的快捷键数字悬在按钮上方。要求：① ≥1200px 时主内容列（叙事 + 行动栏）居中，版心宽度落在 760–1100px，左右留白差 ≤60px，不出现横向滚动；② 快捷键标签改为按钮内右下角的低对比角标（opacity ≤0.55、字号 ≤11px），不再悬浮在按钮上方像调试标记；③ 390px 布局与既有面板契约零回归（不得改动页签数量、按钮文案、`aside.sidebar.open` 行为）；④ 不改任何服务端逻辑与数据。断言：`node scripts/e2e/desktop-layout.mjs` —— 1440×900 下主列 boundingBox 中心与视口中心相差 ≤24px、宽度 ∈[760,1100]、`scrollWidth-clientWidth===0`、快捷键角标 `opacity<=0.55`；同脚本再切 390×844 断言 `scrollWidth-clientWidth===0` 且行动栏四键与系统键八键仍可点
+  verify: node scripts/e2e/desktop-layout.mjs
+  risk: med
+- [ ] F173 （P2 文本质量）降级尾注每条都挂 + 前进模板句逐字重复：自由输入每条回包尾巴都有「（系统叙事降级：按规则解析）」（玩家不需要知道内部术语），且第 1、2 次「前进」都以同一句「（这一幕只是凝视前路，未耗体力——下一幕开始要付代价：HP 3 · MP 2）」收尾，第二次读到时确定自己在读模板。要求：① 降级尾注改为**会话内一次性**（同 F118 横幅口径）或换成玩家语言，不得每条都出现；② 连续两次「前进」的代价/凝视尾句不得逐字相同（按幕号或已付代价状态换 ≥2 种措辞）；③ 数值与结算零改动。断言：`node scripts/assert/repetition-and-jargon.mjs` —— 同一存档连点两次「前进」，两条回包的尾句不得逐字相同；自由输入两次，第二次回包不得再含「叙事降级」；两条都不得出现「系统处理中」残留
+  verify: node scripts/assert/repetition-and-jargon.mjs
+  risk: low
