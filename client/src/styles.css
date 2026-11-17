@@ -1448,13 +1448,13 @@ button {
   border-color: var(--system-dim);
 }
 
-/* F094 「释放技能」展开态：与 .combat-btn.on 同一记号（系统青内描边） */
+/* F094 「释放技能」/F163「道具」展开态：系统青内描边标记抽屉已开 */
 .btn.on {
   color: var(--system);
   box-shadow: inset 0 -2px 0 var(--system);
 }
 
-/* F094 无交战时战斗四键的常驻提示：与键帽同级的小字，不抢层级 */
+/* F094 无交战时战斗键的常驻提示：与键帽同级的小字，不抢层级 */
 .bar-combat-hint {
   align-self: center;
   font-size: var(--fs-xs);
@@ -1462,9 +1462,9 @@ button {
   white-space: nowrap;
 }
 
-/* F113/F119 非交战战斗入口：四键折叠成一条 32–40px 矮槽位。
+/* F113/F119 非交战战斗入口：战斗键折叠成一条 32–40px 矮槽位。
    虚线描边 = 待命舱位（与 .side-empty 同一记号），disabled 不再常驻
-   四个实键；交战/叫阵态由四键本体接管。 */
+   五个实键；交战/叫阵态由五键本体接管。 */
 .combat-entry {
   display: inline-flex;
   align-items: center;
@@ -1517,8 +1517,8 @@ button {
   border-radius: var(--r-hard);
 }
 
-/* F094 行动栏技能列表：发丝线行 + 硬件方角按钮，与 .combat-sub 同一语言。
-   技能数据（MP/冷却/可释放原因）全部服务端下发，此处只做呈现。 */
+/* F094 行动栏技能列表 / F163 道具列表：发丝线行 + 硬件方角按钮。
+   技能数据（MP/冷却/可释放原因）与背包补给全部服务端下发，此处只做呈现。 */
 .bar-skills {
   list-style: none;
   display: flex;
@@ -1955,6 +1955,44 @@ button {
     min-height: 44px;
     flex-wrap: wrap;
     row-gap: 0;
+  }
+
+  /* F163 交战五键的高度预算：战斗组第二行让底栏多出 ~52px，交战态
+     （.actions-combat，仅 liveCombat 时挂上）把组内间距与上下 padding
+     收紧，拉回 F113/F119 的 .stage ≥60% 视口线内；非交战态保持原节奏。
+     系统组本就是可横滑 meta 行，交战时压成 36px 副行，让位给主行动。 */
+  .actions-main.actions-combat {
+    padding-top: var(--sp-1);
+    padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom));
+  }
+
+  .actions-combat .action-groups {
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-1);
+  }
+
+  .actions-combat .btn-group {
+    padding-top: var(--sp-1);
+    row-gap: var(--sp-1);
+  }
+
+  /* 交战五键平衡栅格：3+2 两行铺满。6 列里前三键各跨 2 列
+     （~1/3 宽），后两键各跨 3 列（~1/2 宽），消除 4+1 的第二行
+     右侧空洞；仍满足每行 ≤4 键、键宽 ≥72px 的契约。 */
+  .actions-combat .btn-group:not(.btn-group-sys) {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .actions-combat .btn-group:not(.btn-group-sys) > .btn {
+    grid-column: span 2;
+  }
+
+  .actions-combat .btn-group:not(.btn-group-sys) > .btn:nth-of-type(n + 4) {
+    grid-column: span 3;
+  }
+
+  .actions-combat .btn-group-sys .btn {
+    min-height: 36px;
   }
 }
 
@@ -2474,121 +2512,31 @@ button {
   }
 }
 
-/* 五项行动：与底部 .btn 同族的方角硬键，攻击为主行动 */
-.combat-acts {
+/* F163 单回合伤害预估：情报面板收尾行——发丝线顶边 + 等宽数字，
+   与 .combat-turn/.gauge-num 同一 mono 口径；只报裸量级，不引新色。 */
+.combat-est {
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--sp-2);
+  gap: var(--sp-2) var(--sp-3);
   padding-top: var(--sp-2);
   border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--faint);
 }
 
-.combat-btn {
-  flex: 1 1 0;
-  min-width: 64px;
-  min-height: 44px;
-  padding: 0 var(--sp-2);
-  background: var(--hull-2);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-hard);
-  color: var(--text);
-  font-family: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.combat-btn:hover:not(:disabled) {
-  border-color: var(--system-dim);
-  color: #fff;
-}
-
-.combat-btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.combat-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.combat-btn.primary {
-  background: linear-gradient(180deg, rgba(79, 200, 255, 0.2), rgba(79, 200, 255, 0.08));
-  border-color: var(--system-dim);
-}
-
-.combat-btn.on {
-  color: var(--system);
-  box-shadow: inset 0 -2px 0 var(--system);
-}
-
-.combat-flee:hover:not(:disabled) {
-  border-color: var(--blood-dim);
-  color: var(--blood);
-}
-
-/* 技能/道具二级列表：发丝线行，不用卡片 */
-.combat-sub {
-  list-style: none;
-  margin: var(--sp-2) 0 0;
-  padding: 0;
-  border-top: 1px solid var(--line);
-}
-
-.combat-sub-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  min-height: 44px;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--fs-sm);
-}
-
-.combat-sub-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--text);
-}
-
-.combat-sub-meta {
-  flex: none;
+.combat-est-num {
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--tick);
-}
-
-.combat-sub-btn {
-  flex: none;
-  min-height: 32px;
-  padding: 0 var(--sp-3);
-  background: none;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-hard);
   color: var(--dim);
-  font-family: inherit;
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease;
+  white-space: nowrap;
 }
 
-.combat-sub-btn:hover:not(:disabled) {
-  border-color: var(--system-dim);
-  color: var(--system);
+.combat-est-num b {
+  font-weight: 500;
+  color: var(--text);
 }
 
-.combat-sub-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
+/* 空列表占位行：战斗道具抽屉与旧浮层共用的一句小字。 */
 .combat-sub-empty {
   padding: var(--sp-3) 0;
   font-size: var(--fs-xs);
@@ -2611,11 +2559,6 @@ button {
     border-left: 0;
     border-top: 1px solid var(--line);
     padding-top: var(--sp-2);
-  }
-
-  .combat-btn {
-    flex: 1 1 30%;
-    font-size: var(--fs-sm);
   }
 }
 

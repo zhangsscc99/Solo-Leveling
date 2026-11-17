@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// F094/F113 战斗操作入口 + 交战期动作门禁：
-//   a) 无敌人：战斗四键折叠为单行矮入口 .combat-entry——存在、disabled、
-//      aria-disabled="true"，文案含「当前没有可攻击的目标」；四键本体
+// F094/F113/F163 战斗操作入口 + 交战期动作门禁：
+//   a) 无敌人：战斗五键折叠为单行矮入口 .combat-entry——存在、disabled、
+//      aria-disabled="true"，文案含「当前没有可攻击的目标」；五键本体
 //      不再常驻渲染；
-//   b) 真实 UI 输入触发遭遇后四键可用：点「攻击」→ 日志新增「第N回合」，
+//   b) 真实 UI 输入触发遭遇后五键可用：点「攻击」→ 日志新增「第N回合」，
 //      HP/敌人 HP 至少其一真实变化（击杀收场按「击败」播报计）；
 //   c) 技能按钮文案含 MP + 数字与冷却；点击真实扣 MP（= mp_cost），日志与
 //      面板同源（播报含技能名）；冷却中 →「冷却中 N 回合」disabled；
 //      MP 不足（DB 落点压 MP）→ disabled +「MP 不足」；未解锁 →「需 Lv.N」；
 //   d) 交战中「休息」不恢复 HP（前后不变）+ 拒绝文案 + refused 标记；
 //      「潜行/存档」不产生免费收益（MP 不动、存档按钮 disabled、拒绝文案）；
-//   e) 390×844 视口：四键 boundingBox 全在视口内、高度 ≥44px、可点；
+//   e) 390×844 视口：五键 boundingBox 全在视口内、高度 ≥44px、可点；
 //      footer.actions ≤ 30% 视口高、.stage ≥ 60%；行动组每行 ≤4 键且
 //      每个按钮 boundingBox().width ≥ 72。
 // 稳定性：关键动作后 settle 等待；整套断言失败重试一次（F087 口径）。
@@ -88,17 +88,17 @@ async function body(page, saveId) {
     const box = await entry.boundingBox();
     assert(box && box.height >= 28 && box.height <= 44, `combat entry height ${box?.height}px out of 28–44 slim row`);
   }
-  for (const label of ["攻击", "释放技能", "防御", "逃跑"]) {
+  for (const label of ["攻击", "释放技能", "防御", "道具", "逃跑"]) {
     assert(
       (await combatBtn(page, label).count()) === 0,
       `「${label}」should be folded into .combat-entry with no engagement`
     );
   }
 
-  // ── b) 触发遭遇 → 四键可用 →「攻击」结算一回合 ──────────────────
+  // ── b) 触发遭遇 → 五键可用 →「攻击」结算一回合 ──────────────────
   await ensureEngaged(page, saveId);
   await settle(page);
-  for (const label of ["攻击", "释放技能", "防御", "逃跑"]) {
+  for (const label of ["攻击", "释放技能", "防御", "道具", "逃跑"]) {
     assert(await combatBtn(page, label).isEnabled(), `「${label}」disabled during engagement`);
   }
   // 探索组在交战态应整体让位（服务端门禁同口径）。
@@ -248,11 +248,11 @@ async function body(page, saveId) {
     await combatBtn(page, "释放技能").click(); // 收起技能列表再测移动端
   }
 
-  // ── e) 390×844：四键全在视口内、≥44px、可点；底栏 ≤30%、正文 ≥60% ──
+  // ── e) 390×844：五键全在视口内、≥44px、可点；底栏 ≤30%、正文 ≥60% ──
   {
     await page.setViewportSize({ width: 390, height: 844 });
     await settle(page, 500);
-    for (const label of ["攻击", "释放技能", "防御", "逃跑"]) {
+    for (const label of ["攻击", "释放技能", "防御", "道具", "逃跑"]) {
       const b = combatBtn(page, label);
       const box = await b.boundingBox();
       assert(box, `「${label}」no boundingBox @390`);
