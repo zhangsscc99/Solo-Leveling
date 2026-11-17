@@ -8,6 +8,7 @@
       "subtitle": "石殿里的第一声系统音",
       "summary": "E 级猎人接下一桩低报酬的清扫委托，却在被地图漏掉的地下深处撞见一座不欢迎活人的石殿。石像动了，命令之律亮起，同伴一个接一个倒下——而你在濒死之际，听见了只有自己能听见的声音。",
       "unlock": { "level": 1 },
+      "expected_level": 1,
       "scenes": [
         {
           "id": "ch1_double_gate",
@@ -168,6 +169,7 @@
       "subtitle": "惩罚副本不接受请假",
       "summary": "系统给出的第一条规则简单得荒唐：每天完成固定训练，否则接受惩罚。当你在截止时间前一分钟按下「放弃」，脚下的世界换成了另一个地方。",
       "unlock": { "level": 5, "chapter": 1 },
+      "expected_level": 5,
       "scenes": [
         {
           "id": "ch2_daily_quest",
@@ -213,6 +215,7 @@
       "subtitle": "重新丈量自己",
       "summary": "你带着一份没人相信的经历走进猎人协会，申请重新测定等级。测力器、跑道、评级用副本——所有仪器都在给出同一个超出常识的答案。",
       "unlock": { "level": 10, "chapter": 2 },
+      "expected_level": 10,
       "scenes": [
         {
           "id": "ch3_association",
@@ -253,6 +256,7 @@
       "subtitle": "地图之外的那扇门",
       "summary": "第一次以正式队员身份参加 C 级突袭。队伍按图纸推进，一切顺利得可疑，直到有人在主厅侧壁敲出一段空响。",
       "unlock": { "level": 20, "chapter": 3 },
+      "expected_level": 20,
       "scenes": [
         {
           "id": "ch4_raid_party",
@@ -304,6 +308,7 @@
       "subtitle": "把死者留在身边",
       "summary": "等级触顶的那一刻，系统递来一份没有拒绝选项的转职任务：进入试炼，抵达最深处。而在那里等着你的，是一座石像，和一具具倒下过的影子。",
       "unlock": { "level": 30, "chapter": 4 },
+      "expected_level": 30,
       "scenes": [
         {
           "id": "ch5_quest",
@@ -353,6 +358,7 @@
       "subtitle": "带他们出去",
       "summary": "一扇不该出现的红门把一支新人小队和你一起吞了进去。门后是永冻的雪原，和一群把入侵者当作猎物的冰精灵。",
       "unlock": { "level": 40, "chapter": 5 },
+      "expected_level": 40,
       "scenes": [
         {
           "id": "ch6_red_gate",
@@ -403,6 +409,7 @@
       "subtitle": "往上，直到城主厅",
       "summary": "为了备战即将到来的 S 级任务，你独自进入那座没有出口记录的城堡。地狱之犬、恶魔贵族、一级级向上的石阶，尽头坐着一个很久没有遇到对手的东西。",
       "unlock": { "level": 55, "chapter": 6 },
+      "expected_level": 55,
       "scenes": [
         {
           "id": "ch7_demon_city",
@@ -453,6 +460,7 @@
       "subtitle": "蚁王 Beru",
       "summary": "S 级猎人集体登陆济州岛，目标是那座不断扩大的蚂蚁巢穴。地下的通道越走越深，直到尽头出现一个会说话的、站着的蚂蚁——Beru。",
       "unlock": { "level": 70, "chapter": 7 },
+      "expected_level": 70,
       "scenes": [
         {
           "id": "ch8_jeju",

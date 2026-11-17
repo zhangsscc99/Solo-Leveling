@@ -113,6 +113,13 @@ function validateChapters(data) {
       }
     }
 
+    // F097 章节期望等级（必填）：遭遇/守关者等级带宽钳制的章节基准，
+    // 与 unlock.level 同一组数——缺字段时软门放进来的低等级玩家会
+    // 直接对上按章节硬推的怪，必须加载期拦下而不是带病进运行时。
+    if (!isPositiveInt(chapter.expected_level)) {
+      errors.push(`${at}.expected_level 必须是正整数（遭遇/守关者等级带宽的章节基准）`);
+    }
+
     if (!Array.isArray(chapter.scenes)) {
       errors.push(`${at}.scenes 必须是数组`);
       return;

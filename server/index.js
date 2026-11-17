@@ -778,10 +778,10 @@ function guardianWarning(save, chapter, boss, opts) {
   const bossTpl =
     boss && typeof boss === "object"
       ? boss
-      : encounterEngine.spawnBoss(chapter ? chapter.index : save.chapter);
+      : encounterEngine.spawnBoss(chapter ? chapter.index : save.chapter, save.level);
   const bossName =
     (bossTpl && bossTpl.name) ||
-    chapterBossName(chapter || chaptersEngine.getChapter(save.chapter));
+    chapterBossName(chapter || chaptersEngine.getChapter(save.chapter), save);
   const bossMaxHp = Math.max(
     1,
     Math.trunc(Number(bossTpl && (bossTpl.maxHp !== undefined ? bossTpl.maxHp : bossTpl.max_hp)) || 1)
@@ -887,9 +887,9 @@ function guardianWarning(save, chapter, boss, opts) {
 // 本章守关者真名：遭遇表 boss 模板为准（玩家实际交手的实体），兜底主线
 // 链上 kind="boss" 场景的标题；都拿不到才回退到通用称谓——数据上 8 章
 // 的守关者都有真名，占位串永远不写出。
-function chapterBossName(chapter) {
+function chapterBossName(chapter, save) {
   if (!chapter) return "守关者";
-  const boss = encounterEngine.spawnBoss(chapter.index);
+  const boss = encounterEngine.spawnBoss(chapter.index, save && save.level);
   if (boss && boss.name) return boss.name;
   const path = chaptersEngine.chapterPath(chapter);
   const scene = path.find((s) => s && s.kind === "boss");
@@ -931,7 +931,7 @@ function chapterGate(save, chapter, nextChapter) {
       refused: true,
       content:
         `【主线】第${chapter.index}章的守关者仍守在那扇门前——` +
-        `必须击败「${chapterBossName(chapter)}」才能通过（当前进度 ${steps}/${path.length}）。\n` +
+        `必须击败「${chapterBossName(chapter, save)}」才能通过（当前进度 ${steps}/${path.length}）。\n` +
         `（只是停在守关者门前，未耗体力——下一幕要么叫阵要么另寻出路）`,
     };
   }
@@ -1054,7 +1054,7 @@ function advanceOutcome(save) {
       // 自己还剩多少血、守关者大致多疼、下一步去哪恢复。
       content:
         BOSS_GATE_LINES[(pushN - 1) % BOSS_GATE_LINES.length](
-          chapterBossName(chapter),
+          chapterBossName(chapter, save),
           pushN
         ) + `\n${hint}`,
     };
@@ -1423,6 +1423,9 @@ function tryEncounter(save, sceneId, opts) {
     // F161：疾行计数参与掷点——连续「前进」会线性抬高遭遇率，并在
     // streak 达阈值后把 encounters:"none" 的场景也解锁为可掷点。
     streak: save.advance_streak,
+    // F097：生成等级按玩家等级带宽钳制（±2 且不超过本章期望 +1），
+    // 软门放进来的低等级玩家不再对上按章节硬推的怪。
+    playerLevel: save.level,
   });
   if (enemy) {
     enemy.seq = seq;
@@ -1677,7 +1680,7 @@ function advanceWithEncounter(save) {
     const n = (proseStmts.bossReentryCount.get(save.id) || {}).n || 0;
     const line = BOSS_REENTRY_LINES[Math.abs(Math.trunc(n)) % BOSS_REENTRY_LINES.length](
       sceneNarrName(landedScene),
-      chapterBossName(chaptersEngine.getChapterOfScene(landedScene.id))
+      chapterBossName(chaptersEngine.getChapterOfScene(landedScene.id), save)
     );
     // F158：重入守关房同样追加状态预警——脱战态的恢复路径（休息/补给/
     // 叫阵）与进房开战版分开给。

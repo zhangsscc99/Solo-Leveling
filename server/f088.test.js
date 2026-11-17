@@ -86,7 +86,12 @@ test("HP 归零进入复活分支：deaths+1 · HP≈max/2 · 交战收敛", asy
   const id = await newSave("t-death");
   let cur = null;
   for (let i = 0; i < 120 && !(cur && cur.save.deaths > 0); i++) {
-    cur = await act(id, cur && cur.save.combat ? "攻击" : "前进");
+    // F097 钳制生效后玩家不再必死于早期遭遇——可能一路推进到守关门。
+    // 门拒绝「前进」时正文点名「攻击/叫阵」逼守关者现形：驱动照做，
+    // 否则会在门前空转 120 次而从不进战。其余拒绝照旧退回「前进」。
+    const refusedByGate =
+      cur && cur.refused === true && /守关者|叫阵|现形/.test(cur.reply.content || "");
+    cur = await act(id, (cur && cur.save.combat) || refusedByGate ? "攻击" : "前进");
   }
   assert.ok(cur && cur.save.deaths > 0, "never died within 120 actions");
   const s = cur.save;
