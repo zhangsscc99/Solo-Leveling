@@ -257,7 +257,7 @@
 - [x] F117 章末 7/7 无「进入下一章」入口，切章藏在又一次扣费的「前进」里。要求：7/7 时 `advance_mode` 改主按钮为「进入第2章 · 每日任务」且该次不再扣体力 ✅ (2026-11-16 cron devin; `advance_mode=next_chapter` 只在 idx===链尾 且非 retreat/challenge_boss 时下发，过门 `scripted` 不扣 HP/MP、不掷遭遇、不结算每日任务，回包附「本次没有消耗体力」；390px 下按钮两行不裁不撑高，footer 高度与 main 一致 361px)
   verify: node scripts/assert/chapter-end-cta.mjs
   risk: low
-- [ ] F118 AI 降级零提示：`/ai-action` 回 `degraded:true` 时前端无任何提示，正文是与「环顾四周」首句逐字相同的模板句。要求：降级时气泡尾加「（系统叙事降级：按规则解析）」，观察模板句按场景轮换 ≥3 句
+- [x] F118 AI 降级零提示：`/ai-action` 回 `degraded:true` 时前端无任何提示，正文是与「环顾四周」首句逐字相同的模板句。要求：降级时气泡尾加「（系统叙事降级：按规则解析）」，观察模板句按场景轮换 ≥3 句
   verify: node scripts/assert/degraded-banner.mjs
   risk: low
 - [x] F119 （并入 F113）移动端 390×844 `footer.actions` 实测 y=483 h=361 = 视口 42.8%，17 个按钮三行堆叠，正文区仅 483px。要求同 F113：战斗组非交战态折叠为单行入口、系统组收进抽屉，正文区 ≥60% 视口 ✅ (2026-11-16 cron，随 F113 落地；实测 footer 181px(21.4%)、正文 528px(62.6%)，断言并入 `combat-actions-ui.mjs` (e) 段)
@@ -431,17 +431,25 @@
   risk: med ✅ (2026-11-17 cron devin swe-2-high + 断言迁移 pass; `server/ai/free-action.js` 新增 `echoRequired()`（去空白 <8 字 / 命中指令信号词 / 含数字 → 指令形态，保留回显；否则自然语言长句去前缀）+ `COMMAND_SIGNAL_RE`；`unknownFallbackContent` 与交战 unknown 分支接线：长句回「【系统】你蹲低去捡——可这里没有你说的碎片…」，指令形态仍回「系统未识别该指令：「遭遇哥布林」」（F076/F129 客户端依赖保留）；F157 断言同步迁移为「长句不得含未识别前缀 + 指令形态仍回显」双契约，强度不降；断言 free-input-voice / free-narration-ack PASS + free-action-object/free-input-intent/unknown-followup-context/out-of-combat-supply/escape-locked-boss-cleared/no-placeholder-prose/combat-gate 全绿)
 
 ## 第 25 轮真机走查新增（2026-11-17 05:40 UTC，cron；线上双视口 390×844 / 1440×900 实玩 10 步 + 3 个补充探针）
-- [ ] F167 （P0 体验硬伤/文本节奏）一次「前进」把四类文本塞进同一个气泡：390px 实测第 3 推同时包含 剧情（约 450 字）+「（体力消耗 HP 97→94 · MP 18→16）」+「【遭遇】石像守卫 Lv.3 拦住了去路——它的 HP 75/75」+「【系统】状态提示——你的 HP 94/100…说『攻击』开打…说『前进』尝试撤离」（教学段），要滑三屏，读起来像结算单不像小说。要求：① 触发遭遇的那一次动作，把「【遭遇】…」与随后的「【系统】状态提示…」教学段拆成**独立日志条目**（服务端追加日志行，或在客户端按段落渲染成独立气泡），剧情条目只保留剧情正文 + 代价行；② 拆出的遭遇条目不得含「（体力消耗」/「（没有消耗」这类代价括号；剧情条目不得含「【遭遇】」；③ 拆条不改变任何数值结算与 `combat` 写库路径，`next_choices`/`advance_mode` 口径不变；④ 390px 下剧情条目可见高度不再需要滑三屏看遭遇（遭遇条目在剧情之后、位于同屏或一步之内）。断言：`node scripts/assert/encounter-split-log.mjs` —— 新档推进到遭遇触发，`.stage-col` 该次点击新增 ≥2 个条目；含「【遭遇】」的条目不含「（体力消耗」，含「（体力消耗」的条目不含「【遭遇】」；遭遇条目长度 < 400 字符
+- [x] F167 （P0 体验硬伤/文本节奏）一次「前进」把四类文本塞进同一个气泡：390px 实测第 3 推同时包含 剧情（约 450 字）+「（体力消耗 HP 97→94 · MP 18→16）」+「【遭遇】石像守卫 Lv.3 拦住了去路——它的 HP 75/75」+「【系统】状态提示——你的 HP 94/100…说『攻击』开打…说『前进』尝试撤离」（教学段），要滑三屏，读起来像结算单不像小说。要求：① 触发遭遇的那一次动作，把「【遭遇】…」与随后的「【系统】状态提示…」教学段拆成**独立日志条目**（服务端追加日志行，或在客户端按段落渲染成独立气泡），剧情条目只保留剧情正文 + 代价行；② 拆出的遭遇条目不得含「（体力消耗」/「（没有消耗」这类代价括号；剧情条目不得含「【遭遇】」；③ 拆条不改变任何数值结算与 `combat` 写库路径，`next_choices`/`advance_mode` 口径不变；④ 390px 下剧情条目可见高度不再需要滑三屏看遭遇（遭遇条目在剧情之后、位于同屏或一步之内）。断言：`node scripts/assert/encounter-split-log.mjs` —— 新档推进到遭遇触发，`.stage-col` 该次点击新增 ≥2 个条目；含「【遭遇】」的条目不含「（体力消耗」，含「（体力消耗」的条目不含「【遭遇】」；遭遇条目长度 < 400 字符
   verify: node scripts/assert/encounter-split-log.mjs
   risk: med
-- [ ] F168 （P1 选择感/文案一致性）战斗中「撤离」只有文字没有按钮：遭遇提示写「说『前进』尝试撤离」，可交战态行动栏只有「攻击/释放技能/防御/道具/逃跑」——玩家得猜到「前进」是打字用的；而且逃跑失败（「第1回合 · 你试图逃跑，却被敌人拦了下来 · 石像守卫的反击造成 10 点伤害」）后既无成功率也无次数说明。要求：① 交战态提示文案点名**按钮名**（「点『逃跑』或说『前进』尝试撤离」），不得只写「前进」；② 文案明示逃跑可能失败（如「逃跑不一定成功，失败要再挨一击」）；③ 同一句提示按 `encounter_seq` 或回合数换 ≥2 种措辞（不逐字重复）；④ 数值与 `flee` 结算逻辑不动。断言：`node scripts/assert/flee-guidance-wording.mjs` —— 触发遭遇后回包含「逃跑」，且含「不一定/可能失败/不一定能脱身」之一；连续两次遭遇的两段提示不得逐字相同；自由输入「前进」在交战中仍走原有撤离分支（行为不变）
+- [x] F168 （P1 选择感/文案一致性）战斗中「撤离」只有文字没有按钮：遭遇提示写「说『前进』尝试撤离」，可交战态行动栏只有「攻击/释放技能/防御/道具/逃跑」——玩家得猜到「前进」是打字用的；而且逃跑失败（「第1回合 · 你试图逃跑，却被敌人拦了下来 · 石像守卫的反击造成 10 点伤害」）后既无成功率也无次数说明。要求：① 交战态提示文案点名**按钮名**（「点『逃跑』或说『前进』尝试撤离」），不得只写「前进」；② 文案明示逃跑可能失败（如「逃跑不一定成功，失败要再挨一击」）；③ 同一句提示按 `encounter_seq` 或回合数换 ≥2 种措辞（不逐字重复）；④ 数值与 `flee` 结算逻辑不动。断言：`node scripts/assert/flee-guidance-wording.mjs` —— 触发遭遇后回包含「逃跑」，且含「不一定/可能失败/不一定能脱身」之一；连续两次遭遇的两段提示不得逐字相同；自由输入「前进」在交战中仍走原有撤离分支（行为不变）
   verify: node scripts/assert/flee-guidance-wording.mjs
   risk: low
-- [ ] F169 （P1 内容厚度）战斗播报是纯算术、敌人零个性：「第2回合 · 你的攻击命中石像守卫，造成 14 点伤害 · 石像守卫的反击命中你，造成 10 点伤害」——五回合读下来像账单，敌人半血/濒死都没有一句自己的话。要求：① 敌人 HP 首次跨过 50% 与 25% 时，在回合条目里插入一句**敌人自身的阶段反应**（按敌人 kind 的模板池：石像=裂纹/碎石，狼=低吼/呲牙，蛇=嘶鸣，通用池兜底），每个阶段 ≥3 变体按 `turn` 或 `encounter_seq` 轮换，同一场战斗同一阶段不逐字重复；② 阶段句只做叙述，**不得改变伤害/命中/暴击数值与顺序**（结算前后 hp 数值必须与旧码一致）；③ 敌人被一击秒杀（未跨阈值）时不出现阶段句；④ 单测覆盖 50%/25% 阈值与「秒杀不触发」。断言：`node scripts/assert/combat-enemy-phases.mjs` —— 打一场石像守卫到结束，日志里出现 ≥2 条阶段句且互不相同；同一存档数值序列与无阶段句时一致；`node --test server/engine/combat.test.js` 全绿
+- [x] F169 （P1 内容厚度）战斗播报是纯算术、敌人零个性：「第2回合 · 你的攻击命中石像守卫，造成 14 点伤害 · 石像守卫的反击命中你，造成 10 点伤害」——五回合读下来像账单，敌人半血/濒死都没有一句自己的话。要求：① 敌人 HP 首次跨过 50% 与 25% 时，在回合条目里插入一句**敌人自身的阶段反应**（按敌人 kind 的模板池：石像=裂纹/碎石，狼=低吼/呲牙，蛇=嘶鸣，通用池兜底），每个阶段 ≥3 变体按 `turn` 或 `encounter_seq` 轮换，同一场战斗同一阶段不逐字重复；② 阶段句只做叙述，**不得改变伤害/命中/暴击数值与顺序**（结算前后 hp 数值必须与旧码一致）；③ 敌人被一击秒杀（未跨阈值）时不出现阶段句；④ 单测覆盖 50%/25% 阈值与「秒杀不触发」。断言：`node scripts/assert/combat-enemy-phases.mjs` —— 打一场石像守卫到结束，日志里出现 ≥2 条阶段句且互不相同；同一存档数值序列与无阶段句时一致；`node --test server/engine/combat.test.js` 全绿
   verify: node scripts/assert/combat-enemy-phases.mjs
   risk: med
 
 ## 第 25 轮上线后回归新增（2026-11-17，cron；线上实拉抓到）
-- [ ] F170 （P0 体验回归）叙事降级路径把自由输入的「具象否认」降级掉了：本轮把客户端自然语言长句分流到 `/ai-action` 后，线上实测输入「我蹲下身，捡起地上一枚发烫的碎片」回的是**通用观察模板**「你放慢呼吸，重新审视「D 级委托·石门之下」…墙边那圈石像一动不动」（外加降级尾注），而同一句话走 `/action` 会回 F162/F166 那句「你蹲低去捡——可这里没有你说的碎片，只有石像和石门」。根因：`/ai-action` 在 `degraded` 时走 `aiFallback.parse(input)` → `executeIntent(intent)`，把长句归成 observe，绕过了 `resolveAction()` 里的 `free-action` 否认分支。要求：① `/ai-action` 在 `degraded:true` 时统一改用 `resolveAction(fresh, input)`（与 `/action` 同一规则引擎），保证「降级 = 与 /action 完全同行为」；② `degraded` 标记、回包结构（reply/save/degraded）、日志落库条数不变；③ 非降级（AI 正常）路径完全不动。断言：`node scripts/assert/ai-degraded-parity.mjs` —— 两个全新存档（名字带随机串）分别 POST `/ai-action` 与 `/action` 同一句长句：两条回包都必须含「碎片」与否认词（没有/不存在），`/ai-action` 回包必须带 `degraded:true`，且**不得**含通用观察模板「重新审视」
+- [x] F170 （P0 体验回归）叙事降级路径把自由输入的「具象否认」降级掉了：本轮把客户端自然语言长句分流到 `/ai-action` 后，线上实测输入「我蹲下身，捡起地上一枚发烫的碎片」回的是**通用观察模板**「你放慢呼吸，重新审视「D 级委托·石门之下」…墙边那圈石像一动不动」（外加降级尾注），而同一句话走 `/action` 会回 F162/F166 那句「你蹲低去捡——可这里没有你说的碎片，只有石像和石门」。根因：`/ai-action` 在 `degraded` 时走 `aiFallback.parse(input)` → `executeIntent(intent)`，把长句归成 observe，绕过了 `resolveAction()` 里的 `free-action` 否认分支。要求：① `/ai-action` 在 `degraded:true` 时统一改用 `resolveAction(fresh, input)`（与 `/action` 同一规则引擎），保证「降级 = 与 /action 完全同行为」；② `degraded` 标记、回包结构（reply/save/degraded）、日志落库条数不变；③ 非降级（AI 正常）路径完全不动。断言：`node scripts/assert/ai-degraded-parity.mjs` —— 两个全新存档（名字带随机串）分别 POST `/ai-action` 与 `/action` 同一句长句：两条回包都必须含「碎片」与否认词（没有/不存在），`/ai-action` 回包必须带 `degraded:true`，且**不得**含通用观察模板「重新审视」
   verify: node scripts/assert/ai-degraded-parity.mjs
   risk: med
+
+### 第 25 轮验收记录（2026-11-17 06:45 UTC，cron；3 车道全 devin，无回退）
+- F167 ✅ devin swe-2-high：渲染层 `splitStageEntry()` 把行首【遭遇】/【系统】教学段拆成独立条目（请求/响应、落库、数值零改动，刷新回灌同一规则）；断言 encounter-split-log PASS（旧码红证：遭遇条混入代价行）+ run-all 6/6。线上实拉：回复 3 条，遭遇条目 84 字且不含「（体力消耗」。
+- F118 ✅ devin swe-2-medium（第二 pass）：`/ai-action` 降级回包首条气泡尾注「（系统叙事降级：按规则解析）」+ 会话内一次性可收起细条「叙事引擎：规则模式（AI 暂不可用）· 点 × 收起」；断言 degraded-banner PASS（首条有尾注、第二条无、× 收起不复发、新档干净）。
+- F168 ✅ devin swe-2-medium：`FLEE_GUIDE_LINES`（2 变体按 `encounter_seq` 轮换）挂在 advance/叫阵/休息被打断三处开战播报，`guardianWarning()` 交战态改为「点「逃跑」或说「前进」尝试撤离（撤离可能失败）」；数值与 flee 结算零改动；断言 flee-guidance-wording PASS（旧码红证：开战只有遭遇行、无撤离指引）。
+- F169 ✅ devin swe-2-high：`combat.js` 新增 `ENEMY_PHASE_TEMPLATES`（stone/beast/serpent/generic × half/low 各 3 句）+ 阈值判定（回合前 HP 快照，仅在敌人存活且非死亡回合触发，按 `turn+seq` 轮换不走 RNG）；断言 combat-enemy-phases PASS（旧码红证）+ combat.test.js 116 行新用例；数值逐回合与旧码一致。
+- F170 ✅ devin swe-2-medium：`/ai-action` 在 `degraded` 时改走 `resolveAction(fresh, input)`（与 `/action` 同一规则入口），修掉「降级把自由输入的具象否认换成通用观察模板」的线上回归；断言 ai-degraded-parity PASS（两个新档分别打两端点，正文逐字一致）。
+- 收尾：单元测试 228/228、run-all 6/6、`ci-deploy.sh` 两次 DEPLOY OK、线上双视口实拉全绿（console error 0 / overflowX 0）。
