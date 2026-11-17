@@ -3224,3 +3224,51 @@ button {
   color: var(--faint);
   pointer-events: none;
 }
+
+/* ── F164 状态栏属性点徽标 ──
+   free_points>0 时钉在 .status-nums 属性组首位：与 .stat 同一排印语言
+   （Noto Sans SC 标签 + IBM Plex Mono 数值），system 青细描边 + 轻底
+   标识「可点」——成长播报是系统语境，青是允许发光的功能色；hover
+   只加深描边与底，不位移。不另占行：桌面并入右侧属性组；移动端随
+   .status-nums 横滚带同行，HP/MP 计量行不受影响。 */
+.stat-points-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 2px var(--sp-2);
+  background: var(--system-veil);
+  border: 1px solid var(--system-dim);
+  border-radius: var(--r-hard);
+  color: var(--system);
+  font: inherit;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  animation: fpb-in 0.22s ease-out;
+}
+
+.stat-points-badge .fpb-num {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.stat-points-badge:hover {
+  border-color: var(--system);
+  background: rgba(79, 200, 255, 0.14);
+}
+
+.stat-points-badge:focus-visible {
+  outline: 1px solid var(--system);
+  outline-offset: 1px;
+}
+
+/* 单次浮现：徽标随升级回包就地出现，与系统窗 220ms 展开同一语言；
+   reduced-motion 由全局规则静止。 */
+@keyframes fpb-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
