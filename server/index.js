@@ -54,11 +54,64 @@ function isNonEmpty(v) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+// F197 软门量化风险：与 F158 guardianWarning / F191 est_take 同一口径——
+// 敌方实体由 encounterEngine.spawnBoss 按本章 expected_level + 玩家等级
+// 带宽（F097 同一钳制）现算预演，不塞模板值；承伤区间走同一条
+// computeDamage（不暴击下限到暴击上限，装备折算进体力减伤、rank 压制），
+// 不另写估算公式。返回 null 表示拿不到敌方实体（数据缺失时文案降级，
+// 不编造数字）。
+function softGateRisk(save, chapter) {
+  const boss = encounterEngine.spawnBoss(chapter && chapter.index, save && save.level);
+  if (!boss || typeof boss !== "object") return null;
+  const equip = equipView(save.id);
+  const stats = statsEngine.sanitizeStats({ stats: save.stats });
+  stats.vitality += (equip.def || 0) / 0.8;
+  const playerDef = statsEngine.defenseOf({ stats });
+  const attacker = { rank: boss.rank, stats: boss.stats };
+  const lo = combatEngine.computeDamage(attacker, playerDef, {
+    mult: 1,
+    crit: false,
+    defenderRank: save.rank,
+  });
+  const hi = Math.max(
+    lo,
+    combatEngine.computeDamage(attacker, playerDef, {
+      mult: 1,
+      crit: true,
+      defenderRank: save.rank,
+    })
+  );
+  return {
+    enemy_name: boss.name || "守关者",
+    enemy_level: Math.max(1, Math.trunc(Number(boss.level) || 1)),
+    enemy_hp: Math.max(1, Math.trunc(Number(boss.maxHp !== undefined ? boss.maxHp : boss.max_hp) || 1)),
+    player_level: Math.max(1, Math.trunc(Number(save.level) || 1)),
+    player_hp: Math.max(0, Math.trunc(Number(save.hp) || 0)),
+    player_max_hp: Math.max(1, Math.trunc(Number(save.max_hp) || 1)),
+    est_take_lo: lo,
+    est_take_hi: hi,
+  };
+}
+
+// 量化风险的一句话：正文（crossing）与地图 hint 共用这同一条串，
+// 数字只出自 softGateRisk 的字段，两处永不脱钩。
+function softGateRiskLine(risk) {
+  if (!risk) return "";
+  return (
+    `守关者「${risk.enemy_name}」Lv.${risk.enemy_level} · HP ${risk.enemy_hp}` +
+    ` vs 你 Lv.${risk.player_level} · HP ${risk.player_hp}/${risk.player_max_hp}，` +
+    `单回合预计承受 ${risk.est_take_lo}–${risk.est_take_hi} 点`
+  );
+}
+
 // F152 软门文案同一事实源：越过软门的播报、saveView.chapter_unlock 与
 // /api/chapters 的 unlock 视图由同一个函数产出——门槛数值只读
 // chapters.json 的 unlock（经 chaptersEngine.unlockView / unlockedFor）。
 // 「受压制」是没有数值解释的旧措辞：软门放行 ≠ 无代价，hint 与过门播报
 // 统一写「已强行进入 · 推荐 X · 本章战斗难度高于你的当前等级」。
+// F197：光说「难度更高」不算告知——hint 与过门播报都带上量化风险行
+// （敌方名/等级/HP vs 玩家等级/HP + 单回合预计承受区间），并把同一组
+// 数字放进 risk 字段随视图下发，前端/断言可自取，不与文案脱钩。
 function chapterUnlockView(save, chapter) {
   const view = chaptersEngine.unlockView(save, chapter);
   if (view.state !== "soft") return view;
@@ -66,14 +119,19 @@ function chapterUnlockView(save, chapter) {
   if (view.chapter !== null && !view.chapter_ok) reqs.push(`完成第${view.chapter}章主线`);
   if (view.level !== null && !view.level_ok) reqs.push(`Lv.${view.level}`);
   const recommend = reqs.join("、");
+  const risk = softGateRisk(save, chapter);
+  const riskLine = softGateRiskLine(risk);
   return {
     ...view,
-    hint: `推荐 ${recommend} · 可强行进入（本章战斗难度高于你的当前等级）`,
-    // 过门播报的同源措辞：事实（已强行进入）+ 后果（承伤更高、建议先刷级），
-    // 不再写「系统压制了传送门」这种与放行结果自相矛盾的说法。
+    hint:
+      `推荐 ${recommend} · 可强行进入（本章战斗难度高于你的当前等级` +
+      `${riskLine ? `：${riskLine}` : ""}）`,
+    // 过门播报的同源措辞：事实（已强行进入）+ 量化风险 + 后果（承伤更高、
+    // 建议先刷级），不再写「系统压制了传送门」这种与放行结果自相矛盾的说法。
     crossing:
       `已强行进入 · 推荐 ${recommend}——本章战斗难度高于你的当前等级，` +
-      `受到的伤害更高，建议先刷级再来`,
+      `${riskLine ? `${riskLine}；` : ""}受到的伤害更高，建议先刷级再来`,
+    risk,
   };
 }
 
