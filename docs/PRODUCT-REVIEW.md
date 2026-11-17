@@ -1419,3 +1419,14 @@
 - 本轮车道 A 做上轮遗留的 **F161**（前进代价不可预期 + 零消耗幕调试腔）。
 - 跳过（risk high，留人工确认）：F078 降级路由、F093 等级硬门、F097 遭遇等级带宽、F128 惩罚副本死亡循环、F138 惩罚副本休息池。
 - 环境噪音：`node scripts/verify.sh F078` 报 `jq: command not found`（断言行依赖 jq，本机未装）——不是业务失败，已在汇报中标注。
+
+### 本轮执行记录（第 23 轮，2026-11-17 02:31 UTC 起）
+- 闸门 green（CPU 6% / load1 1.85 / parallel 4）；**3 车道全 devin**（swe-2-high ×2 + swe-2-medium），无一条回退 OpenCode。
+- 车道 A **F161**：零消耗注脚改剧情内解释 + 代价预告；`encounter.js` 新增 `advance_streak`（第 3 次连按起遇敌率 +0.08/次封顶 0.75，并解锁 `encounters:"none"` 幕的掷点）；assert `advance-cost-transparency` + `encounter.test.js`（114 单测全绿）。
+- 车道 B **F162**：新模块 `server/ai/free-action.js`，玩家点名的对象/动词优先于场景实体，取不到就明确否认；实测「我蹲下身，捡起地上一枚发烫的碎片」→「你蹲低去捡——可这里没有你说的碎片，只有石像和石碑。」assert `free-action-object`。
+- 车道 C **F163**：浮层战斗面板退化为情报层，行动栏成为唯一控制组（攻击1/释放技能2/防御3/道具4/逃跑5），390px 3+2 铺满；同步迁移已勾选的 `combat-gate.mjs` 选择器（新增「面板长出重复按钮」负向锁，强度不降）。
+- 验收：3 条 verify 在隔离实例 + 上线后线上各跑一次全 PASS；主线定点回归 11 条（combat-gate / combat-actions-ui / save-blocked-hint / ghost-combat-panel / gate-no-stray-combat-bar / chapter-gate / free-input-intent / no-placeholder-prose / observe-prose-pool / advance-cost-transparency / free-action-object）全绿；`run-all.mjs` 6/6；`ci-deploy.sh` **DEPLOY OK**（health 200 + 公网 200 + E2E 6/6）。
+- 线上实拉：前进#1 = 「（这一幕只是凝视前路，未耗体力——下一幕开始要付代价：HP 3 · MP 2）」；自由输入 = 「你蹲低去捡——可这里没有你说的碎片，只有石像和石碑。」
+- 库清理：删 15 条本轮试玩/断言/冒烟存档（连带 inventory/log/quest_daily/combat），剩 103 条（真实玩家档未动）。
+- 未做：`report.sh` 全表（18–20 分钟）本轮仍以「3 条新条目 + 11 条高耦合已勾选条目 + 全量 E2E」定点回归替代，全表留待下一轮。
+- 环境噪音：`scripts/verify.sh F078` 的断言依赖 `jq`，本机未安装 → `jq: command not found`（假 FAIL，非业务回归）。
