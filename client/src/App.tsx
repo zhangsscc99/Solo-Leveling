@@ -517,6 +517,11 @@ export default function App() {
   const [degraded, setDegraded] = useState(false);
   const [degradedDismissed, setDegradedDismissed] = useState(false);
   const degradedNoteRef = useRef(false);
+  // F186 ≤880px 判定：窄屏交战时不再渲染 .combat-lock-hint，「无法推进
+  // 剧情」语义并进 .save-blocked-hint 一条——整页可见交战提示收敛为 1。
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches
+  );
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
@@ -534,6 +539,14 @@ export default function App() {
     getSkills()
       .then(setSkills)
       .catch(() => setSkillsError(true));
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 880px)");
+    const onChange = () => setNarrow(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   useEffect(() => {
@@ -1249,12 +1262,12 @@ export default function App() {
               <span className="group-label">行动</span>
               {/* F185/F185b：交战态探索组整组换五键，页面上没有一行字解释
                   主线为何暂停——说明小字收为「行动」组标签的行内后缀：桌面
-                  .btn-group 是 flex 行、标签与按钮同行（零新增高度）；≤880px
-                  组标签隐藏、行动组改按钮栅格没有可挂靠的行，改作锚在底栏
-                  上缘的浮层小字（.save-blocked-hint 同一位点再往上一行），
-                  不占行高——F094/F113/F119 的 .stage ≥60% 视口是硬契约。
-                  脱战（liveCombat=false）即不渲染不占位。 */}
-              {liveCombat && (
+                  .btn-group 是 flex 行、标签与按钮同行（零新增高度）。
+                  F186：≤880px 整屏不再另挂第二条近义提示（无论挂 footer
+                  还是 .stage 都会与 .save-blocked-hint 重复），「无法推进
+                  剧情」语义并进 .save-blocked-hint 的合并文案——整页可见
+                  交战提示收敛为 1。脱战（liveCombat=false）即不渲染。 */}
+              {liveCombat && !narrow && (
                 <span className="combat-lock-hint" role="note">
                   交战中无法推进剧情 · 先打完或「逃跑」脱身
                 </span>
@@ -1462,7 +1475,12 @@ export default function App() {
                 .bar-combat-hint 同口径），脱战即消失不占位。 */}
             {liveCombat && (
               <div className="save-blocked-hint" role="note">
-                交战中无法写入存档 · 先「逃跑」或打赢这一场
+                {/* F186：窄屏并入「无法推进剧情」语义（F185 浮层不再单独
+                    挂 footer），桌面保留 F160 原文。「交战中无法写入存档」
+                    须连续出现——save-blocked-hint 断言是子串匹配。 */}
+                {narrow
+                  ? "交战中无法写入存档、也无法推进剧情 · 先「逃跑」或打赢这一场"
+                  : "交战中无法写入存档 · 先「逃跑」或打赢这一场"}
               </div>
             )}
           </div>

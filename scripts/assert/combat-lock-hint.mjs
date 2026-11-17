@@ -3,7 +3,8 @@
 //   a) 390×844 新档非交战态：页面不存在任何含「无法推进剧情」的元素；
 //   b) 连点「前进」（被逼退/换标就继续点同一颗主按钮，最多 8 次）直到
 //      行动栏出现战斗五键（footer.actions button:has-text("攻击")）；
-//   c) .combat-lock-hint 可见、role="note"、文本同时含「无法推进剧情」
+//   c) 交战提示（.combat-lock-hint 或窄屏 .save-blocked-hint）可见、
+//      role="note"、文本同时含「无法推进剧情」
 //      与「逃跑」，且几何上在战斗按钮之上；
 //   d) 点「逃跑」脱战（最多 4 次）后提示消失（count === 0）；
 //   e) documentElement 无横向溢出（scrollWidth - clientWidth === 0），
@@ -22,7 +23,10 @@ const { run, createSave, assert } = await import("../e2e/lib.mjs");
 const NAME = `f185-${Date.now().toString(36)}`;
 const settle = (page, ms = 450) => page.waitForTimeout(ms);
 
-const HINT = ".combat-lock-hint";
+// F186：提示二选一承载——窄屏（≤880px，本脚本 390 视口）由
+// .save-blocked-hint 的合并文案承载（含「无法推进剧情」+「逃跑」），
+// 桌面由 .combat-lock-hint 行内后缀承载；断言只验「二者之一」存在。
+const HINT = ".combat-lock-hint, .save-blocked-hint";
 // 交战五键只在 liveCombat（.actions-main.actions-combat）下渲染；
 // 守关房叫阵态按钮文案是「叫阵 · 攻击」，裸 has-text 会误判交战。
 const atkBtn = (page) =>
