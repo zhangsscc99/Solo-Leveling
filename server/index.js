@@ -134,10 +134,10 @@ function sceneView(save) {
 
 // F088 交战视图：无交战返回 null；有交战暴露敌人完整面板数据
 // （名/等级/HP/攻/防）与回合数，战斗面板据此挂载真实数值。
-function combatView(combat) {
+function combatView(combat, save) {
   if (!combat || !combat.enemy || typeof combat.enemy !== "object") return null;
   const e = combat.enemy;
-  return {
+  const view = {
     enemy: {
       id: e.id ?? null,
       name: e.name || "敌人",
@@ -154,6 +154,51 @@ function combatView(combat) {
     // 开战盐：连续两场战斗的 seq 必不同（断言可直接比对）。
     seq: Number.isFinite(e.seq) ? e.seq : null,
   };
+  // F191 每回合预估：与 guardianWarning / resolveTurn 注入引擎的实体同一
+  // 口径——装备加成折回五项属性，伤害走同一条 computeDamage（力量基数、
+  // rank 压制、体力减伤、暴击上下限），区间 = 不暴击下限到暴击上限，未计
+  // 闪避。save 缺失（非存档视图路径）时不下发，客户端整行不渲染。
+  if (save && typeof save === "object") {
+    const equip = equipView(save.id);
+    const stats = statsEngine.sanitizeStats({ stats: save.stats });
+    stats.strength += (equip.atk || 0) / 1.6;
+    stats.vitality += (equip.def || 0) / 0.8;
+    const playerDef = statsEngine.defenseOf({ stats });
+    const enemyAttacker = { rank: e.rank, stats: e.stats };
+    const takeLo = combatEngine.computeDamage(enemyAttacker, playerDef, {
+      mult: 1,
+      crit: false,
+      defenderRank: save.rank,
+    });
+    const takeHi = Math.max(
+      takeLo,
+      combatEngine.computeDamage(enemyAttacker, playerDef, {
+        mult: 1,
+        crit: true,
+        defenderRank: save.rank,
+      })
+    );
+    const playerAttacker = { rank: save.rank, stats };
+    const enemyDef = statsEngine.defenseFor(e);
+    const dealLo = combatEngine.computeDamage(playerAttacker, enemyDef, {
+      mult: 1,
+      crit: false,
+      defenderRank: e.rank,
+    });
+    const dealHi = Math.max(
+      dealLo,
+      combatEngine.computeDamage(playerAttacker, enemyDef, {
+        mult: 1,
+        crit: true,
+        defenderRank: e.rank,
+      })
+    );
+    view.est_take_lo = takeLo;
+    view.est_take_hi = takeHi;
+    view.est_deal_lo = dealLo;
+    view.est_deal_hi = dealHi;
+  }
+  return view;
 }
 
 // F089 终章收束：一次性拒绝文案。/action、/ai-action 的入口短路与
@@ -264,7 +309,7 @@ function saveView(save) {
     free_points: Number(save.free_points) || 0,
     kills: Number(save.kills) || 0,
     deaths: Number(save.deaths) || 0,
-    combat: combatView(combat),
+    combat: combatView(combat, save),
     // F081：技能可释放性由服务端随存档下发（mp_cost/冷却剩余/解锁/交战
     // 前提），前端只渲染不自行推导——按钮 disabled 与 /action 门禁同一口径。
     skills: skillViews(save, combat),
