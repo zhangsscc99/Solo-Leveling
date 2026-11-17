@@ -14,6 +14,19 @@ const ITEM_HEAL = 30;
 const DEFEND_MULT = 0.5;
 const FLEE_CHANCE = 0.5;
 
+// F110 防御叙述：玩家侧防御事件在事件流中先于敌方结算事件落位，
+// 减伤数字取真实结算（无防御倍率 raw 与实承 dmg 之差），措辞轮换。
+const DEFEND_HIT_LINES = [
+  "横刀格挡",
+  "矮身卸力",
+  "以臂甲架住来势",
+];
+const DEFEND_MISS_LINES = [
+  "你横刀护住要害，它这一击擦着刀背落空。",
+  "你沉身立稳架势，它的攻势贴着臂甲滑开。",
+  "你借势轻轻一引，它的反击偏出半寸。",
+];
+
 function clamp(v, lo, hi) {
   return S.clamp(v, lo, hi);
 }
@@ -126,7 +139,7 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
         ? `${defenderName}侧身一闪，${label}落空了。`
         : `${label}偏离了目标，没有命中${defenderName}。`,
     });
-    return;
+    return { hit: false, dodge };
   }
   const crit = rng.chance(S.critChance(attacker));
   // F034：等级压制系数乘进最终倍率（computeDamage 内部合成，只用双方
@@ -148,6 +161,7 @@ function strike({ attacker, defender, attackerSide, defenderSide, defenderName, 
       text: `${defenderName}倒下了，战斗结束。`,
     });
   }
+  return { hit: true, crit, dmg };
 }
 
 function resolveTurn(state, action, seed, opts) {
@@ -229,7 +243,9 @@ function resolveTurn(state, action, seed, opts) {
         }
         break;
       case "defend":
-        // 姿态已在 `defending` 中生效，无需额外事件。
+        // 姿态已在 `defending` 中生效；先落位玩家侧防御事件，
+        // 具体措辞与减伤数字待敌方结算后由 enemyActs 回填。
+        pushDefendEvent();
         break;
       case "item": {
         const beforeHp = player.hp;
@@ -252,13 +268,40 @@ function resolveTurn(state, action, seed, opts) {
     }
   };
 
+  // 防御叙述占位：玩家先手时由 playerActs 推入、敌人先手时在此处
+  // 推入——保证防御事件始终排在敌方命中/闪避事件之前。
+  let defendEv = null;
+  const pushDefendEvent = () => {
+    if (!defendEv) {
+      defendEv = { type: "damage", side: "player", value: 0, text: "" };
+      events.push(defendEv);
+    }
+    return defendEv;
+  };
+
   const enemyActs = () => {
-    strike({
+    const ev = defending ? pushDefendEvent() : null;
+    const res = strike({
       attacker: enemy, defender: player,
       attackerSide: "enemy", defenderSide: "player",
       defenderName: "你", def: S.defenseOf(player),
       rng, events, mult: defendMult, label: `${enemyName}的反击`,
     });
+    if (!ev) return;
+    // 措辞抽取放在 strike 之后：防御回合的命中/暴击判定序列与旧版
+    // 完全一致，只多消耗一次收尾抽取，不影响既有 seed 的结算结果。
+    if (res && res.hit) {
+      const raw = computeDamage(enemy, S.defenseOf(player), {
+        crit: res.crit, defenderRank: player.rank,
+      });
+      const reduced = Math.max(0, raw - res.dmg);
+      const line = DEFEND_HIT_LINES[rng.int(0, DEFEND_HIT_LINES.length - 1)];
+      ev.value = res.dmg;
+      ev.blocked = reduced;
+      ev.text = `${line} · 这一击被卸去大半（你只受 ${res.dmg} 点，减免 ${reduced}）`;
+    } else {
+      ev.text = DEFEND_MISS_LINES[rng.int(0, DEFEND_MISS_LINES.length - 1)];
+    }
   };
 
   // 先手判定：敏捷 + 0.5 × 感知，高者先动；平手时玩家先手（保持旧行为）。
@@ -279,6 +322,12 @@ function resolveTurn(state, action, seed, opts) {
   } else {
     playerActs();
     if (enemy.hp > 0 && player.hp > 0) enemyActs();
+  }
+
+  // 防御回合敌人必然行动（玩家存活、敌人存活均已校验）；此兜底仅
+  // 防未来分支改动让占位文案空挂。
+  if (defendEv && !defendEv.text) {
+    defendEv.text = "你摆出防御姿态，稳稳压住重心。";
   }
 
   next.turn = S.num(src.turn) + 1;
