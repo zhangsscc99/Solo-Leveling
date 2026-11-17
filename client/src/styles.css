@@ -1730,6 +1730,15 @@ button {
   line-height: 1.7;
 }
 
+/* F199 空代号时的就地提示：觉醒键 disabled 但没文字说明原因，
+   首屏玩家会当成死键。提示与 .gate-note 同一档弱对比小字，仅间距更紧。 */
+.gate-hint {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  line-height: 1.7;
+}
+
 .gate-conflict {
   margin-top: var(--sp-4);
   padding: var(--sp-3);
