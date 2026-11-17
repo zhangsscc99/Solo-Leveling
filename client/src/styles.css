@@ -1996,23 +1996,9 @@ button {
     min-height: 36px;
   }
 
-  /* F185b 窄屏呈现：≤880px 组标签 display:none、行动组改 6 列按钮
-     栅格（3+2 两行排满）——行内后缀无处可挂、栅格新行必破 60% 视口
-     契约，改锚在 .actions 上缘（与 .save-blocked-hint 同一位点，再往
-     上一行叠放）：绝对定位不占行高、hull 实底遮住日志行、不拦点击。 */
-  .actions-combat .combat-lock-hint {
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 26px);
-    transform: translateX(-50%);
-    z-index: 14;
-    width: max-content;
-    max-width: calc(100vw - 2 * var(--sp-5));
-    padding: 2px var(--sp-3);
-    background: var(--hull);
-    text-align: center;
-    pointer-events: none;
-  }
+  /* F186 窄屏呈现：≤880px 组标签 display:none、行动组改 6 列按钮栅格
+     （3+2 两行排满）——行内后缀无处可挂；也不再另挂第二条近义提示，
+     「无法推进剧情」语义并进 .save-blocked-hint 一条（合并文案）。 */
 }
 
 /* ── 手机档 ≤640px：抽屉近乎全宽，脚注改点按提示 ── */
