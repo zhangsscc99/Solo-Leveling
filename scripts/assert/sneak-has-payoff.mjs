@@ -5,15 +5,19 @@
 //   ——连潜 4 次 MP 20→0，场景、遇敌、任何字段都不动。
 //
 //   断言：
-//     a) 新档连潜 3 次：MP 逐次 -5、三次正文两两不同、每次正文都带
-//        增益承诺词（更难被发现/不易被发现/潜行增益/未被察觉）；
+//     a) 新档连潜 2 次（额度上限即 2——F188 起第 3 次是被如实拒绝的
+//        另一车道口径，由 sneak-at-cap.mjs 覆盖）：MP 逐次 -5、两次
+//        正文互不相同、每次正文都带增益承诺词（更难被发现/不易被发现/
+//        潜行增益/未被察觉）；
 //     b) 存档回包带 stealth_charges 字段且潜行后 ≥1（额度真实入账）；
 //     c) 随后连发 3 次「前进」：至少一次回包出现「没有被察觉」或
 //        stealth_charges 下降——潜行确实抑制了遭遇；且 3 次前进中
 //        至少 1 次真的进入遭遇或推进了场景——抑制不得把主线卡死。
 //
-//   旧码红证：a) 第三条正文与第一条逐字相同（池子只有 2 句）且无
-//   增益承诺词；b) 无 stealth_charges 字段；c) 无「没有被察觉」。
+//   旧码红证：a) 第二条正文与第一条逐字相同（池子只有 2 句轮换旧文
+//   案无增益承诺词）；b) 无 stealth_charges 字段；c) 无「没有被察觉」。
+//   口径变更：F188 起潜行额度满（2/2）再潜一律 refused——本断言的
+//   「每次 MP-5 都有收益」契约由 2 次成交完整覆盖，不再连潜第 3 次。
 //
 //   API_BASE 默认 http://127.0.0.1:3020/game/api，可用环境变量覆盖。
 import { assert, ok, post, act, fetchSaveView } from "./_http.mjs";
@@ -32,11 +36,12 @@ assert(
   `(b) /saves/:id 回包必须带 stealth_charges 字段: ${JSON.stringify(Object.keys(s))}`
 );
 const mp0 = s.mp;
-assert(mp0 >= 15, `(a) 建档 MP ${mp0} 不够连潜 3 次（需 ≥15）——前置环境异常`);
+assert(mp0 >= 10, `(a) 建档 MP ${mp0} 不够连潜 2 次（需 ≥10）——前置环境异常`);
 
-// a) 连潜 3 次：MP 逐次 -5、正文两两不同、每次带增益承诺词。
+// a) 连潜 2 次（即满额）：MP 逐次 -5、正文互不相同、每次带增益承诺词。
+//    F188 起第 3 次是满额拒绝（sneak-at-cap.mjs 口径），不在本断言范围。
 const texts = [];
-for (let i = 0; i < 3; i++) {
+for (let i = 0; i < 2; i++) {
   const r = await act(id, "潜行");
   assert(
     r.refused !== true,
@@ -55,8 +60,8 @@ for (let i = 0; i < 3; i++) {
   );
 }
 assert(
-  new Set(texts).size === 3,
-  `(a) 3 次潜行正文两两不同（实得 ${new Set(texts).size} 种）`
+  new Set(texts).size === 2,
+  `(a) 2 次潜行正文互不相同（实得 ${new Set(texts).size} 种）`
 );
 
 // b) 额度真实入账。

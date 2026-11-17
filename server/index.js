@@ -174,6 +174,11 @@ let epilogueReplySeq = 0;
 // 硬编码口径）。reason 为 null 表示可休息。
 const REST_LIMIT = 3;
 
+// F184/F188 潜行「未被察觉」额度上限：每次潜行攒一格，下一步真实推进
+// 掷遭遇前吃掉一格换这一幕不开战；攒到上限再潜不叠加（F188 起如实
+// 拒绝——额度没涨世界没变化，白扣 5 MP 是花钱买同一句话）。
+const STEALTH_CAP = 2;
+
 // F120 休息代价尾注：只讲「安歇要付出什么」，不复述池句的恢复语义。
 // 按 rest_used 轮换（见 rest 意图的 build），≥3 变体。
 const REST_TRAIL_LINES = [
@@ -672,6 +677,13 @@ function guardianWarning(save, chapter, boss, opts) {
   );
   const maxHp = Math.max(1, Math.trunc(Number(save.max_hp) || 1));
   const pct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
+  // F187：落地开战路径（opts.brief）把预警压成一句——敌 HP、我 HP、
+  // 下一步按什么，一屏只留三件事。玩家 HP<60% 仍走下方完整恢复指引
+  // （残血进门不指「休息/补给」就是死路）；门前被拒与房内重入两条
+  // inCombat:false 路径不经 brief，逐字不动。
+  if (o.inCombat && o.brief === true && pct >= 60) {
+    return `【系统】「${bossName}」HP ${bossHp} · 你 ${hp}/${maxHp}——说「攻击」开打，或「逃跑」撤离。`;
+  }
   // 承伤估算：与 combatTurn 注入引擎的玩家实体同一口径——装备攻防折算进
   // 五项属性，敌方打击看玩家体力减伤与双方 rank 压制，区间 = 不暴击下限
   // 到暴击上限。
@@ -969,6 +981,10 @@ function advanceOutcome(save) {
   return {
     patch: { ...vit.patch, scene: next.id },
     content: `${next.text}${completeNote}\n${vit.note}`,
+    // F187：落地掷出守关战时，advanceWithEncounter 要用「开打」一拍
+    // 的正文 + 同一份代价注脚重拼首屏——vitNote 单源暴露，不从正文
+    // 反解析。
+    vitNote: vit.note,
   };
 }
 
@@ -1458,17 +1474,33 @@ function advanceWithEncounter(save) {
     // 普通遭遇落地则逃跑冷却未走完继续倒数（不互相吞掉）。
     patch.encounter_clock = enemy.boss ? 0 : rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
-    res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.hp}/${enemy.maxHp}。`;
-    res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
-    // F158：踏进守关者房开战的同一回包追加状态预警——残血玩家被强拉进
-    // 守关战之前没人告知他状态，Lv.1 残血进门几回合就倒。预警用结算后
-    // 的 HP（本步体力扣费已入账）与真实承伤区间，并点名交战态下真实
-    // 可达的动词（攻击/防御/使用道具/前进撤离）。
     if (enemy.boss) {
+      // F187：守关战落地一屏只留三件事——敌方 HP、我方 HP、下一步按
+      // 什么。场景正文压到「开打」那一拍（末段——各章守关房正文都是
+      // 「铺垫/铺垫/动手」三段式），完整段落留给链上既有叙述；系统行
+      // 压到两段：【遭遇】敌 HP 与撤离指引同段（verbatim FLEE_GUIDE
+      // _LINES 变体去【提示】前缀并入——flee-guidance-wording 的逐字
+      // 契约），【系统】预警压成一句（brief；HP<60% 时 guardianWarning
+      // 仍展开完整恢复指引）。任务奖励由 applyOutcome 压成末尾一句，
+      // 不再单开【任务】段。
+      const paras = String((landedScene && landedScene.text) || "")
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (!out.retreatToBoss && paras.length > 1 && out.vitNote) {
+        res.content = `${paras[paras.length - 1]}\n${out.vitNote}`;
+      }
+      res.content +=
+        `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——HP ${enemy.hp}/${enemy.maxHp}。` +
+        fleeGuidanceLine(enemy.seq).replace(/^【提示】/, "");
       res.content += `\n${guardianWarning(save, nextChapter, enemy, {
         hp: patch.hp !== undefined ? patch.hp : save.hp,
         inCombat: true,
+        brief: true,
       })}`;
+    } else {
+      res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.hp}/${enemy.maxHp}。`;
+      res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
     }
   } else if (!out.retreatToBoss) {
     // 折返落点是守关房、开战有兜底——上面没掷出敌人时也不得把
@@ -2450,6 +2482,18 @@ const INTENTS = [
           content: `【系统】MP 不足——「潜行」需要 5 MP（当前 ${save.mp}）。`,
         };
       }
+      // F188：额度已满（2/2）再潜不叠加——如实拒绝，零消耗零事件。
+      // 旧口径照扣 5 MP 额度却停在 2/2，是花钱买同一句话。
+      const stealthCur = Math.max(0, Math.trunc(Number(save.stealth_charges) || 0));
+      if (stealthCur >= STEALTH_CAP) {
+        return {
+          patch: null,
+          refused: true,
+          content:
+            `【系统】气息已沉到极致（潜行 ${stealthCur}/${STEALTH_CAP} 已满），` +
+            `再潜一次不叠加——先走一步再看。`,
+        };
+      }
       const mp = clamp(save.mp - 5, 0, save.max_mp);
       const n = (proseStmts.sneakCount.get(save.id) || {}).n || 0;
       const line = proseEngine.pick(
@@ -2459,16 +2503,13 @@ const INTENTS = [
       // F184 潜行收益：每次潜行攒一格「未被察觉」额度（上限 2），下一步
       // 真实推进掷遭遇前由 advanceWithEncounter 吃掉一格换这一幕不开战
       // ——烧 MP 必须换来可观测的世界变化，不再只是两句轮播文案。
-      const stealthNext = Math.min(
-        2,
-        Math.max(0, Math.trunc(Number(save.stealth_charges) || 0)) + 1
-      );
+      const stealthNext = Math.min(STEALTH_CAP, stealthCur + 1);
       return {
         patch: { mp, stealth_charges: stealthNext },
         content:
           `${line}\n` +
           (mp !== save.mp ? `（魔力消耗 MP ${save.mp}→${mp}）` : "（魔力已见底）") +
-          `\n【潜行】你的气息沉入阴影——接下来更难被发现（潜行 ${stealthNext}/2）。`,
+          `\n【潜行】你的气息沉入阴影——接下来更难被发现（潜行 ${stealthNext}/${STEALTH_CAP}）。`,
       };
     },
   },
@@ -2708,7 +2749,15 @@ function applyOutcome(saveId, outcome) {
     if (death) lines.push(...death);
     if (outcome.rewards) lines.push(...grantRewards(saveId, outcome.rewards));
     if (outcome.grantMain) lines.push(...claimMainReward(saveId, outcome.grantMain));
-    const questNote = settleDailyQuests(saveId, outcome.events);
+    // F187：守关战落地回包不再单开【任务】段——任务奖励压成末尾一句
+    // （brief 口径），让位给「敌 HP/我 HP/下一步按什么」三件事。
+    const briefQuest = Boolean(
+      outcome.combat &&
+        outcome.combat.op === "set" &&
+        outcome.combat.enemy &&
+        outcome.combat.enemy.boss === true
+    );
+    const questNote = settleDailyQuests(saveId, outcome.events, { brief: briefQuest });
     if (questNote) lines.push(questNote);
     return lines;
   });
@@ -3424,7 +3473,7 @@ api.post("/saves/:id/shadow", (req, res) => {
 // 由白名单意图与战斗结算产出，不再对玩家输入文本跑正则，空挥攻击、
 // 占位技能一律不计数。完成的任务当场经 grantRewards 入账（XP 达标
 // 即触发升级），完成播报与升级播报一起并进本条回复。
-function settleDailyQuests(saveId, events) {
+function settleDailyQuests(saveId, events, opts) {
   const list = Array.isArray(events)
     ? events.filter((e) => questEngine.VALID_EVENTS.includes(e))
     : [];
@@ -3445,7 +3494,13 @@ function settleDailyQuests(saveId, events) {
   const names = completed.map((q) => `「${q.title}」`).join("、");
   const parts = [`XP +${total.xp}`, `金币 +${total.gold}`];
   if (total.items.length) parts.push(total.items.map((i) => `${i.name} ×${i.qty}`).join("、"));
-  return [`【任务】每日任务完成：${names}。奖励已入账 ${parts.join(" · ")}。`, ...rewardLines].join("\n");
+  // F187 brief：守关战落地回包把任务奖励压成末尾一句（无【任务】段
+  // 头），数字口径不变——入账事实照常播报，只是不再抢屏。
+  const headline =
+    opts && opts.brief === true
+      ? `每日任务完成：${names}，奖励已入账 ${parts.join(" · ")}。`
+      : `【任务】每日任务完成：${names}。奖励已入账 ${parts.join(" · ")}。`;
+  return [headline, ...rewardLines].join("\n");
 }
 
 api.post("/action", (req, res) => {
