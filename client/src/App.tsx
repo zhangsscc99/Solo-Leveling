@@ -142,16 +142,20 @@ function StatusBar({
   save,
   equipment,
   onOpenDrawer,
+  onFreePoints,
 }: {
   save: Save;
   equipment: Equipment | null;
   onOpenDrawer: () => void;
+  onFreePoints: () => void;
 }) {
   const s = save.stats;
   // 含装备加成：折算系数与 server/engine/stats.js 保持一致，改动需两边同步。
   const atk = baseAttack(s) + (equipment?.atk ?? 0);
   const def = baseDefense(s) + (equipment?.def ?? 0);
   const chapterName = CHAPTERS[save.chapter - 1] ?? `第${save.chapter}章`;
+  const freePoints = Math.max(0, Number(save.free_points) || 0);
+  const inCombat = Boolean(save.combat);
   return (
     <header className="status">
       <div className="status-id">
@@ -179,6 +183,19 @@ function StatusBar({
         <Gauge label="MP" value={save.mp} max={save.max_mp} kind="mp" />
       </div>
       <div className="status-nums">
+        {/* F164 属性点徽标：free_points>0 时钉在属性组首位——可点直达
+            「属性」面板；交战中仍显示，点击由上层给同口径提示。 */}
+        {freePoints > 0 && (
+          <button
+            type="button"
+            className="stat-points-badge"
+            onClick={onFreePoints}
+            title={inCombat ? "交战中无法分配属性点" : "打开「属性」面板分配"}
+          >
+            <span className="fpb-label">属性点</span>
+            <b className="fpb-num">+{freePoints}</b>
+          </button>
+        )}
         <span className="stat">
           力<b>{s.strength}</b>
         </span>
@@ -482,6 +499,14 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }, []);
+
+  // F164 状态栏属性点徽标：复用 openTab 直达「属性」面板，不另起面板
+  // 路由。交战中不静默——面板照开（面板内同口径禁用 +1），另浮一条
+  // 就地提示，文案与面板/服务端拒绝口径一致。
+  const onFreePointsBadge = useCallback(() => {
+    openTab("stats");
+    if (liveCombat) showToast("交战中无法分配属性点");
+  }, [openTab, showToast, liveCombat]);
 
   // 返回本次指令是否真的发到服务端并收回回包（调用方据此决定是否
   // 播报完成态——如「存档已写入」）；busy/空输入/异常都算没落成。
@@ -955,7 +980,12 @@ export default function App() {
 
   return (
     <div className="app">
-      <StatusBar save={save} equipment={equipment} onOpenDrawer={() => setDrawer(true)} />
+      <StatusBar
+        save={save}
+        equipment={equipment}
+        onOpenDrawer={() => setDrawer(true)}
+        onFreePoints={onFreePointsBadge}
+      />
 
       <main className="stage" ref={logRef}>
         {/* F084 日志顶部回溯控件：只放 stage-col 外（不进 .stage-col > *
