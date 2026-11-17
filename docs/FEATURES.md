@@ -613,3 +613,11 @@
 - [x] P203 （P2 内容厚度/文本，第36轮真实玩家走查）观察的尾注每次逐字重复：「（仍可说「观察」再看一处，或说「前进」）」连点三次都是同一句，玩家分不清自己是"又看出一点"还是"原地打转"；而且观察三句都是独立好句子，却没有累计感、也没给过任何实质线索或收益。要求：① 同一存档内该元提示最多出现一次（之后换一句不重复的收束，或干脆不出现），且不得出现「重新审视」；② 连续观察给出可见的探索进度（如「石殿探索 2/3」），第 3 次观察给一条实质信息或一件小物（写入日志，不刷物品也能给线索文本）；③ 观察仍免费、正文仍以场景名开头（不得打红 F092 的 `action-prose-by-chapter.mjs`）。断言：`node scripts/assert/observe-exploration.mjs` —— 同一场景连点 3 次「环顾四周」，断言三次正文互不相同、元提示不重复出现、第 3 次含探索进度或线索字样；并断言正文仍以「<场景名>」开头、不含「重新审视」
   verify: node scripts/assert/observe-exploration.mjs
   risk: low
+
+- [ ] P204 （P0 选择感硬伤，第37轮真实玩家走查）「探索前进」会整段吃掉场景选择：29 个带 `choices` 的场景里有 25 个同时带 `next_scene`，`advanceOutcome` 在没有 choice 时直接沿 `next_scene` 推进，于是 4/7 那屏「【检测到符合条件的个体。是否接受成为「玩家」？】……只有两个悬在血泊上方的选项」按「前进」不会出现任何选项，下一屏已经是「光幕展开……你站起来」；`accept` 自带的 `effects {xp:30, flag:system_bound}` 也没结算。要求：① 数据层给关键选择场景加 `must_choose: true`（至少 `ch1_system` / `ch1_law` / `ch1_statues`，可再加终章前一处），这类场景上**不带 choice 的 advance 一律零消耗拒绝**：正文列出选项（形如「这里必须做出选择：1) … 2) …」），不推进、不改 `save.scene`、不掷遭遇、不扣 HP/MP；② 显式「选择 accept」照常落 `choice.next` 并叠加 `effects`（xp 30 入账、`system_bound` 写入）；③ 未标 `must_choose` 的场景行为完全不变（现有 e2e/断言大量依赖「前进」推进主线，不得回归）；④ 不动战斗数值、遭遇概率与存档口径。断言：`node scripts/assert/choice-gate.mjs` —— 新档推到 `ch1_system`，按「前进」断言 scene 不变 / XP 不变 / 拒绝文本列出两个选项名；再「选择 accept」断言 scene=`ch1_awaken`、XP +30、`system_bound` 存在；对未标 `must_choose` 的 `ch1_double_gate` 断言「前进」仍能推进；旧码上必红
+  verify: node scripts/assert/choice-gate.mjs
+  risk: high
+
+- [ ] P205 （P1 选择感，第37轮真实玩家走查）连击 ×3 完全没有代价：实测整场战斗 MP 停在 16/20，连击三回合的伤害（14 / 14 / 23）与逐回合点「攻击」逐项相同，于是「攻击」键成了纯冗余——战斗只剩一个按得最快的键，选择感归零。要求：① 给连击一个真实代价（每回合 MP 2，或整次固定 MP 6，取不到就拒绝并提示，不得静默降级为单次攻击）；② 单键「攻击」保持零消耗且不得削弱，让「省资源慢慢磨 vs 快打付代价」成为真选择；③ 不改伤害公式与 RNG 抽取顺序（同 seed 三回合伤害仍逐项等于逐次攻击）；④ 连击键上标出代价（如「连击 ×3 · 6MP」），资源不足时禁用并给出可见理由。断言：`node scripts/assert/combo-cost.mjs` —— 交战态点一次连击，断言 MP 恰好 -6 且三回合伤害与逐次攻击逐项相同；MP 不足时该键 disabled、有可见理由且不发请求
+  verify: node scripts/assert/combo-cost.mjs
+  risk: medium
