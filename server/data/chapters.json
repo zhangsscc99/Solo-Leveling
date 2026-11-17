@@ -23,6 +23,26 @@
               "effects": { "flag": "saw_statue_eyes" }
             }
           ],
+          "discoveries": [
+            {
+              "entity": "石像",
+              "name": "石像底座刻痕",
+              "line": "你抹开石像底座的积灰——一圈刃尖划出的刻痕：「别数它们的眼睛」。刻痕尽头的石缝里，塞着前人留下的补给。",
+              "reward": { "items": [{ "id": "low_heal_potion", "qty": 1 }] }
+            },
+            {
+              "entity": "石门",
+              "name": "门脚下的行囊",
+              "line": "你顺着石门缝摸到最下端——门脚石槽里卡着一只干瘪行囊，像谁逃命时甩落的。能用的只剩一瓶没开封的药剂。",
+              "reward": { "items": [{ "id": "mana_potion", "qty": 1 }] }
+            },
+            {
+              "entity": "壁画",
+              "name": "壁画上的警告",
+              "line": "壁画右下角有一行比全画新得多的刮痕：「第三条是谎言」。刮痕下的墙砖是松的，你抠开砖缝，掏出藏着的东西。",
+              "reward": { "items": [{ "id": "low_heal_potion", "qty": 1 }] }
+            }
+          ],
           "next_scene": "ch1_law"
         },
         {
