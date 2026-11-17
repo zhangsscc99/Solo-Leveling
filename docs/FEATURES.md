@@ -440,3 +440,8 @@
 - [ ] F169 （P1 内容厚度）战斗播报是纯算术、敌人零个性：「第2回合 · 你的攻击命中石像守卫，造成 14 点伤害 · 石像守卫的反击命中你，造成 10 点伤害」——五回合读下来像账单，敌人半血/濒死都没有一句自己的话。要求：① 敌人 HP 首次跨过 50% 与 25% 时，在回合条目里插入一句**敌人自身的阶段反应**（按敌人 kind 的模板池：石像=裂纹/碎石，狼=低吼/呲牙，蛇=嘶鸣，通用池兜底），每个阶段 ≥3 变体按 `turn` 或 `encounter_seq` 轮换，同一场战斗同一阶段不逐字重复；② 阶段句只做叙述，**不得改变伤害/命中/暴击数值与顺序**（结算前后 hp 数值必须与旧码一致）；③ 敌人被一击秒杀（未跨阈值）时不出现阶段句；④ 单测覆盖 50%/25% 阈值与「秒杀不触发」。断言：`node scripts/assert/combat-enemy-phases.mjs` —— 打一场石像守卫到结束，日志里出现 ≥2 条阶段句且互不相同；同一存档数值序列与无阶段句时一致；`node --test server/engine/combat.test.js` 全绿
   verify: node scripts/assert/combat-enemy-phases.mjs
   risk: med
+
+## 第 25 轮上线后回归新增（2026-11-17，cron；线上实拉抓到）
+- [ ] F170 （P0 体验回归）叙事降级路径把自由输入的「具象否认」降级掉了：本轮把客户端自然语言长句分流到 `/ai-action` 后，线上实测输入「我蹲下身，捡起地上一枚发烫的碎片」回的是**通用观察模板**「你放慢呼吸，重新审视「D 级委托·石门之下」…墙边那圈石像一动不动」（外加降级尾注），而同一句话走 `/action` 会回 F162/F166 那句「你蹲低去捡——可这里没有你说的碎片，只有石像和石门」。根因：`/ai-action` 在 `degraded` 时走 `aiFallback.parse(input)` → `executeIntent(intent)`，把长句归成 observe，绕过了 `resolveAction()` 里的 `free-action` 否认分支。要求：① `/ai-action` 在 `degraded:true` 时统一改用 `resolveAction(fresh, input)`（与 `/action` 同一规则引擎），保证「降级 = 与 /action 完全同行为」；② `degraded` 标记、回包结构（reply/save/degraded）、日志落库条数不变；③ 非降级（AI 正常）路径完全不动。断言：`node scripts/assert/ai-degraded-parity.mjs` —— 两个全新存档（名字带随机串）分别 POST `/ai-action` 与 `/action` 同一句长句：两条回包都必须含「碎片」与否认词（没有/不存在），`/ai-action` 回包必须带 `degraded:true`，且**不得**含通用观察模板「重新审视」
+  verify: node scripts/assert/ai-degraded-parity.mjs
+  risk: med
