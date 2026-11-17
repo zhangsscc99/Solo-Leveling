@@ -921,10 +921,12 @@ function grantRewards(saveId, reward) {
 }
 
 // F165 章节结算卡：本章主线真正清完（主线奖励入账）的同一回包收尾——
-// 战绩账 + 本章进度 + 一条真实可达的下一步。数字只读 saves.kills/xp/gold
-// 的结算后值（存档累计口径，如实标「累计」，不编本章增量）；下一章名取
-// chapters 数据，取不到不编名。触发点唯一（claimMainReward 经 rewards
-// 去重，同一章终生只播一次——死亡回溯重打、重启后续推都不会再刷），
+// 战绩账 + 本章进度 + 一条真实可达的下一步。击杀/金币只读 saves.kills/gold
+// 的结算后值（存档累计口径，如实记账不编本章增量）；saves.xp 是当前等级内
+// 的经验进度（升级会扣减重置，不是累计值），必须配「距下一级所需经验」分母
+// 与等级一起展示——分母复用 progression.xpToNext，满级/取不到就写（满级），
+// 不编分母；下一章名取 chapters 数据，取不到不编名。触发点唯一（claimMainReward
+// 经 rewards 去重，同一章终生只播一次——死亡回溯重打、重启后续推都不会再刷），
 // 链尾守关战章（ch2/ch7 的 boss 场景即链尾）由击杀回包的 grantMain 同
 // 样汇入本出口：那时守关者才真的倒下，「前进」过门才是真出路。
 function chapterClearSummary(save, chapter) {
@@ -933,7 +935,11 @@ function chapterClearSummary(save, chapter) {
   const steps = Math.min(path.length, Math.max(0, idx + 1));
   const kills = Math.max(0, Math.trunc(Number(save && save.kills) || 0));
   const xp = Math.max(0, Math.trunc(Number(save && save.xp) || 0));
+  const level = Math.max(1, Math.trunc(Number(save && save.level) || 1));
   const gold = Math.max(0, Math.trunc(Number(save && save.gold) || 0));
+  const xpNeed = Math.trunc(Number(progression.xpToNext(level)) || 0);
+  const xpPart =
+    xpNeed > 0 ? `经验 ${xp}/${xpNeed}（Lv.${level}）` : `经验 ${xp}（满级）`;
   const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
   const nextTitle = nextChapter ? nextChapter.title || nextChapter.subtitle || "" : "";
   const nextLine = nextChapter
@@ -941,7 +947,7 @@ function chapterClearSummary(save, chapter) {
     : `已至全篇终章——打开「结算」面板，回看这一路的战绩。`;
   return (
     `【章节结算】第 ${chapter.index} 章 · ${chapter.title || chapter.subtitle || chapter.id}\n` +
-    `累计击杀 ${kills} · 累计 XP ${xp} · 金币 ${gold} · 本章进度 ${steps}/${path.length}\n` +
+    `击杀 ${kills} · ${xpPart} · 金币 ${gold} · 本章进度 ${steps}/${path.length}\n` +
     nextLine
   );
 }
