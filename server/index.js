@@ -3420,51 +3420,63 @@ api.post("/ai-action", async (req, res) => {
       });
     }
 
+    // F174 散文快路径：echoRequired===false 的自然语言长句不打 AI 网关——
+    // 线上实测每句散文都要白等一次慢模型往返（12s+），且 qwen 会把散文
+    // 误判成 item 让 F162/F166 的具象否认整段丢失（答成补给播报）。散文
+    // 直接走与 /action 同一规则入口 resolveAction，degraded 保持 falsy：
+    // 这是正常路径不是降级，不弹「叙事引擎降级」横幅。指令形态照旧走 AI
+    // 判意图，但单次网关预算压到 6s——默认 20s 曾让每条输入都拖成慢请求。
+    const proseFastPath = !require("./ai/free-action").echoRequired(input);
     let intentId = null;
     let degraded = false;
-    try {
-      const ctx = aiContext.buildContext({
-        save: saveView(save),
-        logs: store.getLog(save.id, 8),
-        playerInput: input,
-      });
-      const historyText = ctx.history.map((h) => `${h.role}: ${h.content}`).join("\n");
-      const gen = await aiGateway.generate({
-        messages: [
-          { role: "system", content: AI_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `${ctx.summary}\n${historyText ? `${historyText}\n` : ""}玩家输入：${ctx.input}`,
-          },
-        ],
-        temperature: 0.2,
-        maxTokens: 200,
-      });
-      if (gen.ok) {
-        const decision = aiValidate.normalizeDecision(gen.text);
-        if (decision.ok) {
-          intentId = decision.intent;
+    if (!proseFastPath) {
+      try {
+        const ctx = aiContext.buildContext({
+          save: saveView(save),
+          logs: store.getLog(save.id, 8),
+          playerInput: input,
+        });
+        const historyText = ctx.history.map((h) => `${h.role}: ${h.content}`).join("\n");
+        const gen = await aiGateway.generate({
+          messages: [
+            { role: "system", content: AI_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `${ctx.summary}\n${historyText ? `${historyText}\n` : ""}玩家输入：${ctx.input}`,
+            },
+          ],
+          temperature: 0.2,
+          maxTokens: 200,
+          timeoutMs: 6000,
+        });
+        if (gen.ok) {
+          const decision = aiValidate.normalizeDecision(gen.text);
+          if (decision.ok) {
+            intentId = decision.intent;
+          } else {
+            degraded = true;
+          }
         } else {
           degraded = true;
         }
-      } else {
+      } catch {
         degraded = true;
       }
-    } catch {
-      degraded = true;
-    }
 
-    if (!intentId) degraded = true;
+      if (!intentId) degraded = true;
+    }
 
     // F025：await AI 期间存档可能已被其它写入改动——先重读最新存档再结算，
     // outcome.patch 基于新快照产出，不再做旧快照增量回算。
     const fresh = store.getSave(save.id) || save;
     // F170：AI 不可用（degraded）时结算改走与 /action 完全相同的规则入口
     // ——关键词表/交锋分支/自由行动否认兜底都在 resolveAction 里；降级
-    // 不再退回 observe 模板把自由输入答成通用观察话术。
-    const outcome = degraded
-      ? resolveAction(fresh, input)
-      : executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
+    // 不再退回 observe 模板把自由输入答成通用观察话术。F174：散文快路径
+    // 同走此口——对同一句输入与 /action 的正文逐字相同。
+    const outcome =
+      degraded || proseFastPath
+        ? resolveAction(fresh, input)
+        : executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
     // F096 章节门拒绝：与 /action 同口径——零消耗、零事件、零位移；
     // F142：拒绝往来照旧落库两条日志（user 原文 + system 拒绝文案），
     // 数值结算口径不变。
