@@ -2568,6 +2568,45 @@ function combatIntent(save, input, action) {
   return combatTurn(save, cbt, action, input, skill, { retreatOnFlee: action === "flee" });
 }
 
+// F200「连击 ×3」：一次输入连打至多 3 个回合，只在玩家点击时结算
+// （无后台自动战斗/定时器）。逐回合走与「攻击」完全同一条 combatTurn →
+// resolveTurn 结算——回合种子（存档 + 开战盐 + 回合号）、装备折算、冷却
+// 衰减全部同源；回合间 hp/mp/敌 hp/冷却在内存快照上接力（与 applyOutcome
+// 的 updateSave + setCombatTurn 同口径），与连点三次「攻击」的 RNG 流
+// 逐项一致。战斗提前结束（击杀/倒下/脱离）即停：只有最后一个已结算回合
+// 可能带收尾副作用，仍归 applyOutcome 统一收敛。每回合战报独立成条
+// （log_entries）——与连点「攻击」的日志形态一致，不揉进一条。
+function combatComboIntent(save, input) {
+  const cbt0 = store.getCombat(save.id);
+  // 非交战「连击」与「攻击」同义：叫阵/遭遇掷点，不白送回合。
+  if (!cbt0) return peacefulCombatIntent(save, input, "attack");
+  const work = { ...save };
+  let cbt = { ...cbt0, enemy: { ...(cbt0.enemy || {}) } };
+  const merged = {
+    patch: {},
+    content: "",
+    log_entries: [],
+    events: [],
+    combat: null,
+    rewards: null,
+    grantMain: null,
+  };
+  for (let i = 0; i < 3; i++) {
+    const res = combatTurn(work, cbt, "attack", input, null, {});
+    merged.log_entries.push(res.content);
+    merged.patch = { ...merged.patch, ...(res.patch || {}) };
+    Object.assign(work, res.patch || {});
+    merged.events.push(...(res.events || []));
+    if (res.rewards) merged.rewards = res.rewards;
+    if (res.grantMain) merged.grantMain = res.grantMain;
+    merged.combat = res.combat;
+    if (!res.combat || res.combat.op !== "turn") break;
+    cbt = { ...cbt, enemy: res.combat.enemy, turn: res.combat.turn };
+  }
+  merged.content = merged.log_entries[merged.log_entries.length - 1] || "";
+  return merged;
+}
+
 // Whitelisted intents. Each entry owns its log role, the
 // deterministic state delta and the narration text — every number is computed
 // here on the server, never taken from the client payload.
@@ -2718,7 +2757,12 @@ const INTENTS = [
   {
     id: "attack",
     role: "system",
-    build: (save, input) => combatIntent(save, input, "attack"),
+    // F200「连击 ×3」：attack 意图的连击变体——词表不含「连击」（resolveIntent
+    // 对它返回 null），由 resolveAction 判入本意图，按输入词分流成至多
+    // 3 回合的连续结算或单击一回合；INTENTS 表不新增 id（ai/validate 的
+    // 镜像白名单保持同步，AI 端也无须认识新意图）。
+    build: (save, input) =>
+      /连击/.test(input) ? combatComboIntent(save, input) : combatIntent(save, input, "attack"),
   },
   {
     id: "skill",
@@ -3080,7 +3124,7 @@ function panelOutcome(input) {
   return null;
 }
 
-// 交战中允许执行的意图：五个战斗指令 + 「前进」（撤离掷逃）。
+// 交战中允许执行的意图：战斗指令 + 「前进」（撤离掷逃）。
 // 其余白名单意图（休息/潜行/存档/状态/观察/影子编队……）在敌我面前一律
 // 改判为一条诚实播报并挂 refused——不占回合、不产生任何 HP/MP 收益、
 // 不进账本（与章节门/终章拒绝同口径），杜绝「交战中免费回血/回魔」的漏洞。
@@ -3141,6 +3185,9 @@ function executeIntent(save, intentId, input) {
     role: intent.role,
     patch,
     content: built.content,
+    // F200：连击逐回合战报——存在时 /action 按序各写一条日志（缺省走
+    // 单条 content，旧行为不变）。
+    log_entries: Array.isArray(built.log_entries) ? built.log_entries : null,
     shadows: built.shadows,
     events: built.events || [],
     combat: built.combat || null,
@@ -3151,6 +3198,29 @@ function executeIntent(save, intentId, input) {
     // 回包随 refused 一并下发，缺省不下发。
     escape_locked: built.escape_locked === true,
   };
+}
+
+// 结算日志落库（/action 与 /ai-action 共用）：单条动作照旧只写一条；
+// outcome.log_entries（F200 连击逐回合战报）按序各写一条，applyOutcome
+// 的追加播报（击杀奖励/升级/每日任务/死亡回溯）并进最后一条——与旧口径
+// `${content}\n${extra}` 逐字一致（content 为空时保留原前导换行形态）。
+// 返回写入的全部日志行，调用方取末条作 reply、整组作 replies。
+function appendOutcomeLogs(saveId, role, outcome, extra) {
+  const bodies =
+    Array.isArray(outcome.log_entries) && outcome.log_entries.length
+      ? outcome.log_entries.map((c) => String(c || ""))
+      : [String(outcome.content || "")];
+  if (extra.length) {
+    const last = bodies.length - 1;
+    bodies[last] = `${bodies[last]}\n${extra.join("\n")}`;
+  }
+  const rows = [];
+  for (const b of bodies) {
+    if (!b.trim()) continue;
+    rows.push(store.appendLog(saveId, role, b));
+  }
+  if (!rows.length) rows.push(store.appendLog(saveId, role, "【系统】回合已结算。"));
+  return rows;
 }
 
 // 结算副作用统一管线（/action 与 /ai-action 共用）：
@@ -3471,6 +3541,12 @@ function resolveAction(save, input, choiceSel) {
   const intentId = intentRules.resolveIntent(input, bagSupplyNames(save));
   if (intentId) {
     return executeIntent(save, intentId, input);
+  }
+  // F200「连击 ×3」：指令词表在 ai/keywords.js（本改动不动它）——「连击」
+  // 不含任何既有信号词，resolveIntent 必然返回 null，走到这里才判入
+  // attack 意图的连击变体；与词表同口径吃疑问句守卫（「你会连击吗？」不触发）。
+  if (/连击/.test(input) && !intentRules.QUESTION_FORM.test(input)) {
+    return executeIntent(save, "attack", input);
   }
   // 交战中收到无法解析的输入：给战斗指令提示而不是通用提示。
   const cbt = store.getCombat(save.id);
@@ -4045,17 +4121,17 @@ api.post("/action", (req, res) => {
   // 真实结算事件随动作入账：战斗态/奖励/死亡回溯/每日任务都在
   // applyOutcome 里收敛，播报并进本条回复，不重开日志行。
   const extra = applyOutcome(save.id, outcome);
-  const reply = store.appendLog(
-    save.id,
-    outcome.role,
-    extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
-  );
+  // F200：连击等多条战报按序各写一条日志（appendOutcomeLogs），
+  // 追加播报并进末条；单条动作仍只写一条，形态与旧口径逐字一致。
+  const rows = appendOutcomeLogs(save.id, outcome.role, outcome, extra);
+  const reply = rows[rows.length - 1];
   // F129：面板路由把目标面板 key 挂上回复——日志行只存 role/content，
   // panel 是回包附加字段不落库，前端凭它直接开对应抽屉。
   if (outcome.panel) reply.panel = outcome.panel;
   // F137：/action 回包同样带 intent（与 /ai-action 对齐）——自由输入
   // 解析结果对外可见，「挥一拳→attack」「离开→flee」可观测、可断言。
   const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
+  if (rows.length > 1) payload.replies = rows;
   if (outcome.shadows) payload.shadows = outcome.shadows;
   if (outcome.panel) payload.panel = outcome.panel;
   if (outcome.escape_locked) payload.escape_locked = true;
@@ -4214,12 +4290,12 @@ api.post("/ai-action", async (req, res) => {
     }
     store.appendLog(save.id, "user", input);
     const extra = applyOutcome(save.id, outcome);
-    const reply = store.appendLog(
-      save.id,
-      outcome.role,
-      extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
-    );
+    // F200：与 /action 同一落库口径——多条战报按序各写一条日志，
+    // 单条动作仍只写一条。
+    const rows = appendOutcomeLogs(save.id, outcome.role, outcome, extra);
+    const reply = rows[rows.length - 1];
     const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
+    if (rows.length > 1) payload.replies = rows;
     if (outcome.shadows) payload.shadows = outcome.shadows;
     if (degraded) payload.degraded = true;
     res.json(payload);

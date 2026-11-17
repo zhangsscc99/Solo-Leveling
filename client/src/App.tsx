@@ -141,8 +141,16 @@ const ACTION_BUTTONS: { label: string; input: string; primary?: boolean; combatB
 // 无交战时五键折叠为 .combat-entry 单行矮入口（F113/F119 高度预算）。
 // 快捷键沿用 1–5 槽位：键位永远指向当前组内同位置按钮；交战态 5=逃跑，
 // 系统组 5–9 的键位在交战时不抢占（else-if 链先吃战斗组）。
-const COMBAT_BUTTONS: { label: string; input: string | null; expand?: "skills" | "items" }[] = [
+const COMBAT_BUTTONS: {
+  label: string;
+  input: string | null;
+  expand?: "skills" | "items";
+  cls?: string;
+}[] = [
   { label: "攻击", input: "攻击" },
+  // F200 连击 ×3：一次点击由服务端连续结算至多 3 回合（战斗提前结束即
+  // 停），只在交战态出现在「攻击」之后——与自由输入「连击」同一动作。
+  { label: "连击 ×3", input: "连击", cls: "combat-act" },
   { label: "释放技能", input: null, expand: "skills" },
   { label: "防御", input: "防御" },
   { label: "道具", input: null, expand: "items" },
@@ -659,22 +667,27 @@ export default function App() {
           : await sendAction(save.id, trimmed, choiceId);
         const { reply, save: updated, degraded: replyDegraded } = r;
         if (updated) setSave(updated);
-        // 回包 reply.id 缺失时补本地 id（/ai-action 兜底回包无 DB 行）——
-        // React key 与日志行都需要稳定 id。
-        const row: UiEntry =
-          typeof reply.id === "number"
-            ? reply
-            : { ...reply, id: Date.now() + 1 };
+        // F200 连击：一次动作可能带回多条战报（replies），逐条入日志；
+        // 单条动作仍只有 reply 一条。回包 reply.id 缺失时补本地 id
+        // （/ai-action 兜底回包无 DB 行）——React key 与日志行都需要稳定 id。
+        const replyList: LogEntry[] =
+          Array.isArray((r as { replies?: LogEntry[] }).replies) &&
+          (r as { replies?: LogEntry[] }).replies!.length
+            ? (r as { replies?: LogEntry[] }).replies!
+            : [reply];
+        const rows: UiEntry[] = replyList.map((rp, i) =>
+          typeof rp.id === "number" ? rp : { ...rp, id: Date.now() + 1 + i }
+        );
         if (replyDegraded === true) {
           const firstDegraded = !degradedNoteRef.current;
           degradedNoteRef.current = true;
           setLog((l) => [
             ...l,
-            firstDegraded ? { ...row, degradedNote: true } : row,
+            ...(firstDegraded ? [{ ...rows[0], degradedNote: true }, ...rows.slice(1)] : rows),
           ]);
           setDegraded(true);
         } else {
-          setLog((l) => [...l, row]);
+          setLog((l) => [...l, ...rows]);
         }
         // F129：服务端把「裸面板名」路由成 reply.panel——口述「地图」
         // 等价于点对应面板按钮，复用 openTab，不另起状态机。panel 是
@@ -1433,7 +1446,7 @@ export default function App() {
                     key={b.label}
                     className={`btn${(liveCombat && i === 0) || challengeable ? " primary" : ""}${
                       b.expand && barList === b.expand ? " on" : ""
-                    }`}
+                    }${b.cls ? ` ${b.cls}` : ""}`}
                     disabled={disabled}
                     aria-disabled={disabled}
                     aria-expanded={b.expand ? barList === b.expand : undefined}
