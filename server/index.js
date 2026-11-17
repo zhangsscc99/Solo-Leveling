@@ -2777,9 +2777,12 @@ function unknownFallbackContent(save, input) {
     ? `【系统】系统未识别该指令：「${input}」。`
     : "【系统】";
   const tailN = unknownTailShown.get(save.id) || 0;
+  // F146：短尾巴同样要给 ≥2 条「说「X」」形态的可做之事（F146 按
+  // /说「[^」]+」/ 计数）——「仍可：观察 · 前进」没有动词锚点会计数为 0，
+  // 两个动词必须各自带「说」。
   const tail =
     tailN >= 1
-      ? "仍可：观察 · 前进"
+      ? "仍可说「观察」或说「前进」。"
       : `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`;
   if (tailN < 1) unknownTailShown.set(save.id, tailN + 1);
   return (

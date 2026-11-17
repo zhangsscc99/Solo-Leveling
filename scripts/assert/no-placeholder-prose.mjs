@@ -6,6 +6,12 @@
 // 出现开发期措辞）。E2E_BASE_URL 已设时再用 playwright-core 验证
 // 口述「地图」真的把地图抽屉顶开。
 //
+// 本文件不依赖模型判别结果：/ai-action 上 AI 只负责挑 intent，同一句
+// 输入可能在 observe/item/status 间漂移（线上实测 PASS/FAIL 交替），
+// 所以 AI 侧只钉确定性不变量——intent 不得 unknown、正文非空无占位、
+// 非正当语义落点零副作用。意图本身的确定性钉在 /action 规则路径上
+// （INTENT_MATCHERS 单一事实源，逐字可复现）。
+//
 //   E2E_BASE_URL 默认 http://127.0.0.1:3020/game（API 断言与 UI 步骤同源，
 //                避免只设其一时代理打到别的实例造成假绿/假红）
 //   API_BASE     默认 `${E2E_BASE_URL}/api`，可独立覆盖
@@ -39,15 +45,25 @@ const CASES = [
 ];
 
 // 反向用例：含面板字眼的整句不得被裸面板名路由吞掉（防整句锚定退化成
-// 子串匹配）。这些输入走正常意图结算——observe 写日志、rest 回血/推进
-// 遭遇时钟，所以只断言 intent/panel，不做 STATE_KEYS 不变断言。
-// intent 字段只有 /ai-action 回包下发；/action 只断言无 panel。
-// 注意：F143 起「动词+面板名」（如「查看背包」「打开我的属性」）是合法的
-// 开面板说法，会返回 panel；所以这里的反例一律用带上下文的整句叙述。
+// 子串匹配）。
+//   ruleIntent — /action 规则路径的确定性意图（INTENT_MATCHERS 单一
+//                事实源），钉死不动摇；
+//   mayMutate  — 该输入语义上允许改世界的意图落点（如「我要休息一下」
+//                判成 rest 时回血/耗次数是玩家所求，不是副作用）；
+//                其余落点一律要求 STATE_KEYS 零变化。
+// /ai-action 上 AI 只挑 intent、判成哪个不保证，故 AI 侧不再写死
+// intent，统一钉「不得 unknown + 无占位 + 非空 + 未被面板路由吞掉 +
+// 零副作用（mayMutate 除外）」；status 落点（面板语境）还须正文带
+// 面板语境词或回包带 panel 标记。强度不降：旧码若把整句吞成全句
+// 占位、写成 unknown、或误判进会改世界的意图（attack/advance…），
+// 依旧红。
+const PANEL_CONTEXT_RE = /属性|背包|行囊|状态|面板|力量|敏捷|体力|智力|感知/;
 const NEG_CASES = [
-  { input: "我查看背包，里面只剩一把断剑", intent: "observe" },
-  { input: "我要休息一下", intent: "rest" },
-  { input: "打开地图看看", intent: null },
+  // 含「背包」：规则路径恒为 observe（「查看」命中）；AI 可能判成
+  // item/status——三者都是零副作用落点，全允许。
+  { input: "我查看背包，里面只剩一把断剑", ruleIntent: "observe", mayMutate: [] },
+  { input: "我要休息一下", ruleIntent: "rest", mayMutate: ["rest"] },
+  { input: "打开地图看看", ruleIntent: "observe", mayMutate: [] },
 ];
 
 function fail(msg) {
@@ -127,6 +143,7 @@ for (const endpoint of ["/action", "/ai-action"]) {
   console.log(`[OK] ${endpoint} 未识别输入无占位文案、面板路由零副作用`);
 
   for (const c of NEG_CASES) {
+    const before = await getSave(sid);
     const { status, body } = await post(endpoint, { save_id: sid, input: c.input });
     assert(status === 200, `${endpoint}「${c.input}」HTTP ${status}（期望 200）`);
     const reply = body && body.reply;
@@ -139,18 +156,46 @@ for (const endpoint of ["/action", "/ai-action"]) {
       `${endpoint}「${c.input}」回包仍含开发期措辞：${reply.content.slice(0, 80)}`
     );
     const panel = (reply && reply.panel) ?? body.panel;
-    assert(
-      panel === undefined,
-      `${endpoint}「${c.input}」不得被面板路由吞掉，实际 panel=${JSON.stringify(panel)}`
-    );
-    if (c.intent && endpoint === "/ai-action") {
+    if (endpoint === "/action") {
+      // 规则路径意图逐字可复现，钉死；整句不得被面板路由吞掉。
       assert(
-        body.intent === c.intent,
-        `${endpoint}「${c.input}」期望 intent=${c.intent}，实际 ${JSON.stringify(body.intent)}`
+        body.intent === c.ruleIntent,
+        `${endpoint}「${c.input}」期望 intent=${c.ruleIntent}，实际 ${JSON.stringify(body.intent)}`
+      );
+      assert(
+        panel === undefined,
+        `${endpoint}「${c.input}」不得被面板路由吞掉，实际 panel=${JSON.stringify(panel)}`
+      );
+    } else {
+      // /ai-action：不依赖模型判别，只钉确定性不变量——必须被判成
+      // 某种已知意图（不得 unknown），不得被面板路由吞掉。
+      assert(
+        typeof body.intent === "string" && body.intent !== "unknown",
+        `${endpoint}「${c.input}」不得判成 unknown，实际 ${JSON.stringify(body.intent)}`
+      );
+      if (body.intent === "status") {
+        // 面板语境落点：正文出现面板语境词或回包带 panel 标记，
+        // 二者满足其一即算「整句没被吞成一句空话」。
+        assert(
+          panel !== undefined || PANEL_CONTEXT_RE.test(reply.content),
+          `${endpoint}「${c.input}」status 落点既无 panel 标记、正文也无面板语境词：${reply.content.slice(0, 80)}`
+        );
+      } else {
+        assert(
+          panel === undefined,
+          `${endpoint}「${c.input}」不得被面板路由吞掉，实际 panel=${JSON.stringify(panel)}`
+        );
+      }
+    }
+    const after = await getSave(sid);
+    if (!(c.mayMutate || []).includes(body.intent)) {
+      assert(
+        stateSig(after) === stateSig(before),
+        `${endpoint}「${c.input}」(intent=${JSON.stringify(body.intent)}) 存在副作用：${stateSig(before)} → ${stateSig(after)}`
       );
     }
   }
-  console.log(`[OK] ${endpoint} 含面板字眼的整句不被面板路由吞掉`);
+  console.log(`[OK] ${endpoint} 含面板字眼的整句不被面板路由吞掉（AI 侧不依赖模型判别）`);
 }
 
 // ── UI 步骤（默认就跑；SL_SKIP_UI=1 显式跳过）──
