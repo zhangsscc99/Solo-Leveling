@@ -981,10 +981,6 @@ function advanceOutcome(save) {
   return {
     patch: { ...vit.patch, scene: next.id },
     content: `${next.text}${completeNote}\n${vit.note}`,
-    // F187：落地掷出守关战时，advanceWithEncounter 要用「开打」一拍
-    // 的正文 + 同一份代价注脚重拼首屏——vitNote 单源暴露，不从正文
-    // 反解析。
-    vitNote: vit.note,
   };
 }
 
@@ -1476,22 +1472,19 @@ function advanceWithEncounter(save) {
     patch.encounter_seq = enemy.seq;
     if (enemy.boss) {
       // F187：守关战落地一屏只留三件事——敌方 HP、我方 HP、下一步按
-      // 什么。场景正文压到「开打」那一拍（末段——各章守关房正文都是
-      // 「铺垫/铺垫/动手」三段式），完整段落留给链上既有叙述；系统行
-      // 压到两段：【遭遇】敌 HP 与撤离指引同段（verbatim FLEE_GUIDE
-      // _LINES 变体去【提示】前缀并入——flee-guidance-wording 的逐字
-      // 契约），【系统】预警压成一句（brief；HP<60% 时 guardianWarning
-      // 仍展开完整恢复指引）。任务奖励由 applyOutcome 压成末尾一句，
-      // 不再单开【任务】段。
-      const paras = String((landedScene && landedScene.text) || "")
-        .split(/\n\s*\n/)
-        .map((p) => p.trim())
-        .filter(Boolean);
-      if (!out.retreatToBoss && paras.length > 1 && out.vitNote) {
-        res.content = `${paras[paras.length - 1]}\n${out.vitNote}`;
-      }
+      // 什么。要压的是系统行而不是叙事正文：落点场景 text 一字不删
+      // （F074 契约——落地回包必须含场景原文），系统段落收到两段：
+      // 【遭遇】敌 HP 与撤离指引同段（verbatim FLEE_GUIDE_LINES 变体
+      // 去【提示】前缀并入——flee-guidance-wording 的逐字契约），
+      // 【系统】预警压成一句（brief；HP<60% 时 guardianWarning 仍展
+      // 开完整恢复指引）。链尾守关房（ch2/ch7 的 boss 场景即链尾）
+      // 落地时「本章主线 N/N 完成」并入【遭遇】段，不另占一条系统
+      // 段；任务奖励由 applyOutcome 压成末尾一句，不单开【任务】段。
+      const tailDone = /\n【主线】(本章主线 \d+\/\d+ 完成。)/.exec(res.content);
+      if (tailDone) res.content = res.content.replace(tailDone[0], "");
       res.content +=
         `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——HP ${enemy.hp}/${enemy.maxHp}。` +
+        (tailDone ? tailDone[1] : "") +
         fleeGuidanceLine(enemy.seq).replace(/^【提示】/, "");
       res.content += `\n${guardianWarning(save, nextChapter, enemy, {
         hp: patch.hp !== undefined ? patch.hp : save.hp,
