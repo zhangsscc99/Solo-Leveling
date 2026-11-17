@@ -3180,3 +3180,104 @@ button {
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* ── F084 日志回溯控件（stage 内、stage-col 外，与正文列同宽）──
+   发丝虚线 + 等宽小字，读作「向上翻页」而非新按钮层级；「已到最初」
+   死键留占位不消失，玩家知道翻到头了。 */
+.log-earlier {
+  max-width: calc(72ch + 2 * var(--sp-5));
+  margin: 0 auto;
+  padding: var(--sp-2) var(--sp-5) 0;
+}
+
+.log-earlier-btn {
+  display: block;
+  width: 100%;
+  padding: var(--sp-2) 0;
+  background: none;
+  border: none;
+  border-bottom: 1px dashed var(--line-strong);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-align: center;
+  cursor: pointer;
+}
+
+.log-earlier-btn:hover:not(:disabled) {
+  color: var(--dim);
+  border-bottom-color: var(--system-dim);
+}
+
+.log-earlier-btn:disabled {
+  cursor: default;
+}
+
+/* ── F159 档案页脚第二行：重新登记入口 + 后果小字 ──
+   .side-foot 原单行 space-between 改为纵向两行：上行保留原有
+   「第 N / M 面板 / 关闭提示」，下行是换号按钮与说明。 */
+.side-foot {
+  flex-direction: column;
+  align-items: stretch;
+  row-gap: var(--sp-2);
+}
+
+.side-foot .foot-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  white-space: nowrap;
+}
+
+.foot-rebind {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.foot-rebind-btn {
+  padding: var(--sp-1) var(--sp-2);
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-hard);
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.foot-rebind-btn:hover {
+  color: var(--text);
+  border-color: var(--system-dim);
+}
+
+.foot-rebind-note {
+  font-size: 9.5px;
+  color: var(--faint);
+}
+
+/* ── F160 交战存档死键就地说明 ──
+   与 .sys-toast 同一位点（.actions 上缘、绝对定位、不占布局、不拦
+   点击）——常驻版本而非计时消散：DOM 紧随 .btn-group-sys，渲染成
+   浮在行动栏上缘的一行小字。不占行高是硬约束：交战态 390px 下 footer
+   再吃一行就会把 .stage 压到 60% 视口线下（combat-actions-ui 口径）。
+   hull 实底遮住进出的日志行，faint 小字 + 无描边，不是警告条。 */
+.save-blocked-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 1px);
+  transform: translateX(-50%);
+  z-index: 14;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--sp-5));
+  margin: 0;
+  padding: 2px var(--sp-3);
+  background: var(--hull);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  text-align: center;
+  color: var(--faint);
+  pointer-events: none;
+}

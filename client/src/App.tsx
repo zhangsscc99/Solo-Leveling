@@ -40,6 +40,11 @@ import StatsPanel from "./panels/StatsPanel";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
+// F084 日志回溯窗口：首屏 50 条，「加载更早」每次 +50，服务端硬上限 200。
+// 探测多取 1 条判断是否还有更早记录——fetched.length > limit 即还有历史。
+const LOG_PAGE = 50;
+const LOG_CAP = 200;
+
 const CHAPTERS = [
   "双重地下城",
   "每日任务",
@@ -357,6 +362,14 @@ export default function App() {
   const [shadowNotice, setShadowNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
+  // F084：hidden = 没有更早记录（控件不渲染）；more = 还有历史可回溯；
+  // start = 已到最初（控件留作「已到最初」死键占位，不再发请求）。
+  const [logLimit, setLogLimit] = useState(LOG_PAGE);
+  const [logTail, setLogTail] = useState<"hidden" | "more" | "start">("hidden");
+  const [logPaging, setLogPaging] = useState(false);
+  // 回灌装填前的滚动锚点：加载更早是向上翻页，视口要停在原位置而非被
+  // [log] 效应一把甩回最底。
+  const keepLogPosRef = useRef<{ height: number; top: number } | null>(null);
   // F136 重名建档：GET /saves?player_name= 命中后挂起创建流程，等玩家在
   // 「继续这个存档 / 另起新档」二选一。confirmNew 是「另起新档」的二次
   // 确认门槛（点了第一下先换确认文案，再点才真发 mode:"new"）。
@@ -402,16 +415,25 @@ export default function App() {
         setSave(save);
         setInventory(inventory);
         setEquipment(equipment);
-        const fetched = await getLog(save.id);
-        logBaseRef.current = fetched.length;
-        setLog(fetched);
+        const fetched = await getLog(save.id, LOG_PAGE + 1);
+        const more = fetched.length > LOG_PAGE;
+        const rows = more ? fetched.slice(fetched.length - LOG_PAGE) : fetched;
+        logBaseRef.current = rows.length;
+        setLog(rows);
+        setLogLimit(LOG_PAGE);
+        setLogTail(more ? "more" : "hidden");
       })
       .catch(() => localStorage.removeItem(STORAGE_KEY))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    const el = logRef.current;
+    if (!el) return;
+    const keep = keepLogPosRef.current;
+    keepLogPosRef.current = null;
+    if (keep) el.scrollTo({ top: el.scrollHeight - keep.height + keep.top });
+    else el.scrollTo({ top: el.scrollHeight });
   }, [log]);
 
   // 战斗面板开合：save.combat（服务端真实交战态）是第一信号，日志里的
@@ -691,12 +713,39 @@ export default function App() {
     setSave(full.save);
     setInventory(full.inventory);
     setEquipment(full.equipment);
-    const fetched = await getLog(saveId);
-    logBaseRef.current = fetched.length;
-    setLog(fetched);
+    const fetched = await getLog(saveId, LOG_PAGE + 1);
+    const more = fetched.length > LOG_PAGE;
+    const rows = more ? fetched.slice(fetched.length - LOG_PAGE) : fetched;
+    logBaseRef.current = rows.length;
+    setLog(rows);
+    setLogLimit(LOG_PAGE);
+    setLogTail(more ? "more" : "hidden");
     setConflict(null);
     setConfirmNew(false);
   }, []);
+
+  // F084「加载更早」：窗口 50→100→150→200 逐级放宽，整窗回灌替换。
+  // 指令间隙才允许翻页（busy 期回灌可能吞掉未落地的本地回显行）。
+  const onLoadEarlier = useCallback(async () => {
+    if (!save || busy || logPaging || logTail !== "more") return;
+    const next = Math.min(logLimit + LOG_PAGE, LOG_CAP);
+    setLogPaging(true);
+    try {
+      const fetched = await getLog(save.id, next + 1);
+      const more = fetched.length > next;
+      const rows = more ? fetched.slice(fetched.length - next) : fetched;
+      const el = logRef.current;
+      keepLogPosRef.current = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
+      logBaseRef.current = rows.length;
+      setLog(rows);
+      setLogLimit(next);
+      setLogTail(more ? "more" : "start");
+    } catch {
+      showToast("回溯失败，请稍后重试");
+    } finally {
+      setLogPaging(false);
+    }
+  }, [save, busy, logPaging, logTail, logLimit, showToast]);
 
   const onCreate = useCallback(
     async (e: FormEvent) => {
@@ -769,6 +818,34 @@ export default function App() {
     },
     [input, dispatch]
   );
+
+  // F159 重新登记：只解本机绑定（清 localStorage 的存档 id 并卸掉内存态），
+  // 存档本体留在服务端——回觉醒页后用原代号登记会走 F136 的
+  // 「继续这个存档」找回。不做删除请求，也不弹二次确认。
+  const onRebind = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(null);
+    setSave(null);
+    setLog([]);
+    setInventory([]);
+    setEquipment(null);
+    setQuests(null);
+    setChapters(null);
+    setShadows(null);
+    setTab("inventory");
+    setDrawer(false);
+    setCombatOpen(false);
+    setBarSkillOpen(false);
+    setConflict(null);
+    setConfirmNew(false);
+    setName("");
+    setInput("");
+    setError(null);
+    logBaseRef.current = 0;
+    setLogLimit(LOG_PAGE);
+    setLogTail("hidden");
+  }, []);
 
   if (loading) {
     return (
@@ -844,6 +921,21 @@ export default function App() {
       <StatusBar save={save} equipment={equipment} onOpenDrawer={() => setDrawer(true)} />
 
       <main className="stage" ref={logRef}>
+        {/* F084 日志顶部回溯控件：只放 stage-col 外（不进 .stage-col > *
+            的行数口径）。有更早记录时是「加载更早」活键，翻到底后留
+            「已到最初」死键占位；历史不足一屏时整块不渲染。 */}
+        {logTail !== "hidden" && (
+          <div className="log-earlier">
+            <button
+              type="button"
+              className="log-earlier-btn"
+              disabled={logPaging || logTail === "start" || busy}
+              onClick={onLoadEarlier}
+            >
+              {logTail === "start" ? "已到最初" : logPaging ? "回溯中…" : "加载更早"}
+            </button>
+          </div>
+        )}
         <div className="stage-col">
           {combatOpen && (
             <CombatPanel
@@ -926,11 +1018,21 @@ export default function App() {
             />
           </div>
           <div className="side-foot">
-            <span>
-              第 {tabs.findIndex((t) => t.key === tab) + 1} / {tabs.length} 面板
-            </span>
-            <span className="foot-esc">ESC 关闭</span>
-            <span className="foot-tap">点 × 关闭</span>
+            <div className="foot-row">
+              <span>
+                第 {tabs.findIndex((t) => t.key === tab) + 1} / {tabs.length} 面板
+              </span>
+              <span className="foot-esc">ESC 关闭</span>
+              <span className="foot-tap">点 × 关闭</span>
+            </div>
+            {/* F159 换号入口：只解本机绑定不删档（原档用原代号可找回）。
+                按钮 + 后果小字两行，与脚注同一 10px 等宽小字口径。 */}
+            <div className="foot-rebind">
+              <button type="button" className="foot-rebind-btn" onClick={onRebind}>
+                重新登记（换猎人代号）
+              </button>
+              <span className="foot-rebind-note">原存档仍在服务器，用原代号可找回</span>
+            </div>
           </div>
         </div>
       </aside>
@@ -1120,6 +1222,14 @@ export default function App() {
                 存档
               </button>
             </div>
+            {/* F160 交战存档死键的就地说明：移动端无 hover，title 等于
+                不存在——紧随 .btn-group-sys 常驻一条整行小字（与
+                .bar-combat-hint 同口径），脱战即消失不占位。 */}
+            {liveCombat && (
+              <div className="save-blocked-hint" role="note">
+                交战中无法写入存档 · 先「逃跑」或打赢这一场
+              </div>
+            )}
           </div>
           {/* F094 行动栏技能列表：只在交战态由「释放技能」开合。MP 消耗 /
               冷却 / 可释放性全部读服务端 save.skills 视图（与技能面板、
