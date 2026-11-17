@@ -63,16 +63,20 @@ const ACTION_BUTTONS: { label: string; input: string; primary?: boolean; combatB
   { label: "休息", input: "休息", combatBlock: true },
 ];
 
-// F094 战斗操作入口：行动栏常驻战斗四键。交战（save.combat，服务端真实
-// 交战态）时整组只留这四键——探索组在敌我面前全被服务端门禁改判，
+// F094 战斗操作入口：行动栏常驻战斗五键。交战（save.combat，服务端真实
+// 交战态）时整组只留这五键——探索组在敌我面前全被服务端门禁改判，
 // 「撤离」语义与「逃跑」同一结算（flee + retreatOnFlee），不再单列。
-// 无交战时四键常驻 disabled + 可见提示，给玩家明确的「待激活」状态。
-// 快捷键沿用 1–4 槽位：键位永远指向当前组内同位置按钮，与系统组 5–9 不冲突。
-// 「释放技能」不是指令本身——展开/收起行动栏技能列表（input=null 哨兵）。
-const COMBAT_BUTTONS: { label: string; input: string | null }[] = [
+// F163：交战态的唯一控制组——浮层战斗面板只留情报，攻击/技能/防御/
+// 道具/逃跑全部收口到这里；「道具」由浮层迁入，与「释放技能」同为
+// 展开器（input=null + expand 哨兵），不是指令本身。
+// 无交战时五键折叠为 .combat-entry 单行矮入口（F113/F119 高度预算）。
+// 快捷键沿用 1–5 槽位：键位永远指向当前组内同位置按钮；交战态 5=逃跑，
+// 系统组 5–9 的键位在交战时不抢占（else-if 链先吃战斗组）。
+const COMBAT_BUTTONS: { label: string; input: string | null; expand?: "skills" | "items" }[] = [
   { label: "攻击", input: "攻击" },
-  { label: "释放技能", input: null },
+  { label: "释放技能", input: null, expand: "skills" },
   { label: "防御", input: "防御" },
+  { label: "道具", input: null, expand: "items" },
   { label: "逃跑", input: "逃跑" },
 ];
 
@@ -381,7 +385,9 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("inventory");
   const [drawer, setDrawer] = useState(false);
   const [combatOpen, setCombatOpen] = useState(false);
-  const [barSkillOpen, setBarSkillOpen] = useState(false);
+  // F163 行动栏展开器互斥开合：技能列表 / 道具列表同一槽位，同时至多
+  // 展开一个；脱战（含死亡回溯/逃跑成功）自动收起。
+  const [barList, setBarList] = useState<"skills" | "items" | null>(null);
   // F132 系统键就地反馈：脱战「战斗」空态 /「存档」进度与确认共用的
   // 短提示条（底栏上缘浮现，计时自动消散）。
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
@@ -451,9 +457,9 @@ export default function App() {
     if (liveCombat && !liveRef.current) setCombatOpen(true);
     liveRef.current = liveCombat;
   }, [liveCombat]);
-  // 行动栏技能列表只在交战态存在：脱战（含死亡回溯/逃跑成功）自动收起。
+  // 行动栏技能/道具列表只在交战态存在：脱战（含死亡回溯/逃跑成功）自动收起。
   useEffect(() => {
-    if (!liveCombat) setBarSkillOpen(false);
+    if (!liveCombat) setBarList(null);
   }, [liveCombat]);
   useEffect(() => {
     const gate = detectCombatGate(log, { live: liveCombat, freshFrom: logBaseRef.current });
@@ -579,11 +585,11 @@ export default function App() {
   // 与行动栏列表同一数据源，不新造数值。
   const toggleBarSkills = useCallback(() => {
     if (!save || !liveCombat) return;
-    if (barSkillOpen) {
-      setBarSkillOpen(false);
+    if (barList === "skills") {
+      setBarList(null);
       return;
     }
-    setBarSkillOpen(true);
+    setBarList("skills");
     const parts = (save.skills ?? skills).map((s) => {
       const unlocked = s.unlocked ?? s.learn_level <= save.level;
       const cd = s.cooldown_remaining ?? 0;
@@ -607,7 +613,37 @@ export default function App() {
         content: `【系统】已调出技能面板 · 可用：${parts.join("/") || "无"}`,
       },
     ]);
-  }, [save, skills, liveCombat, barSkillOpen]);
+  }, [save, skills, liveCombat, barList]);
+
+  // F163 行动栏道具抽屉：交战期消耗品列表（与浮层道具子列表同一数据
+  // 口径——背包 consumable 且 qty>0）。展开写一条系统回执行，口径与
+  // F155 技能抽屉一致；点选发「使用道具 <名>」走战斗指令（占一回合，
+  // 由服务端结算并反击），库存随回包回灌。
+  const consumables = useMemo(() => {
+    const catalog = new Map(items.map((it) => [it.id, it]));
+    return inventory
+      .map((row) => ({ row, item: catalog.get(row.item_id) }))
+      .filter((r): r is { row: InventoryRow; item: Item } => Boolean(r.item) && r.row.qty > 0)
+      .filter((r) => r.item.category === "consumable");
+  }, [inventory, items]);
+
+  const toggleBarItems = useCallback(() => {
+    if (!save || !liveCombat) return;
+    if (barList === "items") {
+      setBarList(null);
+      return;
+    }
+    setBarList("items");
+    const parts = consumables.map(({ row, item }) => `${item.name}×${row.qty}`);
+    setLog((l) => [
+      ...l,
+      {
+        id: Date.now(),
+        role: "system",
+        content: `【系统】已调出道具面板 · 可用：${parts.join("/") || "无"}`,
+      },
+    ]);
+  }, [save, liveCombat, barList, consumables]);
 
   // F148 口径兜底：背包页签已在当前位时重开面板也要回灌——drawer 开合
   // 纳入依赖，否则击杀后新掉落的栈在「背包」原位重开时仍显示旧计数。
@@ -680,18 +716,19 @@ export default function App() {
       if (e.key === "Escape") {
         setDrawer(false);
         setCombatOpen(false);
-        setBarSkillOpen(false);
+        setBarList(null);
         return;
       }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const n = Number(e.key);
       if (n >= 1 && n <= COMBAT_BUTTONS.length && liveCombat) {
-        // 交战态：1–4 槽位指向战斗四键，与按钮上的键帽提示一致。
-        // 「释放技能」键只开合技能列表，不发指令。
+        // 交战态：1–5 槽位指向战斗五键，与按钮上的键帽提示一致。
+        // 「释放技能」「道具」键只开合对应抽屉，不发指令。
         const b = COMBAT_BUTTONS[n - 1];
-        if (b.input === null) toggleBarSkills();
-        else dispatch(b.input);
+        if (b.expand === "skills") toggleBarSkills();
+        else if (b.expand === "items") toggleBarItems();
+        else dispatch(b.input as string);
       } else if (n >= 1 && n <= ACTION_BUTTONS.length && !liveCombat) {
         const b = ACTION_BUTTONS[n - 1];
         // 终章态快捷键 1 与按钮同义：不再发「前进」，直接开结算。
@@ -703,7 +740,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, toggleBarSkills]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, toggleBarSkills, toggleBarItems]);
 
   // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
   // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
@@ -836,7 +873,7 @@ export default function App() {
     setTab("inventory");
     setDrawer(false);
     setCombatOpen(false);
-    setBarSkillOpen(false);
+    setBarList(null);
     setConflict(null);
     setConfirmNew(false);
     setName("");
@@ -942,12 +979,7 @@ export default function App() {
               save={save}
               log={log}
               logBase={logBaseRef.current}
-              skills={save.skills ?? skills}
-              inventory={inventory}
-              items={items}
-              busy={busy}
-              onAction={dispatch}
-              onUseItem={(itemId) => onItemOp(itemId, "use")}
+              equipment={equipment}
               onClose={() => setCombatOpen(false)}
             />
           )}
@@ -1043,11 +1075,11 @@ export default function App() {
             {toast.text}
           </div>
         )}
-        <div className="actions-main">
+        <div className={`actions-main${liveCombat ? " actions-combat" : ""}`}>
           <div className="action-groups">
             <div className="btn-group">
               <span className="group-label">行动</span>
-              {/* F094：探索组只在非交战渲染；交战中整组换为下方战斗四键，
+              {/* F094：探索组只在非交战渲染；交战中整组换为下方战斗五键，
                   服务端对和平意图的门禁（改判提示、零收益）与前台隐藏一致。 */}
               {!liveCombat &&
                 ACTION_BUTTONS.map((b, i) => {
@@ -1123,12 +1155,13 @@ export default function App() {
                   </button>
                 );
               })}
-              {/* F094/F113 战斗四键：交战态整组展开（键帽 1–4）；守关房
-                  叫阵态（challengeBoss）只留承担开战的那一键（F135——
-                  「释放技能/防御/逃跑」的 disabled 残键像半截战斗栏，
-                  不再渲染），按钮文案自带「叫阵」，点击就地开战，与主
-                  按钮同一「攻击」结算路径。其余非交战态四键折叠为下方
-                  .combat-entry 单行矮入口（F113/F119 高度预算）。 */}
+              {/* F094/F113/F163 战斗五键：交战态整组展开（键帽 1–5），
+                  是交战期唯一控制组——浮层战斗面板只剩情报不再渲染动作
+                  键；守关房叫阵态（challengeBoss）只留承担开战的那一键
+                  （F135——「释放技能/防御/道具/逃跑」的 disabled 残键像
+                  半截战斗栏，不再渲染），按钮文案自带「叫阵」，点击就地
+                  开战，与主按钮同一「攻击」结算路径。其余非交战态五键
+                  折叠为下方 .combat-entry 单行矮入口（F113/F119 高度预算）。 */}
               {(liveCombat || challengeBoss) &&
                 COMBAT_BUTTONS.map((b, i) => {
                 const challengeable = challengeBoss && !liveCombat && b.input === "攻击";
@@ -1138,22 +1171,26 @@ export default function App() {
                   <button
                     key={b.label}
                     className={`btn${(liveCombat && i === 0) || challengeable ? " primary" : ""}${
-                      b.input === null && barSkillOpen ? " on" : ""
+                      b.expand && barList === b.expand ? " on" : ""
                     }`}
                     disabled={disabled}
                     aria-disabled={disabled}
-                    aria-expanded={b.input === null ? barSkillOpen : undefined}
+                    aria-expanded={b.expand ? barList === b.expand : undefined}
                     title={
                       liveCombat
-                        ? b.input === null
-                          ? `展开技能列表 · 快捷键 ${i + 1}`
+                        ? b.expand
+                          ? `${b.expand === "skills" ? "展开技能列表" : "展开道具列表"} · 快捷键 ${i + 1}`
                           : `快捷键 ${i + 1}`
                         : challengeable
                           ? "守关者就在面前 — 叫阵开战"
                           : "当前没有可攻击的目标"
                     }
                     onClick={() =>
-                      b.input === null ? toggleBarSkills() : dispatch(b.input as string)
+                      b.expand === "skills"
+                        ? toggleBarSkills()
+                        : b.expand === "items"
+                          ? toggleBarItems()
+                          : dispatch(b.input as string)
                     }
                   >
                     {challengeable ? "叫阵 · 攻击" : b.label}
@@ -1189,10 +1226,19 @@ export default function App() {
                   key={t.key}
                   className="btn"
                   onClick={() => openTab(t.key)}
-                  title={i + 5 < 10 ? `快捷键 ${i + 5}` : undefined}
+                  title={
+                    i + 5 < 10 && !(liveCombat && i + 5 <= COMBAT_BUTTONS.length)
+                      ? `快捷键 ${i + 5}`
+                      : undefined
+                  }
                 >
                   {t.label}
-                  {i + 5 < 10 && <kbd>{i + 5}</kbd>}
+                  {/* F163：交战态 1–5 槽位归战斗组——「背包」的 kbd「5」
+                      在交战时是假提示（按下实为逃跑），交战期摘下；6–9
+                      仍然有效，照常显示。 */}
+                  {i + 5 < 10 && !(liveCombat && i + 5 <= COMBAT_BUTTONS.length) && (
+                    <kbd>{i + 5}</kbd>
+                  )}
                 </button>
               ))}
               <button
@@ -1234,7 +1280,7 @@ export default function App() {
           {/* F094 行动栏技能列表：只在交战态由「释放技能」开合。MP 消耗 /
               冷却 / 可释放性全部读服务端 save.skills 视图（与技能面板、
               /action 门禁同一口径），点击指令原样发出，MP/伤害由服务端结算。 */}
-          {barSkillOpen && liveCombat && (
+          {barList === "skills" && liveCombat && (
             <ul className="bar-skills" aria-label="战斗技能">
               {(save.skills ?? skills).map((s) => {
                 const unlocked = s.unlocked ?? s.learn_level <= save.level;
@@ -1277,6 +1323,35 @@ export default function App() {
                   </li>
                 );
               })}
+            </ul>
+          )}
+          {/* F163 行动栏道具列表：与技能抽屉同语言的二级列表。交战中点选
+              发「使用道具 <名>」走战斗指令（占一回合、敌方结算反击），
+              与浮层旧道具子列表同一服务端路径；qty 随 /action 回包回灌。 */}
+          {barList === "items" && liveCombat && (
+            <ul className="bar-skills" aria-label="战斗道具">
+              {consumables.length === 0 ? (
+                <li className="combat-sub-empty">背包里没有可用补给。</li>
+              ) : (
+                consumables.map(({ row, item }) => (
+                  <li key={item.id}>
+                    <button
+                      className="bar-skill"
+                      disabled={busy}
+                      aria-disabled={busy}
+                      title={item.desc}
+                      onClick={() => dispatch(`使用道具 ${item.name}`)}
+                    >
+                      <span className="bar-skill-name">{item.name}</span>
+                      <span className="bar-skill-meta">
+                        ×{row.qty}
+                        {item.heal ? ` · 恢复 ${item.heal} HP` : ""}
+                        {item.mp ? ` · 恢复 ${item.mp} MP` : ""}
+                      </span>
+                    </button>
+                  </li>
+                ))
+              )}
             </ul>
           )}
           <form className="input-row" onSubmit={onSend}>

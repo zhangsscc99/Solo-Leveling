@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
-import { InventoryRow, Item, LogEntry, Save, Skill } from "../api";
+import { useMemo } from "react";
+import { baseAttack, baseDefense, Equipment, LogEntry, Save } from "../api";
 
 /* ────────────────────────────────────────────────
    战斗面板：save.combat（服务端交战态）是唯一事实源；
    日志文本只做渐进增强（敌名 / 回合数 / 伤害与治疗飘字），
    且脱战口径下指令表行与刷新前旧行一律不算交战信号（F141）。
    推断不到敌人时仍可由「战斗」入口手动打开。
+   F163：面板退化为纯情报区（敌名 / HP 条 / 回合 / 每回合
+   伤害预估 / 我方 HP·MP）——所有战斗动作由行动栏五键
+   独占，面板不再渲染任何动作键，关掉面板照样能打。
 ──────────────────────────────────────────────── */
 
 const SCAN = 16;
@@ -194,27 +197,15 @@ export default function CombatPanel({
   save,
   log,
   logBase = 0,
-  skills,
-  inventory,
-  items,
-  busy,
-  onAction,
-  onUseItem,
+  equipment,
   onClose,
 }: {
   save: Save;
   log: LogEntry[];
   logBase?: number;
-  skills: Skill[];
-  inventory: InventoryRow[];
-  items: Item[];
-  busy: boolean;
-  onAction: (input: string) => void;
-  onUseItem: (itemId: string) => void;
+  equipment: Equipment | null;
   onClose: () => void;
 }) {
-  const [mode, setMode] = useState<"skill" | "item" | null>(null);
-
   const inferred = useMemo(
     () => inferContext(log, { live: Boolean(save.combat), freshFrom: logBase }),
     [log, save.combat, logBase]
@@ -238,33 +229,21 @@ export default function CombatPanel({
   }, [save.combat, inferred]);
   const floaters = useMemo(() => inferFloaters(log, ctx.enemyName), [log, ctx.enemyName]);
 
-  // 「是否交战」是唯一事实源：gate=engage 时五键可用（仅 busy 才锁），
-  // 敌人名缺失只是显示「未知目标」，不再单独禁用按键；
-  // null / ended 态才显示空态提示并禁用全部按键。
-  // F121：守关房叫阵态（服务端 advance_mode === "challenge_boss"：
-  // 守关者未击杀 + 人已在 boss 房 + 无交战）「攻击」解禁——原地叫阵
-  // 逼守关者现形，与行动栏/主按钮同一结算路径。
-  const challengeable = !ctx.inCombat && save.advance_mode === "challenge_boss";
-  const actDisabled = busy || !ctx.inCombat;
-  const attackDisabled = busy || (!ctx.inCombat && !challengeable);
-  const actTitle = ctx.inCombat ? undefined : "当前没有交战目标";
-  const attackTitle = ctx.inCombat ? undefined : challengeable ? "守关者就在面前 — 叫阵开战" : actTitle;
-  const learned = useMemo(
-    () => skills.filter((s) => s.unlocked ?? s.learn_level <= save.level),
-    [skills, save.level]
-  );
-  const consumables = useMemo(() => {
-    const catalog = new Map(items.map((it) => [it.id, it]));
-    return inventory
-      .map((row) => ({ row, item: catalog.get(row.item_id) }))
-      .filter((r): r is { row: InventoryRow; item: Item } => Boolean(r.item) && r.row.qty > 0)
-      .filter((r) => r.item.category === "consumable");
-  }, [inventory, items]);
-
-  const act = (input: string) => {
-    setMode(null);
-    onAction(input);
-  };
+  // 单回合伤害预估（纯情报，不是操作）：双方攻防用服务端下发口径——
+  // 敌方 atk/def 来自 combatView，我方攻/防 = 属性折算 + 装备加成，
+  // 与 stats.js「攻=1.6×力、防=0.8×体」同一折算。只给裸量级（不折
+  // 暴击与 rank 压制），实战落点以战报为准；非 live 推断态无攻防
+  // 数据，整行不渲染。
+  const est = useMemo(() => {
+    const live = save.combat;
+    if (!live) return null;
+    const atk = baseAttack(save.stats) + (equipment?.atk ?? 0);
+    const def = baseDefense(save.stats) + (equipment?.def ?? 0);
+    return {
+      deal: Math.max(1, atk - live.enemy.def),
+      take: Math.max(1, live.enemy.atk - def),
+    };
+  }, [save.combat, save.stats, equipment]);
 
   const floatsFor = (side: "player" | "enemy") =>
     floaters.filter((f) => f.side === side).slice(-MAX_FLOATERS);
@@ -330,120 +309,16 @@ export default function CombatPanel({
         </div>
       </div>
 
-      <div className="combat-acts" role="group" aria-label="战斗行动">
-        <button
-          className="combat-btn primary"
-          disabled={attackDisabled}
-          aria-disabled={attackDisabled}
-          title={attackTitle}
-          onClick={() => act("攻击")}
-        >
-          攻击
-        </button>
-        <button
-          className={`combat-btn${mode === "skill" ? " on" : ""}`}
-          disabled={actDisabled}
-          aria-disabled={actDisabled}
-          title={actTitle}
-          onClick={() => setMode((m) => (m === "skill" ? null : "skill"))}
-        >
-          技能
-        </button>
-        <button
-          className="combat-btn"
-          disabled={actDisabled}
-          aria-disabled={actDisabled}
-          title={actTitle}
-          onClick={() => act("防御")}
-        >
-          防御
-        </button>
-        <button
-          className={`combat-btn${mode === "item" ? " on" : ""}`}
-          disabled={actDisabled}
-          aria-disabled={actDisabled}
-          title={actTitle}
-          onClick={() => setMode((m) => (m === "item" ? null : "item"))}
-        >
-          道具
-        </button>
-        <button
-          className="combat-btn combat-flee"
-          disabled={actDisabled}
-          aria-disabled={actDisabled}
-          title={actTitle}
-          onClick={() => act("逃跑")}
-        >
-          逃跑
-        </button>
-      </div>
-
-      {mode === "skill" && (
-        <ul className="combat-sub">
-          {learned.length === 0 ? (
-            <li className="combat-sub-empty">尚未习得技能。</li>
-          ) : (
-            learned.map((s) => {
-              const cd = s.cooldown_remaining ?? 0;
-              const mpShort = !(s.mp_enough ?? save.mp >= s.mp_cost);
-              const disabled = busy || (s.can_cast !== undefined ? !s.can_cast : cd > 0 || mpShort);
-              const label = cd > 0 ? `冷却 ${cd} 回合` : mpShort ? "MP 不足" : "释放";
-              const hint = cd > 0
-                ? `冷却中：还需 ${cd} 回合`
-                : mpShort
-                  ? `MP 不足：需 ${s.mp_cost}（当前 ${save.mp}）`
-                  : undefined;
-              return (
-                <li key={s.id} className="combat-sub-row">
-                  <span className="combat-sub-name">{s.name}</span>
-                  <span className="combat-sub-meta">
-                    MP {s.mp_cost}
-                    {s.damage_preview
-                      ? ` · 预计伤害 ${s.damage_preview.min}–${s.damage_preview.max}`
-                      : ""}
-                  </span>
-                  <button
-                    className="combat-sub-btn"
-                    disabled={disabled}
-                    aria-disabled={disabled}
-                    title={hint}
-                    onClick={() => act(`释放技能 ${s.name}`)}
-                  >
-                    {label}
-                  </button>
-                </li>
-              );
-            })
-          )}
-        </ul>
-      )}
-
-      {mode === "item" && (
-        <ul className="combat-sub">
-          {consumables.length === 0 ? (
-            <li className="combat-sub-empty">背包里没有可用补给。</li>
-          ) : (
-            consumables.map(({ row, item }) => (
-              <li key={item.id} className="combat-sub-row">
-                <span className="combat-sub-name">{item.name}</span>
-                <span className="combat-sub-meta">×{row.qty}</span>
-                <button
-                  className="combat-sub-btn"
-                  disabled={busy}
-                  onClick={() => {
-                    setMode(null);
-                    // 交战中补给占一回合（引擎结算 + 敌方反击），走战斗指令；
-                    // 非交战直接走物品接口即时生效。
-                    if (save.combat) act(`使用道具 ${item.name}`);
-                    else onUseItem(item.id);
-                  }}
-                >
-                  使用
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
+      {est && (
+        <div className="combat-est" aria-label="单回合预计伤害">
+          <span className="combat-est-label">每回合预估</span>
+          <span className="combat-est-num">
+            攻击 <b>~{est.deal}</b>
+          </span>
+          <span className="combat-est-num">
+            承伤 <b>~{est.take}</b>
+          </span>
+        </div>
       )}
     </section>
   );
