@@ -343,6 +343,27 @@ function pickupOutcome(input, target, exists, opts) {
   return lines[n % lines.length];
 }
 
+// F166 指令形态判定：「系统未识别该指令：「X」」的回显形态只给指令
+// 形态输入保留——F076/F129 的客户端靠回显里的「遭遇X」「第N回合」开合
+// 战斗面板，短词回显也是玩家确认输入未被吞的信号。自然语言长句
+// （去空白 ≥8 字且不含指令信号词）不再按解析报错打包退回，改走世界
+// 口吻叙述。命中任一信号词 → 指令形态；含数字键位（第3回合/技能2）
+// 同样按指令形态处理。
+const COMMAND_SIGNAL_RE =
+  /攻击|前进|休息|潜行|观察|逃跑|防御|技能|道具|使用|存档|帮助|状态|属性|背包|地图|任务|影子|叫阵|遭遇|回合|撤离|药水|[0-9０-９]/;
+
+// true → 指令形态，兜底必须回显原文；false → 自然语言长句，去前缀。
+function echoRequired(input) {
+  try {
+    const text = typeof input === "string" ? input : "";
+    const stripped = text.replace(/\s+/g, "");
+    if (stripped.length < 8) return true;
+    return COMMAND_SIGNAL_RE.test(stripped);
+  } catch {
+    return true;
+  }
+}
+
 // 查看族点名了非场景物时的明确否认——不得换个场景物作答。
 function denyLine(target, anchor, variant) {
   const t = typeof target === "string" && target ? target : "那个东西";
@@ -363,6 +384,8 @@ module.exports = {
   pickupOutcome,
   denyLine,
   sceneAnchor,
+  echoRequired,
+  COMMAND_SIGNAL_RE,
   FIXTURE_ENTITIES,
   PICKUP_RE,
   INSPECT_RE,
