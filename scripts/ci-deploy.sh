@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=/www/Solo-Leveling
-HEALTH_URL=http://127.0.0.1:3020/game/api/health
-APP_URL=http://127.0.0.1:3020/game/
+# F126: 调用 shell 残留的 E2E_BASE_URL / API_BASE / DB_PATH 会让 e2e 打到
+# 不存在的端口或让断言写错库 → 全红假失败 → 误回滚。入口一律清干净，
+# e2e/assert 脚本各自回落到内置默认目标。
+unset E2E_BASE_URL API_BASE E2E_NO_CLEANUP SL_VERIFY_API_BASE DB_PATH
+
+ROOT="${SL_DEPLOY_ROOT:-/www/Solo-Leveling}"
+HEALTH_URL="${SL_DEPLOY_HEALTH_URL:-http://127.0.0.1:3020/game/api/health}"
+APP_URL="${SL_DEPLOY_APP_URL:-http://127.0.0.1:3020/game/}"
+# e2e/run-all.mjs 的目标由 scripts/e2e/lib.mjs 决定（E2E_BASE_URL 已被清掉 →
+# 内置默认 https://openfolio.uk/game）。e2e 失败时用它的 health 区分
+# 「环境不通」与「业务回归」。
+E2E_HEALTH_URL="${SL_E2E_HEALTH_URL:-https://openfolio.uk/game/api/health}"
+BACKUP_DIR="$ROOT/.deploy-backup"
 STEP="lock"
 
-exec 9>/www/Solo-Leveling/.deploy.lock
+exec 9>"$ROOT/.deploy.lock"
 flock -n 9 || { echo 'another deploy is running'; exit 3; }
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -28,7 +38,7 @@ echo "[$(ts)] OK preflight"
 step node-runtime 2
 node_bin=""
 node_abi() { env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE "$1" -e 'process.stdout.write(process.versions.modules)' 2>/dev/null; }
-preferred=/root/.nvm/versions/node/v24.5.0/bin
+preferred="${SL_NODE_PREFERRED:-/root/.nvm/versions/node/v24.5.0/bin}"
 if [ -x "$preferred/node" ] && [ "$(node_abi "$preferred/node")" = "137" ]; then
   node_bin="$preferred"
 else
@@ -44,6 +54,15 @@ echo "[$(ts)] OK node-runtime ($node_bin/node $(env -u NODE_CHANNEL_FD -u NODE_C
 
 step build 3
 cd "$ROOT"
+# 先把「当前线上正在跑的构建产物」备份到 .deploy-backup/dist —— 它是上一次
+# 成功部署产出的 last-known-good 包，rollback.sh 只回滚这个产物，绝不动
+# 工作区源码。
+mkdir -p "$BACKUP_DIR"
+if [ -d client/dist ]; then
+  rm -rf "$BACKUP_DIR/dist"
+  cp -a client/dist "$BACKUP_DIR/dist"
+  cat "$DEPLOYED_REF_FILE" > "$BACKUP_DIR/ref" 2>/dev/null || true
+fi
 env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE npm --prefix client run build || fail
 echo "[$(ts)] OK build"
 
@@ -73,9 +92,16 @@ grep -q 'id="root"' /tmp/ci-deploy-index.html || { echo "[$(ts)] app page missin
 echo "[$(ts)] OK app-page (HTTP $code, root element present)"
 
 step e2e 8
-if node "$ROOT/scripts/e2e/run-all.mjs"; then
+if env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE node "$ROOT/scripts/e2e/run-all.mjs"; then
   echo "[$(ts)] OK e2e"
 else
+  # F126: e2e 红先区分「环境错」与「业务回归」——目标 health 都打不通时
+  # 全红只能说明网络/端口环境有问题，回滚只会把线上搞成新旧混合态。
+  if ! curl -fsS --max-time 10 "$E2E_HEALTH_URL" >/dev/null 2>&1; then
+    echo "[$(ts)] ENV_ERROR: e2e target unreachable ($E2E_HEALTH_URL) — treating red e2e as environment failure, NOT rolling back" >&2
+    echo "[$(ts)] check network/proxy/DNS to the e2e target, then re-run scripts/ci-deploy.sh" >&2
+    exit 2
+  fi
   echo "[$(ts)] E2E gate failed — rolling back to ${PREV_REF:0:12}" >&2
   # release the deploy lock so rollback.sh can take it
   exec 9>&-
