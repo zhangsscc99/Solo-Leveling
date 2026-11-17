@@ -312,11 +312,35 @@ function restStatus(save, combat) {
 // 现形再战（peacefulCombatIntent 的 bossChallenge 分支压过再入冷却）。
 // 房内仍显示「折返守关者」是自相矛盾的软锁：人已在房内、战斗键又无
 // 交战目标全灭，玩家没有任何可点的下一步。
+// F128b 「前进」有效链 + 站位映射：本章守关者已清算（击杀或摆脱）时，
+// escape_locked 封门场景从推进链上摘除——惩罚环节随守关战一并结束，
+// 副本出口已经打开，前路不再把人吞回封门区；未清算时链保持原样
+// （封门语义照旧，数据上仅 ch2 惩罚副本两幕带此字段）。人落在被摘除
+// 场景（清算后仍站在副本里的站位/旧档落点）时，视作站在链上它之前
+// 的最近一幕——惩罚副本的出口即本章过门。advanceOutcome 与
+// advanceMode 共用本口径：主按钮语义与实际结算不两张皮。
+function advancePathFor(save, chapter) {
+  const rawPath = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  const path =
+    chapter && bossCleared(save, chapter.id)
+      ? rawPath.filter((s) => s && s.escape_locked !== true)
+      : rawPath;
+  let idx = path.findIndex((s) => s && s.id === (save && save.scene));
+  if (idx < 0) {
+    const rawIdx = rawPath.findIndex((s) => s && s.id === (save && save.scene));
+    for (let i = rawIdx - 1; i >= 0 && idx < 0; i--) {
+      idx = path.findIndex((s) => s && s.id === rawPath[i].id);
+    }
+  }
+  return { path, idx };
+}
+
 function advanceMode(save) {
   const chapter = chaptersEngine.getChapter(save && save.chapter);
-  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  const { path, idx } = chapter
+    ? advancePathFor(save, chapter)
+    : { path: [], idx: -1 };
   const idxBoss = path.findIndex((s) => s && s.kind === "boss");
-  const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save && save.scene) : -1;
   if (idxBoss >= 0 && idx >= idxBoss && !bossCleared(save, chapter.id)) {
     if (idx === idxBoss && !store.getCombat(save.id)) return "challenge_boss";
     return "retreat_to_boss";
@@ -1137,13 +1161,17 @@ function choiceCostHint(choice) {
 // 口径：守关者未死/链尾过门照常先拦，选项不是绕开硬门的旁路。
 function advanceOutcome(save, choice) {
   const chapter = chaptersEngine.getChapter(save.chapter);
-  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  // F128b 脱出粘住：有效链与站位映射统一走 advancePathFor——守关者
+  // 已清算的章，escape_locked 封门场景从链上摘除（清算后站在 ch2 链
+  // 上任一点，下一按「前进」的真实语义都是过门离开，不再回吞副本）。
+  const { path, idx } = chapter
+    ? advancePathFor(save, chapter)
+    : { path: [], idx: -1 };
   if (!path.length) {
     // 断路同样是门拒绝：零消耗、零位移、零日志——与章节门/终章同口径。
     return { patch: null, refused: true, content: "【系统】前路在此断裂，暂无可以踏足之地。" };
   }
   const vit = vitalsCost(save);
-  const idx = chaptersEngine.pathIndexOf(chapter, save.scene);
 
   // F196 显式分支：choice 是当前场景的真实选项（choice 意图已做精确
   // 匹配），其 next 即落点。落点必须仍在章内——悬空/跨界/空 next 一律
@@ -1304,10 +1332,17 @@ function advanceOutcome(save, choice) {
     // F173：注脚换成玩家语言、按章轮换（chapterEntryNote），不再把
     // 「HP 3 · MP 2」这种机制数字摊进叙述；代价事实仍如实保留
     // （下一步开始要付代价），数值取自同一组常量，结算零改动。
+    // F128 衍生：铺陈步落在守关房（ch3 链第二幕即守关房）时，「影子
+    // 还在沉睡」与守关者当面相矛盾——换成守关者在场的注脚，开战由
+    // advanceWithEncounter 的 scripted 收口补齐。
+    const entryNote =
+      bossAlive && nextScene.kind === "boss"
+        ? `（守关者就盘踞在前路——你踏入它的房间，它不再沉睡。）`
+        : chapterEntryNote(chapter.id, ADVANCE_HP_COST, ADVANCE_MP_COST);
     return {
       patch: { scene: nextScene.id },
       scripted: true,
-      content: `${nextScene.text}\n${chapterEntryNote(chapter.id, ADVANCE_HP_COST, ADVANCE_MP_COST)}`,
+      content: `${nextScene.text}\n${entryNote}`,
     };
   }
 
@@ -1747,7 +1782,9 @@ function advanceWithEncounter(save, choice) {
       events: fleeRes.events || [],
       combat: { op: "clear" },
       rewards: null,
-      grantMain: null,
+      // F128b：封门副本摆脱守关者的撤离回包可能带主线奖励入账
+      // （combatTurn 的 sealedEscape 分支），经统一出口结算。
+      grantMain: fleeRes.grantMain || null,
     };
   }
 
@@ -1806,6 +1843,33 @@ function advanceWithEncounter(save, choice) {
     // scripted 步不掷遭遇、不计保底——落点永远是链首/次幕，applyTailGate
     // 对链首天然空转，但守关提示等兜底仍走同一出口，保持一致。
     applyTailGate(res, chaptersEngine.getChapter(patch.chapter || save.chapter), false);
+    // F128 衍生：铺陈步落在守关房（ch3_retest——ch3 主线链第二幕即守关
+    // 房）时守关者照常成形拦门。scripted 免的是概率掷点与体力代价，不
+    // 是免硬门——玩家真实走进了它盘踞的房间，房内不开战就只剩「非交战
+    // 站守关房 + 前进被门拒」的死锁（旧码靠「休息召 boss」把这个态捞
+    // 回交战，F138 改走杂兵池后落地通道必须存在）。已清守关房与再入
+    // 冷却（encounter_clock<0）照旧安静——tryEncounter 内部口径不变。
+    const sc = chaptersEngine.getScene(patch.scene);
+    const scChapter = sc ? chaptersEngine.getChapterOfScene(sc.id) : null;
+    if (sc && sc.kind === "boss" && scChapter && !bossCleared(save, scChapter.id)) {
+      const enemy = tryEncounter(
+        { ...save, chapter: patch.chapter || save.chapter },
+        patch.scene
+      );
+      if (enemy) {
+        res.combat = { op: "set", enemy, turn: 1 };
+        patch.encounter_clock = 0;
+        patch.encounter_seq = enemy.seq;
+        res.content +=
+          `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——HP ${enemy.hp}/${enemy.maxHp}。` +
+          fleeGuidanceLine(enemy.seq).replace(/^【提示】/, "") +
+          `\n${guardianWarning(save, scChapter, enemy, {
+            hp: patch.hp !== undefined ? patch.hp : save.hp,
+            inCombat: true,
+            brief: true,
+          })}`;
+      }
+    }
     return res;
   }
 
@@ -2343,6 +2407,10 @@ function combatTurn(save, cbt, action, input, skill, opts) {
 
   const res = { patch, content, events: [], combat: null, rewards: null, grantMain: null };
   if (action === "skill" && patch.mp < save.mp) res.events.push("skill");
+  // F128：封门副本（escape_locked 场景）守关战撤离成功时记下被摆脱的
+  // 守关者所属章 id——下方 boss_hp 落账按它跳过（守关者被「摆脱」而非
+  // 打残，残血记账无意义）。
+  let sealedEscapeChapter = null;
 
   const fled = events.some((ev) => ev.type === "flee" && ev.side === "player");
   if (e.hp <= 0) {
@@ -2402,7 +2470,42 @@ function combatTurn(save, cbt, action, input, skill, opts) {
       // F131：撤离收尾按 boss_cleared 分支——守关者被真杀过，身后凝聚的
       // 才谈得上「残骸」；未击杀的守关者只是仍守在门后，绝不提前发丧。
       const guardianDown = bossChapter ? bossCleared(save, bossChapter.id) : false;
-      if (prev) {
+      // F128 封门副本逃生阀收口：escape_locked 场景（惩罚副本类）里的守关战
+      // 撤离成功 = 「摆脱守关者」。这类副本的规则本来就是「存活至副本结束」
+      // ——挣脱守关者即熬过惩罚：人被吐出副本、落回本章主线链首，守关标记
+      // 记为已摆脱（boss_cleared——退路重开、过门与主线奖励资格一并解锁），
+      // 且不挂 boss 房再入冷却（副本已放人，不存在「再入」）。普通章节的
+      // 守关战维持旧口径：撤回上一景 + BOSS_FLEE_COOLDOWN 步冷却。
+      const standingScene =
+        chaptersEngine.getScene(save.scene) || chaptersEngine.currentScene(save);
+      if (
+        !guardianDown &&
+        bossChapter &&
+        standingScene &&
+        standingScene.escape_locked === true
+      ) {
+        const head = chaptersEngine.firstSceneOf(bossChapter);
+        patch.scene = head ? head.id : patch.scene;
+        patch.encounter_clock = 0;
+        sealedEscapeChapter = bossChapter.id;
+        patch.boss_cleared = [
+          ...(Array.isArray(save.boss_cleared) ? save.boss_cleared : []),
+          bossChapter.id,
+        ];
+        // 「存活至副本结束」：封门章的守关房即主线链尾（ch2 毒牙蛇），摆脱
+        // 守关者 = 熬过惩罚抵达副本终点——主线奖励就地入账，与链尾击杀的
+        // grantMain 同口径。封门场景已自「前进」前路摘除，玩家不会再踏上
+        // 链尾，不等这次发奖就永远漏发。
+        const sealedPath = chaptersEngine.chapterPath(bossChapter);
+        if (sealedPath.length && save.scene === sealedPath[sealedPath.length - 1].id) {
+          res.grantMain = bossChapter.id;
+        }
+        res.content +=
+          `\n【战斗】你摆脱了${e.name}的纠缠——它仍守在门后没有追出来。` +
+          `\n【系统】惩罚副本的握力松开了：你活着撑到它松手的一刻，被沙地抛回` +
+          `「${head ? sceneNarrName(head) : "入口"}」。守关者未倒，但你已不在它` +
+          `嘴里——封门的禁令就此解除，说「前进」便可离开本章。`;
+      } else if (prev) {
         patch.scene = prev.id;
         res.content +=
           `\n【战斗】你且战且退，撤回了「${sceneNarrName(prev)}」——` +
@@ -2431,8 +2534,8 @@ function combatTurn(save, cbt, action, input, skill, opts) {
   if (bossChapter) {
     const map = { ...(save.boss_hp && typeof save.boss_hp === "object" ? save.boss_hp : {}) };
     const remain = Math.max(0, Math.trunc(Number(e.hp) || 0));
-    if (remain > 0) map[bossChapter.id] = Math.min(remain, Math.max(1, Math.trunc(Number(e.maxHp) || 1)));
-    else delete map[bossChapter.id];
+    if (bossChapter.id === sealedEscapeChapter || remain <= 0) delete map[bossChapter.id];
+    else map[bossChapter.id] = Math.min(remain, Math.max(1, Math.trunc(Number(e.maxHp) || 1)));
     patch.boss_hp = map;
   }
   return res;
@@ -3013,13 +3116,28 @@ const INTENTS = [
         scene &&
         !encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, scene)
       ) {
-        enemy = tryEncounter({ ...save, encounter_cd: cdNext }, scene.id);
+        // F138：休憩掷敌走杂兵池（encounterEngine.rollRest）——守关 Boss
+        // 只被「前进」落地/房内叫阵惊动，不许被一次安歇召进藏身处；休息
+        // 遭遇回包挂 encounter_source:"rest" 供前端/断言分辨来源。
+        const chapter = chaptersEngine.getChapter(save.chapter);
+        if (chapter) {
+          const seq = nextEncounterSeq(save);
+          enemy = encounterEngine.rollRest({
+            chapterIndex: chapter.index,
+            scene,
+            clock: Math.max(0, rawClock),
+            seed: `${save.id}:${scene.id}:${Math.max(0, rawClock)}:${seq}`,
+            playerLevel: save.level,
+          });
+          if (enemy) enemy.seq = seq;
+        }
       }
-      const res = { patch, content, combat: null };
+      const res = { patch, content, combat: null, encounter_source: null };
       if (enemy) {
         res.combat = { op: "set", enemy, turn: 1 };
         patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
         patch.encounter_seq = enemy.seq;
+        res.encounter_source = "rest";
         res.content += `\n【遭遇】休憩被硬生生打断——${enemy.name} Lv.${enemy.level} 摸到了你的藏身处，它的 HP ${enemy.hp}/${enemy.maxHp}。`;
         res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
       } else {
@@ -3150,6 +3268,9 @@ function executeIntent(save, intentId, input) {
     // F137：副本封门拒绝的独立标记——与一般 refused（门禁/交战忙碌）区分，
     // 回包随 refused 一并下发，缺省不下发。
     escape_locked: built.escape_locked === true,
+    // F138：遭遇来源标记（"rest" = 休憩惊动的杂兵）——意图层只在休息
+    // 掷出遭遇时挂值，其余路径缺省不下发。
+    encounter_source: built.encounter_source || null,
   };
 }
 
@@ -4059,6 +4180,7 @@ api.post("/action", (req, res) => {
   if (outcome.shadows) payload.shadows = outcome.shadows;
   if (outcome.panel) payload.panel = outcome.panel;
   if (outcome.escape_locked) payload.escape_locked = true;
+  if (outcome.encounter_source) payload.encounter_source = outcome.encounter_source;
   res.json(payload);
 });
 
@@ -4221,6 +4343,7 @@ api.post("/ai-action", async (req, res) => {
     );
     const payload = { reply, intent: outcome.intent, save: saveView(store.getSave(save.id)) };
     if (outcome.shadows) payload.shadows = outcome.shadows;
+    if (outcome.encounter_source) payload.encounter_source = outcome.encounter_source;
     if (degraded) payload.degraded = true;
     res.json(payload);
   } catch (err) {
