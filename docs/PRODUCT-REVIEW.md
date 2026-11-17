@@ -1796,3 +1796,9 @@
 - 合并：`feat/F189` → `feat/F187` 依次 `--no-ff` 合入 main（零冲突，两个分支文件零交集）；`ci-deploy.sh` 全闸门绿 + 内置 e2e 7/7，`DEPLOY OK`；本地 3020 / health / 公网 `https://openfolio.uk/game` 均 200；部署后 `verify.sh F187/F188/F189` 在 live 上逐条 PASS，全量 `run-all.mjs` 再跑 7/7。
 - 本轮无 devin 失败回退（两条车道都是一次交给 devin 完成；F187 那条跑了 20 分钟，未触发 25 分钟超时线）。
 - 遗留观察（未立项）：`combat-round-variety.mjs` 依赖 `DB_PATH` 默认 `ROOT/data/game.db`，与其它断言走 `_http.mjs` 的 HTTP 口径不一致——若将来主库路径调整，这条断言会先红，届时顺手统一。
+
+### 第 31 轮补记：全表抓出的一个真回归 + 一个偶发红（均已修，第二次上线）
+- **F187 打红了已勾选的 F074（risk high）**：为了让落地首屏「≤320 字」，车道 A 把落点场景正文截成「最后一段 + 代价注脚」，而 F074 的契约是「落地回包必须含落点场景 text 开头 ≥12 字原文」，全表跑到 `push 3` 直接报 `reply does not contain scene text of ch1_statues`。**这是我自己写的验收口径（把叙事长度当成要压的东西）害的实现走偏**——F187 真正该压的是 5 条系统行，不是叙事。修法：落地回包恢复场景原文一字不删，系统行仍压到 2 段（【任务】段头在落地回包里不再出现，链尾「本章主线 N/N 完成」并入【遭遇】句），`combat-open-brief` 的口径改成「系统段落字数 ≤200 且【】段 ≤2 且场景原文完整」，不再用全文字数当阈值。
+- **`combat-round-variety` 偶发红**：命中率封顶 0.98，「整回合双方都打空」是合法结果，断言却写死「每回合正文必含造成 N 点伤害」。已改为与实测掉血绑定——**实际掉血的那一侧**必须含「造成 N 点伤害」且数字对得上，双方都没掉血的回合必须含 miss/闪避语义且不得凭空出现伤害数字。连跑 5 次 5/5，线上再连跑 3 次全绿。
+- 修后复验（3033 隔离库 + 线上）：`scene-advance` / `combat-open-brief` / `combat-round-variety`×5 / `boss-hp-persistence` / `boss-room-readiness` / `flee-guidance-wording` / `encounter-split-log` / `gate-refusal-free` / `gate-refusal-hint-spam` / `quest-settlement` / `advance-cost-transparency` / `ch1-boss-beatable` / `escape-locked-boss-cleared` / `boss-room-reentry-prose` 全绿，114 单测全绿；`ci-deploy.sh` 二次 `DEPLOY OK` + e2e 7/7；部署后 live 上 `verify.sh F074/F187/F188/F189` 四条全 PASS，全量 `run-all.mjs` 再跑 7/7，`combat-round-variety` 线上连跑 3 次全绿；本地 3020 / health / 公网均 200。
+- 两条修复合入 `feat/F187b`（swe-2-high，一次跑完，耗时 11 分钟）；本轮合计 **3 条 devin 车道、零回退**。
