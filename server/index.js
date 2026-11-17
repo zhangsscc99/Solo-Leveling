@@ -392,6 +392,25 @@ function clearSlot(saveId, slot) {
   return true;
 }
 
+// F147 配发即穿戴：STARTER_KIT 里 category 为 weapon/armor 的配发品
+// 自动装进对应槽位。幂等——slotView 非空（玩家已换上别的装备）不动，
+// 物品已不在背包（被丢弃）也不凭空变回一件；装备不占背包份额。
+function autoEquipStarterGear(saveId) {
+  const equipped = [];
+  for (const [itemId] of STARTER_KIT) {
+    const item = ITEMS.get(itemId);
+    const slot = item && SLOT_OF[item.category];
+    if (!slot || slotView(saveId, slot)) continue;
+    const owned = invStmts.get.get(saveId, itemId);
+    if (!owned || Number(owned.qty) <= 0) continue;
+    equipment[saveId] = equipment[saveId] || {};
+    equipment[saveId][slot] = item.id;
+    equipped.push(item);
+  }
+  if (equipped.length) persistEquip();
+  return equipped;
+}
+
 function grantStarterKit(saveId) {
   const tx = db.transaction((rows) => {
     for (const [itemId, qty] of rows) invStmts.add.run(saveId, itemId, qty);
@@ -402,11 +421,25 @@ function grantStarterKit(saveId) {
     "system",
     "【系统】猎人协会向你配发基础装备与补给（猎刀 / 皮甲 / 治疗药水 ×3 / 魔力药剂 ×2 / 传送门碎片 ×2），已存入背包。"
   );
+  // F147：配发的基础武器/防具直接穿上——Lv.1 不再裸身出门。
+  const equipped = autoEquipStarterGear(saveId);
+  if (equipped.length) {
+    const view = equipView(saveId);
+    store.appendLog(
+      saveId,
+      "system",
+      `【系统】已为你装备：${equipped.map((item) => item.name).join(" / ")}` +
+        `（攻击 +${view.atk} · 防御 +${view.def}）。`
+    );
+  }
 }
 
 // 老存档第一次打开背包时补发一次；用日志里的配发记录做幂等标记，
 // 所以清空背包后不会无限补发。
 function ensureStarterKit(saveId) {
+  // F147：功能上线前的老存档背包里已有配发品、装备槽却是空的，
+  // 打开背包（本检查）时顺手补穿；只填空槽，不顶玩家换装。
+  autoEquipStarterGear(saveId);
   if (invStmts.isEmpty.get(saveId)) {
     if (!invStmts.seeded.get(saveId)) grantStarterKit(saveId);
     return true;

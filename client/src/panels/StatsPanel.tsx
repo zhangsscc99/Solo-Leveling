@@ -102,7 +102,7 @@ export default function StatsPanel({
               <span className="cn-label">{label}</span>
               <span className="cn-num">{base}</span>
               {noGear ? (
-                <span className="cn-eq cn-none">无配发装备</span>
+                <span className="cn-eq cn-none">未装备</span>
               ) : (
                 <span className="cn-num cn-eq">{eq > 0 ? `+${eq}` : "0"}</span>
               )}
