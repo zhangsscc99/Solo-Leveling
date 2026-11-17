@@ -634,10 +634,22 @@ function guardianWarning(save, chapter, boss, opts) {
   const bossName =
     (bossTpl && bossTpl.name) ||
     chapterBossName(chapter || chaptersEngine.getChapter(save.chapter));
-  const bossHp = Math.max(
+  const bossMaxHp = Math.max(
     1,
     Math.trunc(Number(bossTpl && (bossTpl.maxHp !== undefined ? bossTpl.maxHp : bossTpl.max_hp)) || 1)
   );
+  // F182：预警报数与交战面板同一口径——守关者带档续打时写它的剩余
+  // HP 而不是满血模板值；脱战预警（未开怪）查 boss_hp 残血档兜底。
+  const bossChapterId =
+    (chapter && chapter.id) || (chaptersEngine.getChapter(save.chapter) || {}).id;
+  const liveHp = boss && typeof boss === "object" ? Math.trunc(Number(boss.hp)) : 0;
+  const persistedHp = bossHpFor(save, bossChapterId);
+  const bossHp =
+    liveHp > 0
+      ? Math.min(liveHp, bossMaxHp)
+      : persistedHp > 0
+        ? Math.min(persistedHp, bossMaxHp)
+        : bossMaxHp;
   const hp = Math.max(
     0,
     Math.trunc(Number(o.hp !== undefined ? o.hp : save.hp) || 0)
@@ -1155,6 +1167,15 @@ function bossCleared(save, chapterId) {
   return cleared.includes(chapterId);
 }
 
+// F182 守关者残血档：save.boss_hp 按章 id 记「上次撤离/倒下时未击杀的
+// 守关者剩余 HP」（与 boss_cleared 同一 key 口径，跨章天然隔离）。每场
+// 守关战回合结算时由 combatTurn 回写，真杀才删 key——撤离再战从这里
+// 续血，不再回满。普通小怪遭遇不走此账（每次遭遇都是满血新怪）。
+function bossHpFor(save, chapterId) {
+  const map = save && save.boss_hp && typeof save.boss_hp === "object" ? save.boss_hp : {};
+  return Math.max(0, Math.trunc(Number(map[chapterId]) || 0));
+}
+
 // 主线奖励门槛：本章主线链上若带 boss 场景，守关者必须先被击杀；
 // 链上无 boss 时自动满足（数据上 8 章都带，逻辑仍按通用口径写）。
 function bossRequirementMet(save, chapter) {
@@ -1215,7 +1236,15 @@ function tryEncounter(save, sceneId, opts) {
     // streak 达阈值后把 encounters:"none" 的场景也解锁为可掷点。
     streak: save.advance_streak,
   });
-  if (enemy) enemy.seq = seq;
+  if (enemy) {
+    enemy.seq = seq;
+    // F182：守关者带档续打——存档里记着它上次没被打死的残血，再叫阵
+    // 从残血起算而不是重新凝聚满血；无记录 = 首次交锋，满血出战。
+    if (enemy.boss) {
+      const residual = bossHpFor(save, chapter.id);
+      if (residual > 0) enemy.hp = Math.min(residual, enemy.maxHp);
+    }
+  }
   return enemy;
 }
 
@@ -1384,7 +1413,7 @@ function advanceWithEncounter(save) {
     // 普通遭遇落地则逃跑冷却未走完继续倒数（不互相吞掉）。
     patch.encounter_clock = enemy.boss ? 0 : rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
-    res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+    res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.hp}/${enemy.maxHp}。`;
     res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
     // F158：踏进守关者房开战的同一回包追加状态预警——残血玩家被强拉进
     // 守关战之前没人告知他状态，Lv.1 残血进门几回合就倒。预警用结算后
@@ -1944,6 +1973,19 @@ function combatTurn(save, cbt, action, input, skill, opts) {
   } else {
     res.combat = { op: "turn", enemy: e, turn: state.turn };
   }
+
+  // F182：守关者残血随每回合结算落档——撤离/阵亡时交战行虽删，残血
+  // 仍留在存档里等下次叫阵续打；只有真杀（e.hp<=0）才删 key 清零。
+  // 与 boss_cleared 同章 id 口径：跨章/换场景天然隔离，不会把上一章
+  // 的残留套到新守关者身上。普通小怪遭遇不记此账（每次满血）。
+  const bossChapter = cbt.enemy.boss ? chaptersEngine.getChapter(save.chapter) : null;
+  if (bossChapter) {
+    const map = { ...(save.boss_hp && typeof save.boss_hp === "object" ? save.boss_hp : {}) };
+    const remain = Math.max(0, Math.trunc(Number(e.hp) || 0));
+    if (remain > 0) map[bossChapter.id] = Math.min(remain, Math.max(1, Math.trunc(Number(e.maxHp) || 1)));
+    else delete map[bossChapter.id];
+    patch.boss_hp = map;
+  }
   return res;
 }
 
@@ -1995,8 +2037,8 @@ function peacefulCombatIntent(save, input, action) {
         patch: { encounter_clock: rawClock < 0 ? rawClock : 0, encounter_seq: enemy.seq },
         content:
           (bossChallenge
-            ? `【遭遇】你主动向仍未倒下的守关者叫阵——${enemy.name} Lv.${enemy.level} 被惊动，提前拦在出口前，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`
-            : `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`) +
+            ? `【遭遇】你主动向仍未倒下的守关者叫阵——${enemy.name} Lv.${enemy.level} 被惊动，提前拦在出口前，它的 HP ${enemy.hp}/${enemy.maxHp}。`
+            : `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.hp}/${enemy.maxHp}。`) +
           `\n${fleeGuidanceLine(enemy.seq)}`,
         events: [],
         combat: { op: "set", enemy, turn: 1 },
@@ -2430,7 +2472,7 @@ const INTENTS = [
         res.combat = { op: "set", enemy, turn: 1 };
         patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
         patch.encounter_seq = enemy.seq;
-        res.content += `\n【遭遇】休憩被硬生生打断——${enemy.name} Lv.${enemy.level} 摸到了你的藏身处，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+        res.content += `\n【遭遇】休憩被硬生生打断——${enemy.name} Lv.${enemy.level} 摸到了你的藏身处，它的 HP ${enemy.hp}/${enemy.maxHp}。`;
         res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
       } else {
         patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : rawClock + 1;
