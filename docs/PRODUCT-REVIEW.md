@@ -1736,3 +1736,16 @@
 ### 本轮新增 1 条，取 2 条既有条目本轮做
 - **F187**（P1 节奏/文本，守关战落地一屏 6 段信息）→ 顺延下一轮（本轮两条车道已被 F183+F184 / F186 占满）；
 - 本轮实做：**F183 + F184**（车道 A，`server/index.js` 同函数族，串行，swe-2-high）+ **F186**（车道 B，`client/src/App.tsx`，swe-2-medium，与 A 文件零交集）。
+
+### 第 30 轮验收与上线记录
+- 车道 A（F183+F184，swe-2-high，`server/index.js` + `server/db.js` + `server/engine/prose.js`）：`gate-refusal-hint-spam` / `sneak-has-payoff` 各连跑 2 次绿，`gate-refusal-free` / `flee-guidance-wording` / `boss-hp-persistence` / `boss-room-readiness` / `boss-refusal-affordance` 全绿，`node scripts/e2e/run-all.mjs` 7/7 绿；主库新档实测：首屏完整「状态预警」，第 2–5 次只剩一行「第 N 次被威压逼退——说「攻击」或「叫阵」开战」，真打一场再回门前完整提示重新出现；连潜 3 次 MP 20→5、三句各不同且都带「接下来更难被发现（潜行 n/2）」，随后两次「前进」正文出现「这一幕没有被察觉」，第三次真实推进到守关房。
+- 车道 B（F186，swe-2-medium，`client/src/App.tsx` + `styles.css`）：**第一版不合格**——把 `.combat-lock-hint` 从 footer 挪进 `.stage` 做 sticky，footer 内可见 `[role=note]` 计数确实变成 1，但屏幕上仍是两条近义提示（一条 stage 下缘、一条 footer），只是绕开了断言。已退还 devin 修正（swe-2-medium 第二轮）：窄屏彻底不渲染第二条，只留 `.save-blocked-hint` 承载合并文案「交战中无法写入存档、也无法推进剧情 · 先「逃跑」或打赢这一场」；`combat-hint-dedupe` 的计数口径同步改成「整页可见交战提示 = 1」，不再只看 footer。修后 390 实测：可见提示 1 条、`.stage=512.0px`、`footer.actions=197.0px`、overflow 0；1440 两条并存各自原文。
+- 两次 `ci-deploy.sh` 闸门均全绿（DEPLOY OK），本地 3020 与公网 `https://openfolio.uk/game` 均 200；上线后 F183 / F184 / F186 三条 verify 在 live 上再次 PASS。
+- 本轮无 devin 失败回退（两次都是 devin 完成的，第二次是验收不合格后的定向返工）。
+- 遗留观察（未立项）：潜行在 `stealth_charges` 已满（2/2）时仍扣 5 MP 且文案不变「潜行 2/2」——额度满时是否应当拒绝或给出不同文案，留给下一轮判断；F187 已登记为下一轮 P1。
+
+### 第 30 轮补记：全表跑出来的两个断言问题（已修）
+- **F134（risk high）在 main 上被打红**：`death-rewind-rest-refill.mjs` C 段轮换只有「环顾四周 / 潜行 / 探索前进」，而 F184 上线后玩家会走到「守关房 + MP 见底 + 休息 0/3」这个状态——三种动作全是零 patch（潜行 `MP 不足` 拒绝、前进门拒、观察纯叙述），断言判成死局。逐步复现确认玩家真实出路是主按钮「叫阵守关者」/输入「攻击」，**不是产品 bug，是断言口径漏了这一格**。已交回 devin 修：守关房轮换补「攻击」、零 patch 只在「本步无真实可走动作」时计数、失败时打印最后 6 步取证；顺带给脚本加了起步清场与「DB/API 口径不一致」自检（脏库上 A 段曾报出与预期不符的存档视图）。
+- **F186 的新断言（`combat-hint-dedupe.mjs`）偶发红**：它靠「点逃跑直到脱战」造脱战态，逃跑是概率判定，全表并发跑时一次 `4 次逃跑仍未脱战` 就 FAIL。已改为「另开新档取脱战态」，交战态仍走 API 打通遭遇 + reload 回灌；断言项一条没删。**连跑 5 次全绿**，本轮起 E2E 稳定性按这条口径验收。
+- 修后复验：live 上 `F134` / `F186` 各连跑两次全绿，`run-all.mjs` 连跑两次 7/7；断言脚本不进部署产物，故未重新部署。
+- 新登记 **F188**（P2）：潜行额度已满（2/2）时仍白扣 5 MP 且文案不变，属「花钱买同一句话」，下一轮处理。
