@@ -129,7 +129,7 @@ try {
   });
 
   await check("390 行动栏四键可点（elementFromPoint 命中自身）", async () => {
-    const btns = page.locator(".action-groups .btn-group:not(.btn-group-sys) > .btn");
+    const btns = page.locator(".action-groups .btn-group:not(.btn-group-sys):not(.btn-group-choice) > .btn");
     const n = await btns.count();
     assert(n === 4, `行动键数量=${n} (!=4)`);
     for (let i = 0; i < n; i++) {
@@ -138,6 +138,24 @@ try {
       assert(h.ok, `「${label}」elementFromPoint(${h.x.toFixed(0)},${h.y.toFixed(0)}) 命中 ${h.hit}`);
     }
     return "4/4 hit self";
+  });
+
+  await check("390 分支选项键可点（elementFromPoint 命中自身）", async () => {
+    const btns = page.locator(".btn-group-choice > .btn");
+    const n = await btns.count();
+    assert(n === 2, `选项键数量=${n} (!=2)`);
+    for (let i = 0; i < n; i++) {
+      const h = await hitTest(page, btns.nth(i));
+      const label = (await btns.nth(i).innerText()).trim().split("\n")[0];
+      assert(h.ok, `「${label}」elementFromPoint(${h.x.toFixed(0)},${h.y.toFixed(0)}) 命中 ${h.hit}`);
+      const w = await btns.nth(i).evaluate((el) => el.getBoundingClientRect().width);
+      assert(w > 0, `「${label}」可见宽度=${w}`);
+    }
+    const d = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    );
+    assert(d === 0, `选项键撑出横向滚动 scrollWidth-clientWidth=${d}`);
+    return "2/2 hit self, no hscroll";
   });
 
   await check("390 系统键八键可点（elementFromPoint 命中自身）", async () => {
