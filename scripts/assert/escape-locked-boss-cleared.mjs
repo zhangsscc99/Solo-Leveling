@@ -118,9 +118,10 @@ const PHANTOM = ["撑到", "存活至", "副本终结", "副本结束"];
       `(a) ${sceneId}「离开这里」扣了体力：${before.hp}/${before.mp} -> ${r.save.hp}/${r.save.mp}`
     );
     const logsAfter = await logCount(id);
+    // F142 契约：拒绝仍写 2 条日志（user 原文 + 拒绝文案），数值/位移零变化（上面已断言）。
     assert(
-      logsAfter === logsBefore,
-      `(a) ${sceneId} 封门拒绝写了 ${logsAfter - logsBefore} 条日志（应零增长）`
+      logsAfter - logsBefore === 2,
+      `(a) ${sceneId} 封门拒绝应写 2 条日志（user+system），实际 ${logsAfter - logsBefore}`
     );
   }
   console.log("[OK] (a) Boss 未清：封门拒绝保留，文案单一路径点名「前进/叫阵」、无 phantom 出路");

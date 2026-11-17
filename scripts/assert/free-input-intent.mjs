@@ -206,7 +206,11 @@ const PENALTY_BOSS = "ch2_poison_fang";
     );
   }
   const logsAfter = await logCount(id);
-  assert(logsAfter === logsBefore, `(c)(d) 封门拒绝写了 ${logsAfter - logsBefore} 条日志（应零增长）`);
+  // F142 契约：(c)(d) 两次封门拒绝各写 2 条日志（user 原文 + 拒绝文案），数值/位移零变化。
+  assert(
+    logsAfter - logsBefore === 4,
+    `(c)(d) 封门拒绝应写 4 条日志（2 次 × user+system），实际 ${logsAfter - logsBefore}`
+  );
   console.log("[OK] (c)(d) escape_locked：离开/撤离被封死，不挪位不掷怪不遇毒牙蛇");
 
   // ── (f-locked) 封门副本里「回到第1章」：同样不得落未识别、不得挪位 ──
