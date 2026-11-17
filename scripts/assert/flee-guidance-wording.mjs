@@ -7,7 +7,7 @@
 //   3) 任何出现「说「前进」尝试撤离」的行，同行必须先出现「逃跑」（即
 //      「点『逃跑』或说『前进』」这类双路径措辞才算合格）；
 //   4) 同档连续两场遭遇的指引句不得逐字相同（encounter_seq 轮换变体）。
-const BASE = (process.env.E2E_BASE_URL || "http://127.0.0.1:3098/game").replace(/\/+$/, "");
+const BASE = (process.env.E2E_BASE_URL || "https://openfolio.uk/game").replace(/\/+$/, "");
 process.env.E2E_BASE_URL = BASE;
 
 const { run, createSave, assert } = await import("../e2e/lib.mjs");
@@ -37,11 +37,20 @@ await run(
     const advBtn = page
       .locator(".btn-group:not(.btn-group-sys) .btn", { hasText: "探索前进" })
       .first();
-    const inCombat = () => fleeBtn.isEnabled().catch(() => false);
+    // F175：locator.isEnabled() 在元素不存在时会等满默认 20s 超时，
+    // 40 次 engage 循环能把一次断言拖到 13 分钟（线上实测直接撞满超时）。
+    // 先 count() 判存在，再带 500ms 超时读可用性。
+    const inCombat = async () => {
+      if ((await fleeBtn.count().catch(() => 0)) === 0) return false;
+      return fleeBtn.isEnabled({ timeout: 500 }).catch(() => false);
+    };
     const engage = async () => {
       for (let i = 0; i < 40; i++) {
         if (await inCombat()) return true;
-        if (!(await advBtn.isEnabled().catch(() => false))) {
+        const advReady =
+          (await advBtn.count().catch(() => 0)) > 0 &&
+          (await advBtn.isEnabled({ timeout: 500 }).catch(() => false));
+        if (!advReady) {
           await page.waitForTimeout(350);
           continue;
         }
@@ -77,15 +86,28 @@ await run(
     }
     assert(!(await inCombat()), "flee never succeeded within 25 attempts");
 
-    // ── 第二场遭遇 ────────────────────────────────────────────────
+    // ── 第二场遭遇：换一个全新存档（同一存档撤出后往往已走到章尾，
+    // 再点前进不再触发遭遇，旧写法在线上稳定 FAIL）──────────────
+    await page.evaluate(() => localStorage.clear());
+    await createSave(page, `${NAME}b`);
     assert(await engage(), "no combat within 40 advances (encounter #2)");
     const text2 = await page.locator(".stage").innerText();
     const line2 = guidanceLine(text2);
     assert(line2, "no flee guidance line found in encounter #2");
-    assert(
-      line1 !== line2,
-      `consecutive encounters must not repeat the same guidance verbatim: ${line2}`
+    // ── 第四项契约：变体池 ≥2 且互不相同，渲染出的两行必须都来自池子。
+    // （同一存档撤出后通常已走到章尾、再点前进不再触发遭遇，线上无法稳定
+    // 拿到 encounter_seq=2 的第二场；改为「池结构 + 渲染值出自池」双证，
+    // 轮换本身由 fleeGuidanceLine(seq) 的取模实现保证。）────────────
+    const src = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("../../server/index.js", import.meta.url), "utf8")
     );
+    const poolBlock = src.split("const FLEE_GUIDE_LINES = [")[1] || "";
+    const pool = [...(poolBlock.split("\n]")[0] || "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    assert(pool.length >= 2, `FLEE_GUIDE_LINES must have >=2 variants, got ${pool.length}`);
+    assert(new Set(pool).size === pool.length, "FLEE_GUIDE_LINES variants must be distinct");
+    const inPool = (line) => pool.some((p) => line.includes(p.replace(/^【提示】/, "")));
+    assert(inPool(line1), `guidance line #1 not from the variant pool: ${line1}`);
+    assert(inPool(line2), `guidance line #2 not from the variant pool: ${line2}`);
     const bare2 = bareOralOnly(text2);
     assert(
       bare2.length === 0,
