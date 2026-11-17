@@ -3547,3 +3547,13 @@ button {
   font-size: var(--fs-xs);
   color: var(--faint);
 }
+
+/* ── F200 交战「连击 ×3」第 6 键（只追加，不改既有交战组规则）──
+   ≤880px 交战组仍走既有 repeat(6, minmax(0,1fr)) 6 列轨道：第 4–6 键
+   由 span 3 收为 span 2，六键 3+3 两行等宽铺满——第 6 键落进同一
+   栅格内不产生横向滚动；桌面 flex 行内折行天然容纳，无需额外规则。 */
+@media (max-width: 880px) {
+  .actions-combat .btn-group:not(.btn-group-sys) > .btn:nth-of-type(n + 4) {
+    grid-column: span 2;
+  }
+}
