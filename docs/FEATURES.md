@@ -501,6 +501,9 @@
 - [x] F185 （P2 可用性，第29轮走查）交战态行动栏整组换五键，却没有任何一行说明「为什么不能前进」：走查时开战后我下意识再找「前进」，按钮消失、页面也没有解释，只能自己猜主线被暂停了。要求：① 交战态在行动栏上方渲染一行说明（role=note）：交战中无法推进剧情——先打完这一场，或点「逃跑」脱身；② 非交战态不渲染该行；③ 与既有 `.rest-hint` 视觉语言一致（弱对比小字、▪ 前缀），390×844 下无横向溢出、四键/五键布局不受影响；④ 不改任何服务端逻辑。断言：`node scripts/assert/combat-lock-hint.mjs` —— 新档进守关房开战，断言 `footer.actions` 上方存在含「无法推进剧情」与「逃跑」的提示且可见；脱战后该提示消失；390 视口 `scrollWidth-clientWidth===0`；旧码上必红（该文案不存在）
   verify: node scripts/assert/combat-lock-hint.mjs
   risk: low
+- [ ] F186 （P2 可用性，第29轮回归暴露）390×844 交战时行动栏上方同时挂着两条近义浮层：「交战中无法推进剧情 · 先打完或「逃跑」脱身」（F185b 新增）与既有的「交战中无法写入存档 · 先「逃跑」或打赢这一场」——两句都以「先打完/逃跑」收尾，视觉上像同一件事说了两遍，还把日志区下缘挤得更挤。要求：① 窄屏（≤880px）交战时只显示**一条**合并提示，语义同时覆盖「不能存档」与「不能推进剧情」，且两条信息都不能丢；② 桌面（>880px）保持「行动」标签行内后缀那条（零行高），并让存档提示仍按原条件显示；③ 不得打红 `save-blocked-hint.mjs` 与 `combat-actions-ui.mjs`（前者要求交战中 `.save-blocked-hint` 存在，合并时优先让该元素承载合并文案，或在同一容器内合并渲染，不要简单 display:none）；④ `.stage ≥ 60% 视口` 与 `footer.actions ≤205px` 两条硬契约不变。断言：`node scripts/assert/combat-hint-dedupe.mjs` —— 390×844 交战中 `.actions` 上缘浮动提示**只有 1 条**（按可见的 `[role=note]` 计数），其文本同时含 `存档` 与 `推进剧情`；1440 下行动标签行内后缀存在且 `.stage` 高度不变；`combat-lock-hint.mjs` / `save-blocked-hint.mjs` / `combat-actions-ui.mjs` 三条同时绿
+  verify: node scripts/assert/combat-hint-dedupe.mjs
+  risk: low
 
 ### 第 29 轮验收记录（2026-11-17 cron；走查 → F182 机制车道 + F185 可用性车道 → 上线）
 - 走查（390×844 / 1440×900，干净上下文，新代号 R29mA*/R29dB*）：首屏 1.17–1.45s、觉醒 1.09–1.77s、自由输入 274–404ms、前进 225–503ms、战斗回合 108–135ms、刷新续档五项逐项一致；console error 0、pageerror 0、双视口 overflow 0；四维 4/2/4/3（选择感 2 分来自守关者回满 + 潜行零收益），详见 docs/PRODUCT-REVIEW.md「第 29 轮」。
@@ -510,6 +513,8 @@
 - F185 ✅ devin swe-2-medium：`client/src/App.tsx` 在 `.actions-main` 内按 `liveCombat` 渲染 `.combat-lock-hint`（role=note，▪ 前缀，文案含「无法推进剧情」「逃跑」），分析样式追加到 styles.css 末尾（同 `.rest-hint` 的 `--faint`/`--fs-xs`）；390 实测 `scrollWidth==clientWidth==366` 未截断、五键仍 3+2、overflow 0；脱战即消失。
 - 回归面（线上 3020）：flee-prose-by-enemy-kind / boss-room-readiness / boss-room-reentry-prose / combat-gate / advance-cost-transparency / action-prose-by-chapter / free-narration-ack / free-tail-jargon / entity-grounding / observe-prose-concrete / rest-disabled-hint / repetition-and-jargon / ch1-boss-beatable 全绿；`node --test` 117/117；`ci-deploy.sh` DEPLOY OK（构建 → 重启 → health 200 → 公网 200 → E2E 7/7）；部署后 `verify.sh F182` / `F185` 线上 PASS。
 - 本轮新增 4 条，取 2 条做完；顺延 **F183**（逼退提示每按一次复读 150 字数字块）、**F184**（潜行烧 5MP 零可观测收益）——两条都要改 `server/index.js` 同一函数族，按「一轮一个 index.js 车道」排队下一轮。
+- **本轮上线即回归并当场修掉（F185b）**：F185 第一版把提示做成一整行，390×844 下 `footer.actions` 197→218.6px、`.stage` 512→490.4px，打红 **F094 / F113 / F119** 依赖的 `combat-actions-ui` 契约（`.stage ≥ 60% 视口`，report 全表三次红）。第二条 pass 改为「桌面=行动组标签行内后缀（零行高）/ ≤880px=锚在底栏上缘的浮层小字」，并给 `combat-lock-hint.mjs` 补 f/g 两条回归锁（`.stage ≥ innerHeight×0.6`、`footer.actions ≤205px`）。修复后实测 `.stage=512.0px`、`footer.actions=197.0px`，`combat-actions-ui` / `combat-lock-hint` / e2e mobile+panels+desktop-layout 全绿，二次 `ci-deploy.sh` DEPLOY OK。
+  - 副作用登记 **F186**（P2）：窄屏交战时「无法推进剧情」与既有「无法写入存档」两条浮层并存，语义重复、字面都以「先打完/逃跑」收尾，下一轮合并成一条。
 - 既有顺延不变：F078 / F093 / F097 / F102 / F128 / F138（risk high 或需人工确认）。
 
 ### 第 28 轮验收记录（2026-11-17 cron；走查 → F178/F180/F181 文本车道 + F177 可用性车道 → 解 F092 契约冲突 → 上线）
