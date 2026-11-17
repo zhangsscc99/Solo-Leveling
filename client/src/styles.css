@@ -161,6 +161,45 @@ button {
   gap: var(--sp-3) var(--sp-6);
   background: var(--hull);
   padding: var(--sp-3) var(--sp-5);
+  /* F201：.save-hint 绝对定位的锚（顶栏下缘右侧），relative 不动布局。 */
+  position: relative;
+}
+
+/* F201「已记录」微提示：顶栏下缘右侧浮现的一行细字，回答「这一路的
+   推平到底有没有写上」。绝对定位不进文档流、不遮顶栏数值、不拦点击；
+   等宽极小号 + faint 灰与 .sys-toast 同排印语言，1.8s 淡出（末段归零
+   后由 App 计时卸载，DOM 不残留）。交战态文案换「交战结束后可写入」，
+   绝不谎报已写入。 */
+.save-hint {
+  position: absolute;
+  right: var(--sp-5);
+  top: calc(100% + 2px);
+  z-index: 15;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  animation: save-hint-fade 1.8s ease-out forwards;
+}
+
+@keyframes save-hint-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  12% {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+  65% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .status-id {
