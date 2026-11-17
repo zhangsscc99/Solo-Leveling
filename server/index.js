@@ -128,7 +128,9 @@ function sceneView(save) {
       : null,
     next_choices: (Array.isArray(scene.choices) ? scene.choices : [])
       .slice(0, 3)
-      .map((c) => ({ id: c.id, label: c.label })),
+      // F196：cost 是该选项 effects 的一句代价标注（「体力 −5」），
+      // 前端按字段渲染——有代价的选项在按钮上就把账摊开。
+      .map((c) => ({ id: c.id, label: c.label, cost: choiceCostHint(c) })),
   };
 }
 
@@ -980,11 +982,102 @@ function chapterEntryNote(chapterId, hpCost, mpCost) {
   return CHAPTER_ENTRY_NOTES[(Math.max(1, n) - 1) % CHAPTER_ENTRY_NOTES.length];
 }
 
+// ---------------------------------------------------------------------------
+// F196 分支选项：显式「选择 <序|id>」/请求体 choice_id 把当前场景的
+// choice 落成一次真实推进——落点仍是 choice.next（主线拓扑不变），但
+// lead 首段正文与 effects 结算随选项不同，选项不再是无差别的装饰。
+// ---------------------------------------------------------------------------
+
+// 场景选项的显式匹配：序号（1 起）、id、或与 label 逐字相同——只认精确
+// 命中，绝不按 label 子串猜测（F075 旧坑：label 含「观察」字样就把玩家
+// 误送进支线场景）。
+function matchSceneChoice(choices, sel) {
+  const s = String(sel || "").trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) {
+    const i = Number(s) - 1;
+    return i >= 0 && i < choices.length ? choices[i] : null;
+  }
+  return choices.find((c) => c && c.id === s) || choices.find((c) => c && c.label === s) || null;
+}
+
+// 「选择 <选择子>」「选 <选择子>」整句锚定——叙述句（「我选了半天」）
+// 与句中词（「要不要选择」）都不命中。
+function choiceSelFromInput(input) {
+  const m = /^(?:选择|选)\s*([^\s，。！？]{1,24})\s*$/.exec(String(input || "").trim());
+  return m ? m[1] : null;
+}
+
+// 线索旗标读账与【发现·名字】同一口径：日志行里的「【线索·flag】」即
+// 旗标（兼容旧版「（获得标记：flag）」写法）。写账随落地回包正文落
+// 日志，不另开表、不另开字段；requires.flag 也走这本账。
+function flagSeen(saveId, flag) {
+  const f = String(flag || "");
+  if (!f) return false;
+  const cur = discoveryStmts.seen.get(saveId, `%【线索·${f}】%`);
+  if (cur && Number(cur.n) > 0) return true;
+  const legacy = discoveryStmts.seen.get(saveId, `%（获得标记：${f}）%`);
+  return Boolean(legacy && Number(legacy.n) > 0);
+}
+
+// choice.effects → 可落增量：hp/mp 是叠加在步骤代价上的整数增量（负数
+// 即额外消耗，结算处统一 clamp 到上限）；xp/gold/item 走既有
+// applyOutcome → grantRewards 管线入账；flag 在回包末尾写「【线索·
+// flag】」标记（log 即是 save 的线索记录）。lead 是该选项专属的首段
+// 正文——先于落点场景 text 落日志，与既有叙事行同格式。
+function choiceEffects(choice) {
+  const fx = (choice && typeof choice.effects === "object" && choice.effects) || {};
+  const out = { hp: 0, mp: 0, rewards: null, notes: "", lead: "" };
+  out.hp = Math.trunc(Number(fx.hp) || 0);
+  out.mp = Math.trunc(Number(fx.mp) || 0);
+  const xp = Math.trunc(Number(fx.xp) || 0);
+  const gold = Math.trunc(Number(fx.gold) || 0);
+  const item = typeof fx.item === "string" && ITEMS.has(fx.item) ? fx.item : null;
+  const flag = typeof fx.flag === "string" && fx.flag ? fx.flag : null;
+  const rewards = {};
+  if (xp > 0) rewards.xp = xp;
+  if (gold > 0) rewards.gold = gold;
+  if (item) rewards.items = [{ id: item, qty: 1 }];
+  if (Object.keys(rewards).length) out.rewards = rewards;
+  const notes = [];
+  if (xp > 0) notes.push(`【奖励】XP +${xp}。`);
+  if (gold > 0) notes.push(`【奖励】金币 +${gold}。`);
+  if (item) notes.push(`【获得】「${ITEMS.get(item).name}」×1。`);
+  if (flag) notes.push(`【线索·${flag}】已记下。`);
+  if (notes.length) out.notes = `\n${notes.join("\n")}`;
+  const lead = typeof choice.lead === "string" ? choice.lead.trim() : "";
+  if (lead) out.lead = `${lead}\n`;
+  return out;
+}
+
+// 按钮/回包上的代价标注：只写看得见的账（体力/魔力/经验/金币/物品），
+// flag 是内部旗标不上按钮。没有可标注代价时返回 null。
+function choiceCostHint(choice) {
+  const fx = (choice && typeof choice.effects === "object" && choice.effects) || {};
+  const parts = [];
+  const hp = Math.trunc(Number(fx.hp) || 0);
+  const mp = Math.trunc(Number(fx.mp) || 0);
+  const xp = Math.trunc(Number(fx.xp) || 0);
+  const gold = Math.trunc(Number(fx.gold) || 0);
+  if (hp) parts.push(`体力 ${hp > 0 ? "+" : ""}${hp}`);
+  if (mp) parts.push(`魔力 ${mp > 0 ? "+" : ""}${mp}`);
+  if (xp > 0) parts.push(`经验 +${xp}`);
+  if (gold > 0) parts.push(`金币 +${gold}`);
+  if (typeof fx.item === "string" && ITEMS.has(fx.item)) {
+    parts.push(`获得「${ITEMS.get(fx.item).name}」`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
 // 「前进」结算：严格沿本章主线链推进 save.scene，日志正文一律用落点
 // 场景的真实 text。落到链尾场景 = 本章主线完成（播报写出 N/N），站在
 // 链尾再前进触发章节门；全篇终点（ch8_epilogue）只输出收束提示——
 // 结局正文在抵达 epilogue 时已输出一次，之后不得重复打印。
-function advanceOutcome(save) {
+// F196：choice 形参 = 玩家显式点名的当前场景选项——落点换用
+// choice.next（数据层与 next_scene 同向），正文先落该选项的 lead，
+// effects 叠加进本步 patch/rewards 统一结算。门禁顺序与「前进」同一
+// 口径：守关者未死/链尾过门照常先拦，选项不是绕开硬门的旁路。
+function advanceOutcome(save, choice) {
   const chapter = chaptersEngine.getChapter(save.chapter);
   const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
   if (!path.length) {
@@ -994,12 +1087,29 @@ function advanceOutcome(save) {
   const vit = vitalsCost(save);
   const idx = chaptersEngine.pathIndexOf(chapter, save.scene);
 
+  // F196 显式分支：choice 是当前场景的真实选项（choice 意图已做精确
+  // 匹配），其 next 即落点。落点必须仍在章内——悬空/跨界/空 next 一律
+  // 如实拒绝，不替玩家改道。支线场景不在主线链上（idx<0）时，显式
+  // 选项优先于自愈落点：玩家点名了分支就不是异常站位要拉回链首。
+  let choiceScene = null;
+  if (choice) {
+    const t = chaptersEngine.getScene(choice.next);
+    choiceScene = t && chapter.scenes.some((s) => s && s.id === t.id) ? t : null;
+    if (!choiceScene) {
+      return {
+        patch: null,
+        refused: true,
+        content: "【系统】这条路在眼前断了——你站了一会儿，终究没有迈出去。",
+      };
+    }
+  }
+
   // 自愈落点：save.scene 为空、悬空、错章或落在主线链之外（支线场景，
   // 支线只能通过 choice 进入、不占主线步序）→ 一律落到主线链首场景。
   // F124：这是异常路径自愈，不是真实推进——scripted 零消耗、不掷遭遇、
   // 不产 advance 事件（账本不写没发生的步数；新档建档即写入链首，
   // 正常玩家不会走到这里）。
-  if (idx < 0) {
+  if (idx < 0 && !choiceScene) {
     return {
       patch: { scene: path[0].id },
       scripted: true,
@@ -1059,6 +1169,22 @@ function advanceOutcome(save) {
         ) + `\n${hint}`,
     };
   }
+  if (
+    bossAlive &&
+    choiceScene &&
+    path.findIndex((s) => s && s.id === choiceScene.id) > idxBoss
+  ) {
+    // F196：支线场景的显式选项若落点越过守关者（数据上暂无此分支，
+    // 但选项不是绕开硬门的旁路）——与主线站位同口径，守关者把人
+    // 折返回守关房，选项的 lead/effects 不结算（这一步没走成）。
+    return {
+      patch: { ...vit.patch, scene: path[idxBoss].id, encounter_clock: 0 },
+      retreatToBoss: true,
+      content:
+        `【主线】守关者还守在那扇门前——你原路折返，回到「${sceneNarrName(path[idxBoss])}」。\n` +
+        `${vit.note}`,
+    };
+  }
   if (bossAlive && idx > idxBoss) {
     //   b) 人站在 boss 场景之后（旧档冷却期穿房的落点、含主线链尾）：
     //      「前进」不再干拒绝——折返回守关房。清掉 boss 房再入冷却
@@ -1091,7 +1217,31 @@ function advanceOutcome(save) {
   // /saves），让「1/7」点击前后都是真站位；这一步的免费化则消掉
   // 「开场白同一回包内掉血开战、每日任务空结算」的旧毛病。
   if (idx === 0) {
-    const nextScene = path[1];
+    const nextScene = choiceScene || path[1];
+    if (choiceScene) {
+      // F196 链首选项：仍是免费铺陈步（scripted——不掷遭遇、不产
+      // advance 事件），但选项自己的 effects 如实结算。lead 段先落
+      // 正文；代价注脚按真实结算值写——扣了血的选项不得再念
+      // 「未耗体力」。
+      const fx = choiceEffects(choice);
+      const hp = clamp(save.hp + fx.hp, 0, save.max_hp);
+      const mp = clamp(save.mp + fx.mp, 0, save.max_mp);
+      const patch = { scene: nextScene.id };
+      if (hp !== save.hp) patch.hp = hp;
+      if (mp !== save.mp) patch.mp = mp;
+      const parts = [];
+      if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
+      if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
+      const note = parts.length
+        ? `（这一步要付代价：${parts.join(" · ")}）`
+        : chapterEntryNote(chapter.id, ADVANCE_HP_COST, ADVANCE_MP_COST);
+      return {
+        patch,
+        scripted: true,
+        rewards: fx.rewards,
+        content: `${fx.lead}${nextScene.text}\n${note}${fx.notes}`,
+      };
+    }
     // F161：这是唯一一处「下一幕真的开始扣费」的免费步。
     // F173：注脚换成玩家语言、按章轮换（chapterEntryNote），不再把
     // 「HP 3 · MP 2」这种机制数字摊进叙述；代价事实仍如实保留
@@ -1103,11 +1253,30 @@ function advanceOutcome(save) {
     };
   }
 
-  const next = path[idx + 1];
+  const next = choiceScene || path[idx + 1];
   // 这一步将抵达主线链尾 = 本章 N/N 集满：播报写出完成状态，
-  // saveView 同步暴露 chapter_completed。
+  // saveView 同步暴露 chapter_completed。判定用真实落点（选项分支
+  // 落到链尾同样算集满，与主线推进同一口径）。
   const completeNote =
-    idx + 1 === path.length - 1 ? `\n【主线】本章主线 ${path.length}/${path.length} 完成。` : "";
+    next.id === path[path.length - 1].id ? `\n【主线】本章主线 ${path.length}/${path.length} 完成。` : "";
+  if (choiceScene) {
+    // F196 分支落地：vit 扣点与「前进」同额（同一步剧情推进），选项
+    // effects 的 hp/mp 叠加进去再 clamp——代价注脚写结算后的真实
+    // 前后值，不是模板常量。lead 段落为正文首段，落点场景 text 随
+    // 后照旧（F074 契约一字不删）。
+    const fx = choiceEffects(choice);
+    const hp = clamp(vit.patch.hp + fx.hp, 0, save.max_hp);
+    const mp = clamp(vit.patch.mp + fx.mp, 0, save.max_mp);
+    const parts = [];
+    if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
+    if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
+    const vitNote = parts.length ? `（体力消耗 ${parts.join(" · ")}）` : "（体力已见底）";
+    return {
+      patch: { ...vit.patch, hp, mp, scene: next.id },
+      rewards: fx.rewards,
+      content: `${fx.lead}${next.text}${completeNote}\n${vitNote}${fx.notes}`,
+    };
+  }
   return {
     patch: { ...vit.patch, scene: next.id },
     content: `${next.text}${completeNote}\n${vit.note}`,
@@ -1448,7 +1617,10 @@ function tryEncounter(save, sceneId, opts) {
 //   3) 落到主线链尾 → grantMain，但本章守关 boss 未击杀时只给提示不发奖；
 //   4) 场景真正移动（patch.scene 与原 scene 不同）才产出 advance 事件喂
 //      每日任务，原地踏步不计；跨章时遭遇保底计数随地图归零。
-function advanceWithEncounter(save) {
+// F196：choice 形参 = 显式点名的场景选项，透传给 advanceOutcome——分支
+// 落地与「前进」共用整条管线（遭遇判定/守关者强开战/疾行计数/链尾门槛
+// 一律同口径），选项只是换了落点文案与 effects 增量，不是第二条规则。
+function advanceWithEncounter(save, choice) {
   const cbt = store.getCombat(save.id);
   const enemyName = cbt && cbt.enemy ? cbt.enemy.name : "敌人";
   // F161 连续推进计数：每一次未被拒的「前进」（含交战中的撤离掷逃）
@@ -1521,7 +1693,7 @@ function advanceWithEncounter(save) {
     };
   }
 
-  const out = advanceOutcome(save);
+  const out = advanceOutcome(save, choice);
   const patch = out.patch ? { ...out.patch } : null;
   const moved = Boolean(patch && typeof patch.scene === "string" && patch.scene !== save.scene);
   // F117/F124 scripted 步（自愈落点 / 章首铺陈 / 过门穿章）：有真实位移
@@ -1534,7 +1706,9 @@ function advanceWithEncounter(save) {
     content: out.content,
     events: moved && !scripted ? ["advance"] : [],
     combat: null,
-    rewards: null,
+    // F196：分支选项的 effects 奖励随出参下发（advanceOutcome 已翻成
+    // grantRewards 口径），照旧由 applyOutcome 统一入账。
+    rewards: out.rewards || null,
     grantMain: null,
     refused: out.refused === true,
   };
@@ -2552,7 +2726,8 @@ const INTENTS = [
       content:
         "【系统】可用指令：\n" +
         "「状态」查看属性面板 · 「帮助」列出指令 · 「观察」环顾四周\n" +
-        "「前进」推进剧情（消耗少量体力） · 「潜行」压低气息（消耗 5 MP）\n" +
+        "「前进」推进剧情（消耗少量体力） · 「选择 <序号|名称>」走场景分支\n" +
+        "「潜行」压低气息（消耗 5 MP）\n" +
         "「休息」恢复体力与魔力（每章 3 次，休憩会推进时间、可能惊动敌人） · 「存档」写入当前进度\n" +
         "「影子」查看编队 · 「影子出战 <名字>」遣影入阵 · 「影子撤回 <名字>」令其归队\n" +
         "补给：「使用道具」自动选药，「使用/喝 <药名>」点名用药（交战与脱战均可）\n" +
@@ -2627,6 +2802,62 @@ const INTENTS = [
     id: "advance",
     role: "narrator",
     build: (save) => advanceWithEncounter(save),
+  },
+  {
+    // F196 显式分支指令：「选择 <序号|id>」或请求体 choice_id——input
+    // 实参是选择子本身（resolveAction 已剥壳）。只认当前场景真实存在
+    // 的选项，匹配不上/门槛未达一律 refused（零消耗、零位移）；命中
+    // 后走 advanceWithEncounter 的整条落地管线，与「前进」同一口径。
+    id: "choice",
+    role: "narrator",
+    build: (save, input) => {
+      const chapter = chaptersEngine.getChapter(save.chapter);
+      const scene = chapter ? chaptersEngine.currentScene(save) : null;
+      const choices = scene && Array.isArray(scene.choices) ? scene.choices : [];
+      if (!scene || !choices.length) {
+        return {
+          patch: null,
+          refused: true,
+          content: "【系统】这里没有分支可选——说「前进」继续剧情。",
+        };
+      }
+      const sel = String(input || "").trim();
+      const choice = matchSceneChoice(choices, sel);
+      if (!choice) {
+        const list = choices
+          .map((c, i) => `${i + 1}. ${c.label}`)
+          .join(" · ");
+        return {
+          patch: null,
+          refused: true,
+          content:
+            `【系统】没有「${sel}」这条分支。眼下可选：${list} ` +
+            `（说「选择 序号」点名，或直接报选项名）。`,
+        };
+      }
+      const req =
+        typeof choice.requires === "object" && choice.requires ? choice.requires : {};
+      if (
+        Number.isInteger(req.min_level) &&
+        Math.trunc(Number(save.level) || 0) < req.min_level
+      ) {
+        return {
+          patch: null,
+          refused: true,
+          content: `【系统】「${choice.label}」——实力还不够（需 Lv.${req.min_level}），这一步迈不出去。`,
+        };
+      }
+      if (typeof req.flag === "string" && req.flag && !flagSeen(save.id, req.flag)) {
+        return {
+          patch: null,
+          refused: true,
+          content:
+            `【系统】「${choice.label}」——你还没看清足够的线索，这一步迈不出去` +
+            `（说「观察」再仔细看看四周）。`,
+        };
+      }
+      return advanceWithEncounter(save, choice);
+    },
   },
   {
     id: "sneak",
@@ -2841,9 +3072,10 @@ function executeIntent(save, intentId, input) {
   const built = intent.build(save, input);
   // F161 疾行计数只记「连续前进」：任何未被拒绝的非前进动作（观察/休息/
   // 战斗/道具……）都把它归零——streak 是「连着按前进」的账，断档即清。
-  // advance 自己经 advanceWithEncounter 落新值；refused 不写档不动计数。
+  // advance/choice 自己经 advanceWithEncounter 落新值（F196：分支落地
+  // 也是一次前进）；refused 不写档不动计数。
   const patch =
-    intentId === "advance" || built.refused
+    intentId === "advance" || intentId === "choice" || built.refused
       ? built.patch
       : { ...(built.patch || {}), advance_streak: 0 };
   return {
@@ -3161,12 +3393,21 @@ function unknownFallbackContent(save, input) {
   );
 }
 
-function resolveAction(save, input) {
+function resolveAction(save, input, choiceSel) {
   // 裸面板名最先走面板路由（F129）：比关键词表更靠前，因为「属性」
   // 「影子编队」本就会被 status/shadow_formation 意图接住而轮不到
   // unknown 分支——面板路由是同一意图的更好落地，不是新解析层。
   const panel = panelOutcome(input);
   if (panel) return panel;
+  // F196 显式分支指令：请求体 choice_id 或文本「选择 <序|id|label>」。
+  // 先于关键词表拦截——选项 id 可能撞上 advance/observe 等英文关键词，
+  // 让关键词表先判会把「选择 observe」错拆成免费环顾。是否命中场景
+  // 真实选项交给 choice 意图结算（选不上也给如实拒绝）。
+  const sel =
+    choiceSel !== undefined && choiceSel !== null && String(choiceSel).trim() !== ""
+      ? String(choiceSel).trim()
+      : choiceSelFromInput(input);
+  if (sel !== null) return executeIntent(save, "choice", sel);
   // F154：背包真实补给名一并交给解析器——词尾表之外的点名叫法
   // （「喝能量饮」且背包真有「能量饮」）仍判 item；没点名不算。
   const intentId = intentRules.resolveIntent(input, bagSupplyNames(save));
@@ -3713,7 +3954,9 @@ api.post("/action", (req, res) => {
 
   // Server-side authority: the resolved intent's own delta is applied and the
   // result is clamped, so any numbers in the client payload are ignored.
-  const outcome = resolveAction(save, input);
+  // F196：choice_id 是显式分支指令（前端选项按钮/断言点名），随请求体
+  // 下发——选择子的归属与门槛全由服务端按当前场景数据判定。
+  const outcome = resolveAction(save, input, body.choice_id);
   // F096 章节门拒绝：零结算、零位移、零事件——applyOutcome 照跑空管线，
   // patch 本应为 null，谁把它改回带消耗谁就在响应里现形。
   // F142：但被拒的输入与拒绝文案本身是真实发生的往来——照旧写两条日志

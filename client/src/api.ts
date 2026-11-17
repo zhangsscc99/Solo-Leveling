@@ -54,6 +54,9 @@ export interface NextChapterView {
 export interface SceneChoice {
   id: string;
   label: string;
+  // F196：服务端把该选项 effects 的代价折成一句话（「体力 −5」），
+  // 无可见代价时为 null，前端原样渲染不自算。
+  cost?: string | null;
 }
 
 // F086 休息可用性：服务端统一给出口径（满状态/次数用尽/交战中），

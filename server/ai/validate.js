@@ -27,6 +27,7 @@ const INTENTS = Object.freeze([
   "help",
   "observe",
   "advance",
+  "choice",
   "sneak",
   "rest",
   "save",
