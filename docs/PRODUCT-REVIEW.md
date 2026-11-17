@@ -1380,3 +1380,4 @@
 - 本轮 ci-deploy 自带的新 ENV_ERROR 分支也自测通过（6/6 单测含「端口不通 → ENV_ERROR 退 2、不触发回滚」）。
 - 冒烟/断言存档清理：按 `assert- / e2e- / verify- / r22- / r22smoke / cron-smoke / reviewer- / merge-smoke` 前缀删除 130 条，库内剩 78 条（均为疑似真实玩家档，未动）。
 - 未做：`report.sh` 全表（18–20 分钟）本轮改为「本批 8 条 + 7 条高耦合已勾选条目 + 全量 E2E」定点回归，全表留待下一轮收尾。
+6. **F145 `out-of-combat-supply.mjs`（c/f 两处）**：同样把「拒绝零日志」写成期望值，被 F142 打红（report.sh 全表 2026-11-17_0211 抓到，9→11）。改为「恰写 2 行（user+system）」，保留「不扣数值/不耗库存」断言。修后连跑 2 次 PASS。

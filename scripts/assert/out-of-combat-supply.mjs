@@ -150,7 +150,11 @@ async function logRows(id) {
     `(c) 拒绝消耗了库存`
   );
   const logs = await logRows(id);
-  assert(logs.length === logsBefore, `(c) 拒绝写了日志：${logsBefore} -> ${logs.length}`);
+  // F142 契约：拒绝仍写 2 行（user 原文 + 拒绝文案），但不得有任何数值/库存变化（上面已断言）。
+  assert(
+    logs.length === logsBefore + 2,
+    `(c) 拒绝应写 2 行日志（user+system）：${logsBefore} -> ${logs.length}`
+  );
   const text = r.reply.content;
   assert(
     /休息\s*\d+\s*\/\s*3/.test(text),
@@ -211,7 +215,10 @@ async function logRows(id) {
     `(f) 拒绝消耗了库存：${manaBefore} -> ${await invQty(id, "mana_potion")}`
   );
   const logs = await logRows(id);
-  assert(logs.length === logsBefore, `(f) 拒绝写了日志：${logsBefore} -> ${logs.length}`);
+  assert(
+    logs.length === logsBefore + 2,
+    `(f) 拒绝应写 2 行日志（user+system）：${logsBefore} -> ${logs.length}`
+  );
   const text = r.reply.content;
   assert(
     !/满格/.test(text),
