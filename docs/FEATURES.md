@@ -476,6 +476,9 @@
 - [ ] F178 （P1 文本质量，第27轮走查发现，本轮未做）观察类散文回包是通用模板且不给下一步：实测线上输入「我贴着墙根慢慢挪步，留意脚下的动静」「我抬头看了看头顶的裂缝」，都落到 `server/index.js:2312` 的 observe 构建器，回「你放慢呼吸，重新审视「命令之律」。长明灯的火苗笔直向上……」——这既是 F170 明令散文路径不得出现的通用观察模板，又完全没有可执行动作词（F157 只覆盖 unknown 兜底分支，observe 分支漏网）。要求：① 观察类散文改为按词族/场景实体给具象叙述（复用 `UNKNOWN_SCENE_LINES` 思路），不得以「你放慢呼吸，重新审视」开头；② 每条 observe 回包至少给一个可点动词（观察/前进/潜行）；③ 数值与 `observeCount` 轮换口径零改动。断言：`node scripts/assert/observe-prose-concrete.mjs` —— 新档连发 3 句观察类散文（含「裂缝」「墙根」），正文均不得匹配 `/重新审视/`、均须匹配 `/观察|前进|潜行/`、三条互不相同；旧码上必红
   verify: node scripts/assert/observe-prose-concrete.mjs
   risk: low
+- [x] F179 （P1 验收稳定性，第27轮 report 全表暴露）F129 断言依赖模型判别 + F146 被短提示回归 ✅ (2026-11-17 cron devin swe-2-high；短提示改「仍可说「观察」或说「前进」。」（两个 `说「X」` 锚点）修回 F146；`no-placeholder-prose.mjs` 的 AI 侧改为钉确定性不变量——`intent` 不得 `unknown`、正文非空无占位、`observe/item/status` 三落点一律零副作用（`mayMutate` 显式白名单只给「我要休息一下」的 rest），意图确定性改钉 `/action` 规则路径；隔离实例 4 条断言连跑 3 轮全绿；线上部署后 F146/F129/F176/F157 连跑 3 轮全 PASS（F129 由修复前 3/4 FAIL 变为 3/3 PASS）)
+  verify: node scripts/assert/unknown-followup-context.mjs && node scripts/assert/no-placeholder-prose.mjs
+  risk: med
 - [ ] F177 （P2 可用性，第27轮走查）「休息」按钮灰置且无任何理由：第 1 章 1/7 与刚进入第 2 章时「休息」都是 disabled，点下去没有反馈，而同栏的「战斗」灰键至少写了「当前没有可攻击的目标」。要求：灰置的「休息」必须给出 `title` + 可见小字提示（交战中 / 本日次数已用完 / 本幕未付代价等按状态分句），不得用一个笼统句子兜住；数值与休息机制零改动。断言：`node scripts/assert/rest-disabled-hint.mjs` —— 新存档首屏 `footer.actions button:has-text("休息")` disabled 且 `title` 非空且与场景状态一致；交战中进入战斗断言提示文案变为交战口径
   verify: node scripts/assert/rest-disabled-hint.mjs
   risk: low
