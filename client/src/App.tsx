@@ -1097,6 +1097,9 @@ export default function App() {
                   觉醒
                 </button>
               </form>
+              {!name.trim() && (
+                <p className="gate-hint">先登记一个猎人代号，再按「觉醒」。</p>
+              )}
               <p className="gate-note">存档绑定本机浏览器，换设备请用同一猎人代号找回。</p>
               {conflict && (
                 <div className="gate-conflict" role="alertdialog" aria-label="检测到已有存档">
