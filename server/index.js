@@ -2755,7 +2755,7 @@ function unknownFallbackContent(save, input) {
   const tailN = unknownTailShown.get(save.id) || 0;
   const tail =
     tailN >= 1
-      ? ""
+      ? "仍可：观察 · 前进"
       : `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`;
   if (tailN < 1) unknownTailShown.set(save.id, tailN + 1);
   return (
