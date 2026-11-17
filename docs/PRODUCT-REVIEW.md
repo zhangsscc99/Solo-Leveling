@@ -1788,3 +1788,11 @@
 - **F189**（P1 文本厚度，战斗回合模板复读）→ 车道 B（`server/engine/combat.js` + 其测试，swe-2-medium；严禁碰 `server/index.js`）；
 - **F190**（P2 重新登记无确认）、**F191**（P2 预估承伤口径）→ 顺延下一轮（F190 在 `App.tsx`，F191 与 F187 同触交战面板数据，避免与车道 A 撞区）；
 - 本轮实做：**F187 + F188**（车道 A，同为 `server/index.js` 函数族，串行，swe-2-max）+ **F189**（车道 B，swe-2-medium，与 A 文件零交集）。
+
+### 第 31 轮验收与上线记录
+- 车道 A（F187+F188，swe-2-max，`server/index.js` + 新断言 2 个 + `sneak-has-payoff.mjs` 口径收敛）：在自己起的 3031 + `/tmp` 干净库上跑，`combat-open-brief`（旧码红：3 段/478 字 → 新码 2 段/223 字）、`sneak-at-cap`（旧码红：第 3 次 MP 10→5 额度仍 2/2 → 新码 `refused:true`、MP 不动）全绿；`flee-guidance-wording` / `combat-actions-ui` / `combat-lock-hint` / `combat-hint-dedupe` / `boss-hp-persistence` / `boss-room-readiness` / `gate-refusal-free` / `gate-refusal-hint-spam` / `encounter-split-log` 复跑全绿；`node --test server/engine/*.test.js` 114 pass。**验收口径变更一处**：`sneak-has-payoff` 由「连潜 3 次每次 -5 MP」收成「连潜 2 次（额度上限）」——第 3 次现在是被如实拒绝的另一车道口径，由 `sneak-at-cap` 覆盖，收益承诺断言一条没删。
+- 车道 B（F189，swe-2-medium，`server/engine/combat.js` + `combat.test.js` + 新断言）：`strike()` 四类事件各 ≥3 变体、按敌型分语域（石像/狼犬/蛇虫/通用），变体下标只用 `(回合 + 敌 seq + 同侧同类序号)` 轮换——**不额外消耗随机数**，单测把旧实现的 8 回合 `(你 HP, MP, 敌 HP)` 写成黄金值逐回合比对全等；114 单测 / `combat-round-variety`（旧码红：第 2、3 回合整句全等）/ `combat-enemy-phases` / `combat-actions-ui` / `flee-prose-by-enemy-kind` / `attack-question-guard` 全绿。
+- 主库真机复验（3031 上由我亲自点）：守关战落地首屏从「正文 + 5 段系统行」变成 **正文 +【遭遇】(并入撤离指引) +【系统】「石像守卫」HP 75 · 你 94/100——说「攻击」开打，或「逃跑」撤离**，`【` 段落 = 2。
+- 合并：`feat/F189` → `feat/F187` 依次 `--no-ff` 合入 main（零冲突，两个分支文件零交集）；`ci-deploy.sh` 全闸门绿 + 内置 e2e 7/7，`DEPLOY OK`；本地 3020 / health / 公网 `https://openfolio.uk/game` 均 200；部署后 `verify.sh F187/F188/F189` 在 live 上逐条 PASS，全量 `run-all.mjs` 再跑 7/7。
+- 本轮无 devin 失败回退（两条车道都是一次交给 devin 完成；F187 那条跑了 20 分钟，未触发 25 分钟超时线）。
+- 遗留观察（未立项）：`combat-round-variety.mjs` 依赖 `DB_PATH` 默认 `ROOT/data/game.db`，与其它断言走 `_http.mjs` 的 HTTP 口径不一致——若将来主库路径调整，这条断言会先红，届时顺手统一。
