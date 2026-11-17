@@ -486,13 +486,32 @@ const invStmts = {
 // OBSERVE_MARK 与 observe 构建器共用同一常量，日后改措辞不会再把计数清零。
 const OBSERVE_MARK = "仍可说「观察」再看一处";
 const OBSERVE_TAIL = `（${OBSERVE_MARK}，或说「前进」）`;
+// P203 观察探索进度：同一存档内 OBSERVE_MARK 元提示只出现一次（第 1 次
+// 观察），其后收束按「本场景已观察次数」轮换 ≥2 种变体并带「探索 N/N」
+// 可见进度，第 OBSERVE_TOTAL 次追加一条实质线索。
+const OBSERVE_TOTAL = 3;
+//   计数标记：所有观察回包（实体细节/发现/已查过/词池各分支）的收束句
+//   都带「探索 N/N」进度语——构建器与 observeCount/observeSceneCount 共
+//   用同一常量。改措辞必须同步改这里，否则 LIKE 计不上已写出的旧行，
+//   词池轮转与进度推导一起归零（F178 同款旧坑）。
+const OBSERVE_COUNT_MARK = "探索";
+const OBSERVE_PROGRESS_TAILS = [
+  (prog) => `（${prog} · 还有没看尽的角落——动身说「前进」）`,
+  (prog) => `（${prog} · 心里大致有了数，说「前进」动身）`,
+  (prog) => `（${prog} · 这一带已经看熟，说「前进」去下一幕）`,
+];
 // F181：实体细节句的轮换按 (save_id, entity) 记——observe 构建器与
 // unknownSceneLine 共用同一份计数（与 unknownAckSeq 同口径），同一存档
 // 同一实体第二次观察必换文。
 const observeEntitySeq = new Map();
 const proseStmts = {
   observeCount: db.prepare(
-    `SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE '%${OBSERVE_MARK}%'`
+    `SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE '%${OBSERVE_COUNT_MARK}%'`
+  ),
+  // P203：本场景已观察次数——观察行以「<narr_name>」——开头且收束句带
+  // OBSERVE_COUNT_MARK，instr=1 锁行首（其它正文内嵌「X」——不算）。
+  observeSceneCount: db.prepare(
+    `SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND instr(content, ?) = 1 AND content LIKE '%${OBSERVE_COUNT_MARK}%'`
   ),
   sneakCount: db.prepare(
     "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'user' AND content = '潜行'"
@@ -544,6 +563,41 @@ function discoveryReward(disc) {
     .map((r) => ({ id: String((r && r.id) || ""), qty: Math.trunc(Number(r && r.qty) || 0) }))
     .filter((r) => r.id && r.qty > 0 && ITEMS.has(r.id));
   return items.length ? { items } : null;
+}
+
+// P203 第 OBSERVE_TOTAL 次观察的实质线索：优先指向本场景还没被领走的
+// 一次性发现物（玩家照做有真实回报，不是空话），否则就地点名实体/环境
+// 给一条值得记下的细节。写进日志即可，不发物品。
+function observeClue(save, scene, entity) {
+  const list = scene && Array.isArray(scene.discoveries) ? scene.discoveries : [];
+  const next = list.find(
+    (d) => d && d.entity && typeof d.name === "string" && !discoverySeen(save.id, d.name)
+  );
+  if (next) {
+    return `【线索】${next.entity}附近像还压着东西——凑近「观察」它看看。`;
+  }
+  if (entity) {
+    return `【线索】${entity}的边缘有新旧两层痕迹——在你之前已经有人看过它。`;
+  }
+  return `【线索】这处的回声比别处空——附近多半还有没看见的东西。`;
+}
+
+// P203 观察收束句统一由这里产出：第 1 次观察给 OBSERVE_MARK 元提示
+// （存档内唯一一次），其后按本场景已观察次数轮换变体并带「探索 N/N」
+// 进度；第 OBSERVE_TOTAL 次追加一条实质线索。
+function observeClosing(save, scene, entity) {
+  const name = sceneNarrName(scene);
+  const globalN = Math.trunc(Number((proseStmts.observeCount.get(save.id) || {}).n) || 0);
+  const sceneN = Math.trunc(
+    Number((proseStmts.observeSceneCount.get(save.id, `「${name}」——`) || {}).n) || 0
+  );
+  const prog = `${OBSERVE_COUNT_MARK} ${Math.min(sceneN + 1, OBSERVE_TOTAL)}/${OBSERVE_TOTAL}`;
+  const tail =
+    globalN === 0
+      ? `（${prog} · ${OBSERVE_MARK}，或说「前进」）`
+      : OBSERVE_PROGRESS_TAILS[sceneN % OBSERVE_PROGRESS_TAILS.length](prog);
+  const clue = sceneN === OBSERVE_TOTAL - 1 ? `\n${observeClue(save, scene, entity)}` : "";
+  return { tail, clue };
 }
 
 const STARTER_KIT = [
@@ -1666,6 +1720,40 @@ function tryEncounter(save, sceneId, opts) {
   return enemy;
 }
 
+// P202 遭遇战「起势衔接」：掷出敌人的那次「前进」，紧随遭遇播报的正文
+// 不得以终局/濒死描写结尾——线上实测玩家在「腿骨断裂、视野边缘开始发
+// 黑」的文字里被拉进同一回包的满血开战，两套说法当面打架。落地正文
+// （场景原文，F074 契约一字不删）之后、遭遇播报之前，补一句战斗起势把
+// 玩家从地上重新立起来；起势句只点真实敌人名——正文写守关者时敌人
+// 本就是该 boss，敌人是普通小怪时收尾不再把守关者说成对手。
+// 终局词表与起势池都是常量/纯函数（导出供断言逐字对照），数值零改动。
+const ENCOUNTER_TERMINAL_MARKS = [
+  "视野边缘开始发黑",
+  "腿骨断裂",
+  "血在石板缝里摊开",
+  "来不及叫",
+  "倒在",
+  "失去意识",
+];
+// 小怪起势：不得含「巨像/守关者」——敌人是谁，对手就是谁。
+const ENCOUNTER_RISE_MOB = [
+  (name) => `眩晕还没退干净，你先一步站稳——${name}已经欺到近前，这一仗躲不开。`,
+  (name) => `你把气喘匀，撑着膝盖站直——${name}挡在正中，只能打。`,
+  (name) => `膝盖一沉又绷直。你站稳脚跟的时候，${name}正好横到面前。`,
+];
+// 守关者起势：对手是本章 boss——起身迎它的那一下，正文与战斗对象同源。
+const ENCOUNTER_RISE_BOSS = [
+  (name) => `你把涌上眼眶的黑一层层压回去，指甲抠进地面，把自己从地上撑了起来——${name}还在眼前，由不得你躺着。`,
+  (name) => `意识归位比痛更快。你撑起半身，又撑起全身——${name}没有给你躺下的余地。`,
+  (name) => `腿还在抖，但你已经站了起来——${name}堵在唯一的去路上。`,
+];
+// 确定性取句：按开战盐 seq 轮换（同一场战斗必得同一句），纯函数可单测。
+function encounterRiseLine(enemy) {
+  const pool = enemy && enemy.boss ? ENCOUNTER_RISE_BOSS : ENCOUNTER_RISE_MOB;
+  const n = Math.max(0, Math.trunc(Number(enemy && enemy.seq) || 0));
+  return pool[n % pool.length]((enemy && enemy.name) || "敌人");
+}
+
 // 「前进」结算 + 交战态收敛 + 遭遇判定（F074/F077/F088 交汇点）：
 //   1) 交战中前进 = 撤离尝试：与「逃跑」同一判定（resolveTurn 的 flee
 //      回合 + retreatOnFlee 撤退），失败白挨一回合敌人反击、原地不动；
@@ -1843,6 +1931,9 @@ function advanceWithEncounter(save, choice) {
     // 普通遭遇落地则逃跑冷却未走完继续倒数（不互相吞掉）。
     patch.encounter_clock = enemy.boss ? 0 : rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
+    // P202：先定遭遇再定收束——本回包要开战，落地正文末尾必须换一句
+    // 战斗起势（不得停在终局/濒死句上）；无遭遇则正文照旧收束。
+    res.content += `\n${encounterRiseLine(enemy)}`;
     if (enemy.boss) {
       // F187：守关战落地一屏只留三件事——敌方 HP、我方 HP、下一步按
       // 什么。要压的是系统行而不是叙事正文：落点场景 text 一字不删
@@ -2852,7 +2943,9 @@ const INTENTS = [
       // 连点两次必然不同文。F178/F181：正文不再套「重新审视」模板句——
       // 玩家点名的场景实体给该实体专属细节（按 save×entity 轮换），未
       // 点名时按场景真实在场的实体轮转，都没有才回落本章 prose 池；
-      // 尾注统一挂 OBSERVE_TAIL（观察动词提示 + observeCount 计数标记）。
+      // P203：尾注统一走 observeClosing——OBSERVE_MARK 元提示只在第 1 次
+      // 出现，其后按本场景观察次数轮换变体并带「探索 N/N」进度，第
+      // OBSERVE_TOTAL 次追加一条实质线索。
       const n = (proseStmts.observeCount.get(save.id) || {}).n || 0;
       const blob = `${scene.title || ""}\n${scene.narr_name || ""}\n${scene.text || ""}`;
       let entity = entityDetail.extractEntity(input);
@@ -2860,6 +2953,7 @@ const INTENTS = [
         const present = entityDetail.entitiesIn(blob);
         if (present.length) entity = present[n % present.length];
       }
+      const closing = observeClosing(save, scene, entity);
       // F193：命中带发现物的实体时第一眼回发现正文、奖励交 applyOutcome →
       // grantRewards 入账；日志尾注「【发现·名字】」是幂等标记，同一实体
       // 第二眼改口「已经查过」不再发奖。无发现物的实体维持 F181 轮换。
@@ -2870,7 +2964,7 @@ const INTENTS = [
             patch: null,
             content:
               `「${sceneNarrName(scene)}」——你凑近${entity}又看了一遍——` +
-              `这里你已经查过了，「${disc.name}」不会再有第二份收获。${OBSERVE_TAIL}`,
+              `这里你已经查过了，「${disc.name}」不会再有第二份收获。${closing.tail}`,
           };
         }
         const rewards = discoveryReward(disc);
@@ -2882,7 +2976,7 @@ const INTENTS = [
           rewards,
           content:
             `「${sceneNarrName(scene)}」——${disc.line}\n` +
-            `【发现·${disc.name}】${got ? `获得 ${got}。` : "已记下。"}${OBSERVE_TAIL}`,
+            `【发现·${disc.name}】${got ? `获得 ${got}。` : "已记下。"}${closing.tail}`,
         };
       }
       let line;
@@ -2896,7 +2990,7 @@ const INTENTS = [
       }
       return {
         patch: null,
-        content: `「${sceneNarrName(scene)}」——${line}${OBSERVE_TAIL}`,
+        content: `「${sceneNarrName(scene)}」——${line}${closing.tail}${closing.clue}`,
       };
     },
   },
@@ -4339,4 +4433,11 @@ if (require.main === module && !process.env.NODE_TEST_CONTEXT) {
   });
 }
 
-module.exports = { app, saveView, grantRewards, chapterEntryNote };
+module.exports = {
+  app,
+  saveView,
+  grantRewards,
+  chapterEntryNote,
+  encounterRiseLine,
+  ENCOUNTER_TERMINAL_MARKS,
+};
