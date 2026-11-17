@@ -1,5 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+// F171: 仓库根 .env（gitignore）必须在任何读取 process.env 的模块
+// （db.js 的 DB_PATH、ai/gateway 的 API key、PORT 等）之前加载——真实进程
+// 环境里已存在的键不会被覆盖，文件缺失时静默跳过。
+require("./load-env").loadEnv(path.join(__dirname, ".."));
 const express = require("express");
 const store = require("./db");
 const progression = require("./engine/progression");

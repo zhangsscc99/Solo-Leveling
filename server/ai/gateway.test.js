@@ -3,8 +3,12 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const gatewayPath = require.resolve("./gateway");
+const { loadEnv } = require("../load-env");
 
 function freshGateway() {
   delete require.cache[gatewayPath];
@@ -37,7 +41,7 @@ function jsonResponse(payload, status = 200) {
 }
 
 test("no key: isConfigured false, no network call, code no-key", async () => {
-  await withEnv({ OPENCODE_GO_API_KEY: undefined }, async () => {
+  await withEnv({ OPENCODE_GO_API_KEY: undefined, AI_ALIYUN_API_KEY: undefined }, async () => {
     const gateway = freshGateway();
     let called = 0;
     const fetchImpl = () => {
@@ -57,7 +61,7 @@ test("no key: isConfigured false, no network call, code no-key", async () => {
 });
 
 test("misconfigured key (whitespace) also counts as absent", async () => {
-  await withEnv({ OPENCODE_GO_API_KEY: "   " }, async () => {
+  await withEnv({ OPENCODE_GO_API_KEY: "   ", AI_ALIYUN_API_KEY: undefined }, async () => {
     const gateway = freshGateway();
     assert.strictEqual(gateway.isConfigured(), false);
     const r = await gateway.generate({ messages: [], fetchImpl: () => {
@@ -164,4 +168,114 @@ test("network error: thrown fetch is caught", async () => {
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.code, "network");
   });
+});
+
+// F171 (a): .env loading — a repo-root .env must populate process.env so the
+// gateway becomes configured; keys already in the environment win.
+test("loadEnv: injects key from a temp .env, never overwrites existing env", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "f171-env-"));
+  try {
+    fs.writeFileSync(
+      path.join(tmp, ".env"),
+      [
+        "# comment line",
+        "",
+        "OPENCODE_GO_API_KEY=from-dotenv",
+        'export AI_ALIYUN_MODEL="qwen-x"',
+        "ALREADY_SET=from-file",
+      ].join("\n")
+    );
+    await withEnv(
+      {
+        OPENCODE_GO_API_KEY: undefined,
+        AI_ALIYUN_API_KEY: undefined,
+        AI_ALIYUN_MODEL: undefined,
+        ALREADY_SET: "keep-me",
+      },
+      async () => {
+        assert.strictEqual(loadEnv(tmp) >= 1, true);
+        assert.strictEqual(process.env.OPENCODE_GO_API_KEY, "from-dotenv");
+        assert.strictEqual(process.env.AI_ALIYUN_MODEL, "qwen-x");
+        assert.strictEqual(process.env.ALREADY_SET, "keep-me");
+        const gateway = freshGateway();
+        assert.strictEqual(gateway.isConfigured(), true);
+      }
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("loadEnv: missing .env is a silent no-op", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "f171-env-"));
+  try {
+    assert.strictEqual(loadEnv(tmp), 0);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// F171 (b): Aliyun fallback — DashScope OpenAI-compatible endpoint, custom
+// model, and no x-opencode-session header.
+test("aliyun fallback: hits AI_ALIYUN_BASE_URL with AI_ALIYUN_MODEL, no session header", async () => {
+  await withEnv(
+    {
+      OPENCODE_GO_API_KEY: undefined,
+      AI_ALIYUN_API_KEY: "ak",
+      AI_ALIYUN_BASE_URL: "https://example.test/compatible-mode/v1/",
+      AI_ALIYUN_MODEL: "qwen-x",
+    },
+    async () => {
+      const gateway = freshGateway();
+      assert.strictEqual(gateway.isConfigured(), true);
+      let seen = null;
+      const fetchImpl = async (url, opts) => {
+        seen = { url, opts };
+        return jsonResponse({
+          model: "qwen-x",
+          choices: [{ message: { role: "assistant", content: "aliyun text" } }],
+        });
+      };
+      const r = await gateway.generate({
+        messages: [{ role: "user", content: "hi" }],
+        sessionId: "sess-123",
+        fetchImpl,
+      });
+      assert.strictEqual(r.ok, true);
+      assert.strictEqual(r.text, "aliyun text");
+      assert.strictEqual(r.model, "qwen-x");
+      assert.strictEqual(seen.url, "https://example.test/compatible-mode/v1/chat/completions");
+      assert.strictEqual(seen.opts.headers.Authorization, "Bearer ak");
+      assert.strictEqual(seen.opts.headers["Content-Type"], "application/json");
+      assert.ok(!("x-opencode-session" in seen.opts.headers));
+      assert.strictEqual(JSON.parse(seen.opts.body).model, "qwen-x");
+    }
+  );
+});
+
+test("aliyun defaults: default base url and model when only the key is set", async () => {
+  await withEnv(
+    {
+      OPENCODE_GO_API_KEY: undefined,
+      AI_ALIYUN_API_KEY: "ak",
+      AI_ALIYUN_BASE_URL: undefined,
+      AI_ALIYUN_MODEL: undefined,
+    },
+    async () => {
+      const gateway = freshGateway();
+      let seen = null;
+      const fetchImpl = async (url, opts) => {
+        seen = { url, opts };
+        return jsonResponse({ choices: [{ message: { content: "ok" } }] });
+      };
+      const r = await gateway.generate({ messages: [], fetchImpl });
+      assert.strictEqual(r.ok, true);
+      assert.strictEqual(
+        seen.url,
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+      );
+      assert.strictEqual(JSON.parse(seen.opts.body).model, "qwen3.8-flash");
+      assert.ok(!("x-opencode-session" in seen.opts.headers));
+    }
+  );
 });
