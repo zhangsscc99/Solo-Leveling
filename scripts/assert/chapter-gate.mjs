@@ -16,8 +16,10 @@
 //      ch1_law 两处都验——后者的 watch 分支 label 含「观察」字样，
 //      正是上一轮把玩家传进 ch1_watch 的误命中点）。
 //      F092/F101 口径变更：观察回复从「复读场景正文」改为「场景内短句
-//      观察」——两次观察文本互不相同、单次 <120 字、不含场景正文前 12
-//      字，且回复长度必须 < 场景正文 50%（变异断言：复读整幕判 FAIL）。
+//      观察」——两次观察文本互不相同、单次 <120 字、标题取 scene_title
+//      而非敌人名；负向上回包不得含场景正文前 12 字、不得与正文开头逐
+//      字相同/是其逐字前缀，且长度必须 < 场景正文 50%（变异断言：复读
+//      整幕判 FAIL）。
 //   3) 走满 ch1 主线链：chapter_progress === "7/7"，
 //      chapter_completed === true，播报含「本章主线 7/7 完成」，仍在第 1 章。
 //      守关战必打（fightBoss）——击杀后才具备过门资格。
@@ -163,45 +165,63 @@ async function dualSource(tag) {
 // 观察负向：scene / hp / mp 必须三不变。交战中「观察」会被服务端改判
 // 为战斗提示——先就地清场（原地击杀，不移动）再验。
 // F092/F101 口径：观察是短句环顾而非复读正文——断言两次回复互不相同、
-// 单次 <120 字、不含场景正文前 12 字，且回复长度 < 场景正文 50%（把
-// 实现改回整幕复读时本断言与变异断言同时 FAIL）。
+// 单次 <120 字、标题念 saveView.scene_title 而非敌人名；负向上回包不得
+// 含场景正文前 12 字片段、不得与正文开头逐字相同、不得是正文逐字前缀，
+// 且长度 < 场景正文 50%——实现改回整幕复读时本断言与变异断言同时 FAIL。
 async function observeFree(tag) {
   const s0 = (await get(`/saves/${id}`)).body.save;
+  const enemyName =
+    s0.combat && s0.combat.enemy ? String(s0.combat.enemy.name || "") : "";
   if (s0.combat) await clearCombat(id);
   const before = (await get(`/saves/${id}`)).body.save;
-  const r1 = await post("/action", { save_id: id, input: "观察" });
-  assert(r1.status === 200 && r1.body && r1.body.reply && r1.body.save, `${tag}: observe failed (HTTP ${r1.status})`);
-  const s = r1.body.save;
-  assert(s.scene === before.scene, `${tag}: 观察改写了 scene (${before.scene} -> ${s.scene})`);
-  assert(s.hp === before.hp, `${tag}: 观察扣了 HP (${before.hp} -> ${s.hp})`);
-  assert(s.mp === before.mp, `${tag}: 观察扣了 MP (${before.mp} -> ${s.mp})`);
   const sceneText = stripWs(sceneTextById.get(before.scene) || "");
   const frag = sceneText.slice(0, 12);
-  const c1 = stripWs(r1.body.reply.content);
+  const sceneTitle = stripWs(before.scene_title);
+  const texts = [];
+  for (let n = 1; n <= 2; n++) {
+    const r = await post("/action", { save_id: id, input: "观察" });
+    assert(
+      r.status === 200 && r.body && r.body.reply && r.body.save,
+      `${tag}: 第${n}次 observe failed (HTTP ${r.status})`
+    );
+    const s = r.body.save;
+    assert(s.scene === before.scene, `${tag}: 第${n}次观察改写了 scene (${before.scene} -> ${s.scene})`);
+    assert(s.hp === before.hp, `${tag}: 第${n}次观察扣了 HP (${before.hp} -> ${s.hp})`);
+    assert(s.mp === before.mp, `${tag}: 第${n}次观察扣了 MP (${before.mp} -> ${s.mp})`);
+    const c = stripWs(r.body.reply.content);
+    // 负向（整幕复读特征，任一命中即 FAIL）：含正文前 12 字片段 / 与
+    // 正文开头逐字相同 / 是正文逐字前缀 / 长度达到正文一半。
+    assert(
+      !c.includes(frag),
+      `${tag}: 第${n}次观察回复与场景正文前12字完全相同——复读正文（含「${frag}」）: ${c.slice(0, 80)}`
+    );
+    assert(
+      !(sceneText.startsWith(c) && [...c].length >= 12),
+      `${tag}: 第${n}次观察回包是场景正文的逐字前缀（整幕复读）`
+    );
+    assert(
+      [...c].length < [...sceneText].length * 0.5,
+      `${tag}: 第${n}次观察复述了整幕正文（${[...c].length} >= ${[...sceneText].length}*0.5）`
+    );
+    assert(
+      [...c].length < 120,
+      `${tag}: 第${n}次观察回复超过 120 字（${[...c].length}）: ${c.slice(0, 80)}`
+    );
+    // 标题口径：「X」内必须念 saveView.scene_title；若进场前有交战，
+    // 标题不得念敌人名（旧口径会把标题写成敌名）。
+    assert(
+      sceneTitle !== "" && c.includes(`「${sceneTitle}」`),
+      `${tag}: 第${n}次观察标题必须念 scene_title「${before.scene_title}」: ${c.slice(0, 80)}`
+    );
+    assert(
+      !(enemyName && stripWs(enemyName) !== sceneTitle && c.includes(`「${stripWs(enemyName)}」`)),
+      `${tag}: 第${n}次观察标题念了敌人名「${enemyName}」而非 scene_title: ${c.slice(0, 80)}`
+    );
+    texts.push(c);
+  }
   assert(
-    !c1.includes(frag),
-    `${tag}: observe reply复读场景正文（含前12字片段「${frag}」）: ${c1.slice(0, 80)}`
-  );
-  assert(
-    [...c1].length < 120,
-    `${tag}: observe reply 超过 120 字（${[...c1].length}）: ${c1.slice(0, 80)}`
-  );
-  // 变异断言：把短句观察改回复读整幕时必 FAIL——输出长度不得达到
-  // 场景正文长度的一半。
-  assert(
-    [...c1].length < [...sceneText].length * 0.5,
-    `${tag}: observe reply复述了整幕正文（${[...c1].length} >= ${[...sceneText].length}*0.5）`
-  );
-  const r2 = await post("/action", { save_id: id, input: "观察" });
-  assert(r2.status === 200 && r2.body && r2.body.reply && r2.body.save, `${tag}: second observe failed (HTTP ${r2.status})`);
-  const s2 = r2.body.save;
-  assert(s2.scene === before.scene, `${tag}: 第二次观察改写了 scene (${before.scene} -> ${s2.scene})`);
-  assert(s2.hp === before.hp && s2.mp === before.mp, `${tag}: 第二次观察扣了 HP/MP`);
-  const c2 = stripWs(r2.body.reply.content);
-  assert(c1 !== c2, `${tag}: 同场景连续两次观察文本必须不同，实际重文: ${c1.slice(0, 80)}`);
-  assert(
-    [...c2].length < 120 && !c2.includes(frag),
-    `${tag}: 第二次观察同样须为 <120 字短句且不复读正文`
+    texts[0] !== texts[1],
+    `${tag}: 同场景连续两次观察文本必须不同，实际重文: ${texts[0].slice(0, 80)}`
   );
 }
 
