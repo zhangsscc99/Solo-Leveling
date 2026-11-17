@@ -49,6 +49,29 @@ function isNonEmpty(v) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+// F152 软门文案同一事实源：越过软门的播报、saveView.chapter_unlock 与
+// /api/chapters 的 unlock 视图由同一个函数产出——门槛数值只读
+// chapters.json 的 unlock（经 chaptersEngine.unlockView / unlockedFor）。
+// 「受压制」是没有数值解释的旧措辞：软门放行 ≠ 无代价，hint 与过门播报
+// 统一写「已强行进入 · 推荐 X · 本章战斗难度高于你的当前等级」。
+function chapterUnlockView(save, chapter) {
+  const view = chaptersEngine.unlockView(save, chapter);
+  if (view.state !== "soft") return view;
+  const reqs = [];
+  if (view.chapter !== null && !view.chapter_ok) reqs.push(`完成第${view.chapter}章主线`);
+  if (view.level !== null && !view.level_ok) reqs.push(`Lv.${view.level}`);
+  const recommend = reqs.join("、");
+  return {
+    ...view,
+    hint: `推荐 ${recommend} · 可强行进入（本章战斗难度高于你的当前等级）`,
+    // 过门播报的同源措辞：事实（已强行进入）+ 后果（承伤更高、建议先刷级），
+    // 不再写「系统压制了传送门」这种与放行结果自相矛盾的说法。
+    crossing:
+      `已强行进入 · 推荐 ${recommend}——本章战斗难度高于你的当前等级，` +
+      `受到的伤害更高，建议先刷级再来`,
+  };
+}
+
 // F074 场景运行时：主线进度 = 当前场景在本章主线链中的位置 + 1，
 // chapter_total = 主线链长度（支线场景不计入）。save.scene 缺失或错章时
 // 按主线链首场景展示（与「前进」结算的自愈落点一致），所以新档也能直接
@@ -88,8 +111,8 @@ function sceneView(save) {
     chapter_progress: `${steps}/${total}`,
     chapter_completed: total > 0 && steps >= total,
     // F116 单一事实源：软门三态（locked/soft/open）+ 未达前置 +
-    // 服务端文案与 /api/chapters 同出自 chaptersEngine.unlockView。
-    chapter_unlock: chaptersEngine.unlockView(save, chapter),
+    // 服务端文案与 /api/chapters、过门播报同出自 chapterUnlockView（F152）。
+    chapter_unlock: chapterUnlockView(save, chapter),
     next_chapter: nextChapter
       ? {
           index: nextChapter.index,
@@ -646,7 +669,8 @@ function chapterBossName(chapter) {
 // 章节门（F075）：站在本章主线链尾再前进 = 本章主线完成，结算准入。
 // 准入通过 → chapter+1 并落到下一章主线链首场景，同时写入一行主线播报；
 // 准入失败 → 留在当前场景，仅提示门槛。等级门当前是软门：等级不足也放行，
-// 但播报必须显性写出压制提示，不得静默（见 chapters.js 的 TODO(F088)）。
+// 但播报必须显性写出「已强行进入 + 推荐门槛」提示，不得静默（F152 起措辞
+// 与 /api/chapters 同源，见 chapters.js 的 TODO(F088)）。
 // F096 守关者硬门：unlockedFor 通过之后，本章守关者还必须已被击杀
 // （bossRequirementMet —— 与主线奖励同一口径：链上无 boss 场景的章
 // 自动满足）。未击杀时 patch 不动 chapter/scene，正文给出可执行的
@@ -681,10 +705,11 @@ function chapterGate(save, chapter, nextChapter) {
     };
   }
   const first = chaptersEngine.firstSceneOf(nextChapter);
-  const suppressed =
-    gate.level_ok === false && gate.level !== null
-      ? `（等级未达 Lv.${gate.level}，系统压制了传送门——继续任务/战斗提升等级）`
-      : "";
+  // F152 软门播报：与 /api/chapters 的 unlock.hint 同一事实源
+  // （chapterUnlockView）——人确实已经进门，措辞写「已强行进入」并如实
+  // 给出后果，不再说「系统压制了传送门」这种与放行结果矛盾的话。
+  const gateView = chapterUnlockView(save, nextChapter);
+  const softNote = gateView.state === "soft" ? `（${gateView.crossing}）` : "";
   // F117：过门是章节切换不是一次「前进」——零消耗（patch 不写 HP/MP）、
   // scripted 标记让 advanceWithEncounter 跳过遭遇判定与 advance 事件，
   // 落点 = 下一章主线链首（下一幕才重新开始计步与掷怪）。
@@ -692,7 +717,7 @@ function chapterGate(save, chapter, nextChapter) {
     patch: { scene: first.id, chapter: nextChapter.index },
     scripted: true,
     content:
-      `【主线】第${nextChapter.index}章「${nextChapter.title}」开启${suppressed}。\n` +
+      `【主线】第${nextChapter.index}章「${nextChapter.title}」开启${softNote}。\n` +
       `${first.text}\n（本次没有消耗体力）`,
   };
 }
@@ -1718,14 +1743,25 @@ function combatTurn(save, cbt, action, input, skill, opts) {
       const idx = bossChapter ? chaptersEngine.pathIndexOf(bossChapter, save.scene) : -1;
       const prev =
         idx > 0 ? chaptersEngine.chapterPath(bossChapter)[idx - 1] : null;
+      // F131：撤离收尾按 boss_cleared 分支——守关者被真杀过，身后凝聚的
+      // 才谈得上「残骸」；未击杀的守关者只是仍守在门后，绝不提前发丧。
+      const guardianDown = bossChapter ? bossCleared(save, bossChapter.id) : false;
       if (prev) {
         patch.scene = prev.id;
         res.content +=
           `\n【战斗】你且战且退，撤回了「${sceneNarrName(prev)}」——` +
-          `${e.name}仍守在门后没有追出来，两步之内它不会立刻再度拦路。`;
+          (guardianDown
+            ? `守关者的残骸在身后缓缓凝聚，两步之内它不会立刻再度拦路。`
+            : `${e.name}仍守在门后没有追出来，两步之内它不会立刻再度拦路。`);
       } else {
-        res.content += `\n【战斗】你摆脱了${e.name}的纠缠——它需要时间重新凝聚成形。`;
+        res.content += guardianDown
+          ? `\n【战斗】你摆脱了${e.name}的纠缠——守关者的残骸需要时间重新凝聚成形。`
+          : `\n【战斗】你摆脱了${e.name}的纠缠——它仍守在门后，需要时间重新凝聚成形。`;
       }
+    } else if (fled && patch.hp > 0 && !cbt.enemy.boss) {
+      // F131：普通怪 / 精英怪撤离收尾——既不点名「守关者」也不写「残骸」，
+      // 它只是没追出来而已（守关者模板套到野怪头上是穿帮）。
+      res.content += `\n【战斗】${e.name}没有追出来。`;
     }
   } else {
     res.combat = { op: "turn", enemy: e, turn: state.turn };
@@ -2597,11 +2633,11 @@ api.get("/chapters", (req, res) => {
       subtitle: chapter.subtitle,
       summary: chapter.summary,
       // F116：解锁门三态（locked/soft/open）+ 未达前置 + 服务端文案由
-      // chaptersEngine.unlockView 统一下发——与 saveView.chapter_unlock
-      // 同一事实源，前端只渲染 hint/blocked_reasons，不再自拼「需 Lv.X」。
-      // 无 save_id 时只给静态门槛，门态为空。
+      // chapterUnlockView 统一下发——与 saveView.chapter_unlock、过门
+      // 播报同一事实源，前端只渲染 hint/blocked_reasons，不再自拼
+      // 「需 Lv.X」。无 save_id 时只给静态门槛，门态为空。
       unlock: save
-        ? chaptersEngine.unlockView(save, chapter)
+        ? chapterUnlockView(save, chapter)
         : {
             level:
               chapter.unlock && Number.isInteger(chapter.unlock.level)
@@ -3074,17 +3110,21 @@ api.post("/action", (req, res) => {
   // Server-side authority: the resolved intent's own delta is applied and the
   // result is clamped, so any numbers in the client payload are ignored.
   const outcome = resolveAction(save, input);
-  // F096 章节门拒绝：没发生的事不进账本——用户输入与播报都不写日志、
-  // 不产 advance 事件（与 F089 终章拒绝同口径）。refused 只压日志，
-  // 结算管线照跑：patch 本应为 null，谁把它改回带消耗谁就在响应里现形。
+  // F096 章节门拒绝：零结算、零位移、零事件——applyOutcome 照跑空管线，
+  // patch 本应为 null，谁把它改回带消耗谁就在响应里现形。
+  // F142：但被拒的输入与拒绝文案本身是真实发生的往来——照旧写两条日志
+  // （一条 user 原文、一条 system 拒绝文案），刷新后玩家回查有据；日志
+  // 可见性不等于结算，数值口径不变。
   if (outcome.refused) {
+    store.appendLog(save.id, "user", input);
     const extra = applyOutcome(save.id, outcome);
+    const reply = store.appendLog(
+      save.id,
+      outcome.role || "system",
+      extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
+    );
     const body = {
-      reply: {
-        id: --epilogueReplySeq,
-        role: outcome.role || "system",
-        content: extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content,
-      },
+      reply,
       // F137：回包显式带解析出的 intent——与 /ai-action 同一口径，
       // 玩家与断言不必从文案反推这条输入被当成了什么。
       intent: outcome.intent,
@@ -3232,17 +3272,19 @@ api.post("/ai-action", async (req, res) => {
     // outcome.patch 基于新快照产出，不再做旧快照增量回算。
     const fresh = store.getSave(save.id) || save;
     const outcome = executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
-    // F096 章节门拒绝：与 /action 同口径——零消耗、零日志、零事件，
-    // 连用户输入都不入账（没发生的事不写）。此时才补写用户输入日志：
-    // 拒绝态必须在此之前短路返回，日志表才真的零增长。
+    // F096 章节门拒绝：与 /action 同口径——零消耗、零事件、零位移；
+    // F142：拒绝往来照旧落库两条日志（user 原文 + system 拒绝文案），
+    // 数值结算口径不变。
     if (outcome.refused) {
+      store.appendLog(save.id, "user", input);
       const extra = applyOutcome(save.id, outcome);
+      const reply = store.appendLog(
+        save.id,
+        outcome.role || "system",
+        extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
+      );
       const body = {
-        reply: {
-          id: --epilogueReplySeq,
-          role: outcome.role || "system",
-          content: extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content,
-        },
+        reply,
         intent: outcome.intent,
         save: saveView(store.getSave(save.id) || fresh),
         refused: true,
