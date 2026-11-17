@@ -6,7 +6,8 @@
 //   c) 交战提示（.combat-lock-hint 或窄屏 .save-blocked-hint）可见、
 //      role="note"、文本同时含「无法推进剧情」
 //      与「逃跑」，且几何上在战斗按钮之上；
-//   d) 点「逃跑」脱战（最多 4 次）后提示消失（count === 0）；
+//   d) 脱战态提示消失（count === 0）——脱战态用「另开全新未交战档
+//      接进同一页面」确定性取得，不依赖概率性逃跑；
 //   e) documentElement 无横向溢出（scrollWidth - clientWidth === 0），
 //      全程 console error / pageerror 为 0。
 //   f) 交战态 .stage 高度 ≥ innerHeight×0.6（F094/F113/F119 版式契约
@@ -19,6 +20,7 @@ process.env.E2E_BASE_URL = BASE;
 process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
 
 const { run, createSave, assert } = await import("../e2e/lib.mjs");
+const { post } = await import("./_http.mjs");
 
 const NAME = `f185-${Date.now().toString(36)}`;
 const settle = (page, ms = 450) => page.waitForTimeout(ms);
@@ -122,23 +124,32 @@ run(
       );
     }
 
-    // ── d) 点「逃跑」脱战（最多 4 次），提示消失 ──
-    const fleeBtn = page
-      .locator('footer.actions .actions-combat button:has-text("逃跑")')
-      .first();
-    for (let i = 0; i < 4 && (await atkBtn(page).count()) > 0; i++) {
-      await fleeBtn.click();
-      await settle(page, 800);
-    }
+    // ── d) 脱战态提示消失：另开全新未交战档接进同一页面（确定性取态）──
+    // 旧口径靠连点「逃跑」掷概率脱战——全表并发时连续被拦即假红。脱战的
+    // 真实定义就是 save.combat 为空：API 建一个从未交战的新档，写
+    // localStorage 后 reload，走与建档/接档同一条 boot 路径。
+    const { status: stB, body: bodyB } = await post("/saves", {
+      player_name: `${NAME}-b`,
+    });
+    assert(
+      stB === 201 && bodyB && bodyB.save && bodyB.save.id,
+      `脱战对照档建档失败 (HTTP ${stB})`
+    );
+    await page.evaluate(
+      (id) => localStorage.setItem("solo_leveling_save_id", String(id)),
+      bodyB.save.id
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".status");
+    await settle(page, 700);
     assert(
       (await atkBtn(page).count()) === 0,
-      `4 次逃跑仍未脱战，按钮=[${(await actionButtonTexts(page)).join(" | ")}]`
+      `脱战对照档仍呈交战态，按钮=[${(await actionButtonTexts(page)).join(" | ")}]`
     );
-    await settle(page, 500);
-    const post = (await hint.count()) ? (await hint.first().innerText()).trim() : "";
+    const postText = (await hint.count()) ? (await hint.first().innerText()).trim() : "";
     assert(
       (await hint.count()) === 0,
-      `脱战后提示仍残留：count=${await hint.count()} text="${post}"`
+      `脱战后提示仍残留：count=${await hint.count()} text="${postText}"`
     );
 
     // ── e) 无横向溢出 + console error 为 0 ──
