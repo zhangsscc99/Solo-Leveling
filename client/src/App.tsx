@@ -504,6 +504,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("inventory");
   const [drawer, setDrawer] = useState(false);
+  // F190 重新登记二次确认：点「重新登记」先挂起确认层（不立即解绑）——
+  // 「确定」才走既有 onRebind，「取消」只收层，玩家仍在游戏内。
+  const [rebindConfirm, setRebindConfirm] = useState(false);
   const [combatOpen, setCombatOpen] = useState(false);
   // F163 行动栏展开器互斥开合：技能列表 / 道具列表同一槽位，同时至多
   // 展开一个；脱战（含死亡回溯/逃跑成功）自动收起。
@@ -614,6 +617,12 @@ export default function App() {
     setItemNotice(null);
     setStatNotice(null);
   }, []);
+
+  // F190：抽屉关闭（× / veil / Esc / 换号落地）同时收掉挂起的确认层——
+  // 重开抽屉不应面对一条残留的待确认。
+  useEffect(() => {
+    if (!drawer) setRebindConfirm(false);
+  }, [drawer]);
 
   // 连续两次提示只重置计时与文案——同一 .sys-toast 槽位不换元素。
   const showToast = useCallback((text: string) => {
@@ -1202,6 +1211,24 @@ export default function App() {
           </button>
         </div>
         <div className="side-body">
+          {/* F192 抽屉内面板切换：与底部系统键同一 tabs 数据源，点击只换
+              .side-scroll 内容、抽屉保持打开——移动端「档案→×→再点」的
+              四跳收敛为抽屉内一跳。类名单立 .side-nav，不复用 .inv-tab
+              （panels.mjs 的页签计数断言口径不变）。 */}
+          <div className="side-nav" role="tablist" aria-label="档案面板切换">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={t.key === tab}
+                className={`side-nav-btn${t.key === tab ? " on" : ""}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
           <div className="side-scroll">
             <SidePanel
               tab={tab}
@@ -1230,6 +1257,37 @@ export default function App() {
               onToggleShadow={onToggleShadow}
             />
           </div>
+          {/* F190 站内二次确认：不用 window.confirm（Playwright 对原生
+              dialog 处理不稳）。确认条钉在 .side-foot 之上、.side-scroll
+              之外——不被滚动区裁掉，抽屉打开即可见。确定执行既有 onRebind
+              （一字不改），取消只收层。 */}
+          {rebindConfirm && (
+            <div
+              className="rebind-confirm"
+              role="alertdialog"
+              data-testid="rebind-confirm"
+              aria-label="确认重新登记"
+            >
+              <p className="rebind-confirm-text">
+                确定重新登记猎人代号吗？本浏览器将回到觉醒页；原存档仍在服务器，用原代号可找回。
+              </p>
+              <div className="rebind-confirm-actions">
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => {
+                    setRebindConfirm(false);
+                    onRebind();
+                  }}
+                >
+                  确定
+                </button>
+                <button type="button" className="btn" onClick={() => setRebindConfirm(false)}>
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
           <div className="side-foot">
             <div className="foot-row">
               <span>
@@ -1239,9 +1297,14 @@ export default function App() {
               <span className="foot-tap">点 × 关闭</span>
             </div>
             {/* F159 换号入口：只解本机绑定不删档（原档用原代号可找回）。
-                按钮 + 后果小字两行，与脚注同一 10px 等宽小字口径。 */}
+                按钮 + 后果小字两行，与脚注同一 10px 等宽小字口径。
+                F190：点击不再直接解绑——先弹上方的站内确认条。 */}
             <div className="foot-rebind">
-              <button type="button" className="foot-rebind-btn" onClick={onRebind}>
+              <button
+                type="button"
+                className="foot-rebind-btn"
+                onClick={() => setRebindConfirm(true)}
+              >
                 重新登记（换猎人代号）
               </button>
               <span className="foot-rebind-note">原存档仍在服务器，用原代号可找回</span>

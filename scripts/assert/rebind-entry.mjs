@@ -34,8 +34,28 @@ run("rebind-entry", async ({ page }) => {
     `side-foot missing consequence note: "${footText.slice(0, 200)}"`
   );
 
-  // ── 点击 → 回觉醒页；本机绑定清除；服务端存档仍在 ──
+  // ── F190：换号改为两跳（入口 → 确认），契约含义不变 ──
+  // 第一跳：点击 → 弹出确认层，此时仍在游戏内、本机绑定未动（负向锁）
   await btn.click();
+  await page.waitForSelector('[data-testid="rebind-confirm"]', { state: "visible" });
+  assert(
+    (await page.locator(".gate-form").count()) === 0 ||
+      !(await page.locator(".gate-form").first().isVisible()),
+    "gate-form appeared before confirm (rebind skipped confirmation)"
+  );
+  const beforeConfirm = await page.evaluate(() =>
+    localStorage.getItem("solo_leveling_save_id")
+  );
+  assert(
+    beforeConfirm !== null,
+    "localStorage binding cleared before confirm"
+  );
+
+  // 第二跳：点确认层「确定」→ 回觉醒页；本机绑定清除；服务端存档仍在
+  await page
+    .locator('[data-testid="rebind-confirm"] button', { hasText: "确定" })
+    .first()
+    .click();
   await page.waitForSelector(".gate-form", { state: "visible" });
   const stored = await page.evaluate(() => localStorage.getItem("solo_leveling_save_id"));
   assert(stored === null, `localStorage binding not cleared (still ${stored})`);
