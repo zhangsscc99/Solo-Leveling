@@ -724,16 +724,40 @@ const bossWarnSeq = new Map();
 // patch:null 零消耗短路，HP 一滴不掉——文案不许再写「耗你的血」。
 // ≥3 条按本次逗留内被拒次数 hintN 轮换，除「第 N 次」计数器外正文
 // 不逐字复读；每条保留可输入动词「攻击」/「叫阵」与守关者事实。
+// F158 契约仍在：每次被拒的【系统】行必须点名一条真实可达的恢复
+// 路径（休息|药水|补给）并带「每回合」威胁陈述——按真实状态指路：
+// 还有休息次数就写「休息」与剩余数，没次数但有回血补给就写「道具」，
+// 两样都没有只如实说「补给」先备，不把不存在的路说成存在。
+function gateRecoveryHint(save) {
+  const rest = restStatus(save, false);
+  const healRow = store
+    .getInventory(save.id)
+    .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
+    .find(
+      (x) =>
+        x.item &&
+        x.item.category === "consumable" &&
+        (x.item.heal || 0) > 0 &&
+        x.row.qty > 0
+    );
+  if (rest.remaining > 0)
+    return `说「休息」回血（本章休息还剩 ${rest.remaining}/${REST_LIMIT} 次）`;
+  if (healRow) return `用「道具」喝${healRow.item.name}补给`;
+  return "本章已无可休息的间隙——先「补给」再叫阵";
+}
 const BOSS_GATE_HINTS = [
-  (save, n) =>
+  (save, n, ctx) =>
     `【系统】第 ${n} 次被威压逼退——它只是把路封着，这一拦没动你` +
-    `（HP ${save.hp}/${save.max_hp}）：说「攻击」或「叫阵」开战。`,
-  (save, n) =>
+    `（HP ${save.hp}/${save.max_hp}）。真打起来守关者每回合都会还手：` +
+    `${ctx}；备好了就说「攻击」或「叫阵」开战。`,
+  (save, n, ctx) =>
     `【系统】第 ${n} 次被威压逼退——守关者仍立在原地没有出手，` +
-    `要过此路只能击败它：说「攻击」或「叫阵」（HP ${save.hp}/${save.max_hp}）。`,
-  (save, n) =>
+    `可它每回合的拳头是真威胁（HP ${save.hp}/${save.max_hp}）：` +
+    `${ctx}，再说「攻击」或「叫阵」。`,
+  (save, n, ctx) =>
     `【系统】第 ${n} 次被威压逼退——你被推回门前但血一滴未少` +
-    `（HP ${save.hp}/${save.max_hp}），说「攻击」或「叫阵」逼守关者现形。`,
+    `（HP ${save.hp}/${save.max_hp}）；开战才是每回合硬碰硬，` +
+    `${ctx}，然后「攻击」或「叫阵」逼守关者现形。`,
 ];
 
 // F168 交战态撤离指引：开战播报必须同时点名按钮「逃跑」与口述「前进」
@@ -1018,7 +1042,11 @@ function advanceOutcome(save) {
     const hint =
       hintN === 1
         ? guardianWarning(save, chapter, null, { inCombat: false, variant: 0 })
-        : BOSS_GATE_HINTS[(hintN - 2) % BOSS_GATE_HINTS.length](save, hintN);
+        : BOSS_GATE_HINTS[(hintN - 2) % BOSS_GATE_HINTS.length](
+            save,
+            hintN,
+            gateRecoveryHint(save)
+          );
     return {
       patch: null,
       refused: true,
