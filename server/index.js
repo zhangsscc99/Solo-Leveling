@@ -774,6 +774,30 @@ function chapterGate(save, chapter, nextChapter) {
   };
 }
 
+// F173 章首铺陈步注脚池：玩家语言版本「这一步免费、再往前要付代价」。
+// 不写 HP/MP 数字、不写「未耗体力」这种系统口径；代价事实用世界语言
+// 保留（每条都带「代价」）。hpCost/mpCost 只作签名占位（与实扣同源，
+// 由调用方传 ADVANCE_HP_COST/ADVANCE_MP_COST），不进入文案。
+const CHAPTER_ENTRY_NOTES = [
+  "（石门在身后合上。你只是立在原地听风，未耗一丝力气——再往前一步，代价就开始了。）",
+  "（你按着墙缘缓了口气，旧伤隐隐作痛——这一步只是看清前路，往后的每一步都要付代价。）",
+  "（前路的影子还在沉睡。你只是看，没有出手——真正的代价，从下一幕才开始讨要。）",
+  "（风从深处吹来，吹得伤口发紧。你只是站稳了脚跟，未耗一丝力气——可再向前，代价便要亲自来收。）",
+];
+
+// 按章确定性轮换：同一章永远同一句（可复现），相邻章落到不同变体。
+// chapterId 形如 "ch3"；取不到序号时退回字符码和，保证任何章 id 都稳定。
+function chapterEntryNote(chapterId, hpCost, mpCost) {
+  void hpCost;
+  void mpCost;
+  const key = String(chapterId || "");
+  const m = /(\d+)/.exec(key);
+  const n = m
+    ? Number(m[1])
+    : [...key].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return CHAPTER_ENTRY_NOTES[(Math.max(1, n) - 1) % CHAPTER_ENTRY_NOTES.length];
+}
+
 // 「前进」结算：严格沿本章主线链推进 save.scene，日志正文一律用落点
 // 场景的真实 text。落到链尾场景 = 本章主线完成（播报写出 N/N），站在
 // 链尾再前进触发章节门；全篇终点（ch8_epilogue）只输出收束提示——
@@ -867,14 +891,14 @@ function advanceOutcome(save) {
   // 「开场白同一回包内掉血开战、每日任务空结算」的旧毛病。
   if (idx === 0) {
     const nextScene = path[1];
-    // F161：这是唯一一处「下一幕真的开始扣费」的免费步——注脚如实点名
-    // 下一幕的代价数字（取自 ADVANCE_HP_COST/ADVANCE_MP_COST，与实扣同源）。
+    // F161：这是唯一一处「下一幕真的开始扣费」的免费步。
+    // F173：注脚换成玩家语言、按章轮换（chapterEntryNote），不再把
+    // 「HP 3 · MP 2」这种机制数字摊进叙述；代价事实仍如实保留
+    // （下一步开始要付代价），数值取自同一组常量，结算零改动。
     return {
       patch: { scene: nextScene.id },
       scripted: true,
-      content:
-        `${nextScene.text}\n` +
-        `（这一幕只是凝视前路，未耗体力——下一幕开始要付代价：HP ${ADVANCE_HP_COST} · MP ${ADVANCE_MP_COST}）`,
+      content: `${nextScene.text}\n${chapterEntryNote(chapter.id, ADVANCE_HP_COST, ADVANCE_MP_COST)}`,
     };
   }
 
@@ -3550,4 +3574,4 @@ if (require.main === module && !process.env.NODE_TEST_CONTEXT) {
   });
 }
 
-module.exports = { app, saveView, grantRewards };
+module.exports = { app, saveView, grantRewards, chapterEntryNote };
