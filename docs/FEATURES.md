@@ -404,3 +404,11 @@
   verify: node scripts/assert/rebind-entry.mjs
   risk: low
 
+
+## 第 22 轮真机试玩新增（2026-11-17 01:40，cron；线上双视口 390×844 / 1440×900 实玩 10 步）
+- [ ] F160 （P1 体验硬伤）交战中「存档」是静默死键：`disabled={busy || Boolean(save.combat)}` 只给了 `title="交战中无法存档"`——移动端没有 hover，玩家第 10 步「存档/重开」时按钮灰着、点不动、也不知道为什么，唯一提示是等 30 秒后 Playwright 超时。要求：交战态在「存档」按钮旁给一条**常驻可见**的就地提示（不是 title）：`交战中无法写入存档 · 先「逃跑」或打赢这一场`，390px 下不换行折成两行也不得横向溢出；按钮仍保持 disabled（`combat-actions-ui.mjs` 的断言不动）；脱战后提示消失。断言：交战态 footer 可见文本含「交战中无法写入存档」且含「逃跑」或「打赢」，`document.documentElement.scrollWidth == clientWidth`；脱战态该文本不存在；存档按钮仍 `disabled`
+  verify: node scripts/assert/save-blocked-hint.mjs
+  risk: low
+- [ ] F161 （P1 选择感/行动经济学）「前进」在剧情幕零消耗且不解释：本轮 390×844 实测前进#1 回包末尾写「（本次没有消耗体力）」，而 #2/#3 各扣 HP 3 / MP 2 —— 同一个按钮同一屏内三种代价，玩家无法预期；且连续零消耗前进不提高遇敌率（`encounters:"none"` 幕直接跳过掷点），导致「一直按前进」在最需要紧张感的开场是免费的。要求：① 零消耗幕必须有**剧情内理由**（如「这一景只是观察，不耗体力」→ 换成「（这一幕只是凝视，未耗体力）」并说明下一幕会耗），② 连续「前进」计数 ≥3 时遇敌概率线性上升（复用 `encounter.js` 的 `PITY_LIMIT` 或新增 `STREAK_PER_ADVANCE`），③ 正文里「本次没有消耗体力」这类系统口吻不得单独出现而无解释。断言：连按「前进」10 次，`hp+mp` 净变化 > 0 且至少触发 1 次遭遇（或给出可见的遇敌率上升提示）；零消耗幕的回包必须含解释词（「只是／未耗／下一幕」）
+  verify: node scripts/assert/advance-cost-transparency.mjs
+  risk: med
