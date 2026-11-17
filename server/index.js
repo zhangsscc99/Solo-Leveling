@@ -720,6 +720,22 @@ const BOSS_WARN_LINES = [
 ];
 const bossWarnSeq = new Map();
 
+// F195 门前被拒短指引池（F183 第 2 次起的那一行）：本分支恒为
+// patch:null 零消耗短路，HP 一滴不掉——文案不许再写「耗你的血」。
+// ≥3 条按本次逗留内被拒次数 hintN 轮换，除「第 N 次」计数器外正文
+// 不逐字复读；每条保留可输入动词「攻击」/「叫阵」与守关者事实。
+const BOSS_GATE_HINTS = [
+  (save, n) =>
+    `【系统】第 ${n} 次被威压逼退——它只是把路封着，这一拦没动你` +
+    `（HP ${save.hp}/${save.max_hp}）：说「攻击」或「叫阵」开战。`,
+  (save, n) =>
+    `【系统】第 ${n} 次被威压逼退——守关者仍立在原地没有出手，` +
+    `要过此路只能击败它：说「攻击」或「叫阵」（HP ${save.hp}/${save.max_hp}）。`,
+  (save, n) =>
+    `【系统】第 ${n} 次被威压逼退——你被推回门前但血一滴未少` +
+    `（HP ${save.hp}/${save.max_hp}），说「攻击」或「叫阵」逼守关者现形。`,
+];
+
 // F168 交战态撤离指引：开战播报必须同时点名按钮「逃跑」与口述「前进」
 // 两条路径（旧口径只写「说『前进』尝试撤离」，390px 下玩家得猜「前进」
 // 是打字用的），并明示撤离可能失败——flee 判定不是必中，被拦下回合照推。
@@ -1002,8 +1018,7 @@ function advanceOutcome(save) {
     const hint =
       hintN === 1
         ? guardianWarning(save, chapter, null, { inCombat: false, variant: 0 })
-        : `【系统】第 ${hintN} 次被威压逼退——它每回合仍在耗你的血，` +
-          `说「攻击」或「叫阵」开战（HP ${save.hp}/${save.max_hp}，先用补给也行）。`;
+        : BOSS_GATE_HINTS[(hintN - 2) % BOSS_GATE_HINTS.length](save, hintN);
     return {
       patch: null,
       refused: true,
@@ -1090,6 +1105,12 @@ function grantRewards(saveId, reward) {
   const patch = {};
   const lines = [];
   if (xp > 0) {
+    // F194：升级播报必须如实报数——记录结算前 HP/MP，播报写真实
+    // 前后值（applyXp 升级即回满，与顶栏 save.hp/save.max_hp 一致）。
+    const prevHp = save.hp;
+    const prevMaxHp = save.max_hp;
+    const prevMp = save.mp;
+    const prevMaxMp = save.max_mp;
     const { state, events } = progression.applyXp(save, xp);
     patch.xp = state.xp;
     patch.level = state.level;
@@ -1102,7 +1123,9 @@ function grantRewards(saveId, reward) {
     for (const e of events) {
       if (e.type === "levelup") {
         lines.push(
-          `【升级】Lv.${e.level - 1} → Lv.${e.level} · 自由属性点 +${e.freePoints} · HP/MP 上限提升`
+          `【升级】Lv.${e.level - 1} → Lv.${e.level} · 自由属性点 +${e.freePoints} · ` +
+            `HP ${prevHp}/${prevMaxHp} → ${state.hp}/${state.max_hp}（上限提升并回满） · ` +
+            `MP ${prevMp}/${prevMaxMp} → ${state.mp}/${state.max_mp}（已回满）`
         );
       } else if (e.type === "rankup") {
         lines.push(`【晋升】猎人等级提升——你已突破界限，晋升为 ${e.rank} 级猎人。`);
