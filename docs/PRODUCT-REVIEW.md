@@ -1842,3 +1842,13 @@
 - 车道 1：F190 + F192（`client/src/App.tsx` 抽屉/确认，两个新断言 `rebind-confirm.mjs`、`mobile-drawer-nav.mjs`，swe-2-high）
 - 车道 2：F191（`client/src/panels/CombatPanel.tsx` + `server/index.js` 估算口径，新断言 `combat-estimate-caliber.mjs`，swe-2-medium）
 - F193（内容厚度，`server/index.js` 观察分支 + 场景数据）与车道 2 同触 `server/index.js`，顺延下一轮。
+
+### 第 32 轮验收与上线记录
+- **车道 1（F190 + F192，swe-2-high，`client/src/App.tsx` + `styles.css` + 新断言 2 个）**：F190 用站内确认条（`[data-testid="rebind-confirm"]`，`role=alertdialog`）替代原生 dialog——确认前不清档、不离页；F192 在 `aside.sidebar` 内加 `.side-nav`（与底部系统键同一 `tabs` 数据源），点击只换 `.side-scroll` 内容、抽屉保持打开，类名单立不复用 `.inv-tab`（`panels.mjs` 页签计数口径不受影响）。
+  - 我自己在隔离实例（3107，干净 `/tmp/sl-f190.db`）复验：`rebind-confirm` PASS 5.7s、`mobile-drawer-nav` PASS 5.7s，全量 `run-all.mjs` 7/7。
+  - **口径变更一处（第二条 devin pass）**：既有 F159 `rebind-entry.mjs` 在 F190 上线后必然红（换号从一跳变两跳）。改法是保留全部四个原断言 + 新增两条负向锁（确认层出现时 `.gate-form` 不出现、localStorage 键仍在），再点「确定」走完原路径——强度不降，连跑 2 次 PASS。
+- **车道 2（F191，swe-2-medium，`server/index.js` + `CombatPanel.tsx` + 新断言）**：根因是客户端裸算 `enemy.atk - def`（无 rank 压制/体力减伤/暴击），改为服务端 `combatView` 下发 `est_take_lo/hi`、`est_deal_lo/hi`（与 `guardianWarning`/`resolveTurn` 同一条 `computeDamage`，装备折回属性），面板显示 `攻击 14–23 / 承伤 10–16` 并标「未计闪避」；`guardianWarning` 区间与数值公式一字未动，233 单测全绿。
+  - **断言稳定性（第二条 devin pass）**：首版 `combat-estimate-caliber.mjs` 靠散文抓数字，连跑 5 次里红 1 次——补刀回合「敌方 HP 4→0」被当成一次完整攻击（4 ∉ [14,23]）。改为只从 `【战斗】… HP A→B · 你 HP C→D` 权威增量行解析、击杀段整段跳过并打印 `skipped killing round`、找不到增量行且非 miss 即 fail-closed。我复跑 3 次全绿（9.4s / 10.6s / 9.4s），devin 5 次全绿，有效回合 ≥3 的约束保留。
+- 合并：`feat/F190` → main、`feat/F191` → main 各 `--no-ff`，零冲突；`ci-deploy.sh` 全闸门绿 + 内置 e2e 7/7，`DEPLOY OK`；本地 3020 / health / 公网 `https://openfolio.uk/game` 均 200；部署后 live 上 `verify.sh F191/F190/F192/F159` 四条全 PASS；`--test` 233 pass；pm2 进程无 `DB_PATH/API_BASE` 泄漏。
+- 本轮 **3 条 devin 车道（F190+F192 合并一条、F191、两条断言口径 pass），零回退**。
+- 遗留：F193（观察无回报，内容厚度）与 F191 同触 `server/index.js`，按车道切分顺延下一轮；`CombatPanel` 已不再使用 `equipment` prop，App.tsx 仍在传（vite 构建不类型检查，无运行时影响），下轮顺手清掉。
