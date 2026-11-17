@@ -470,6 +470,12 @@
 - [x] F175 （P0 验收契约对齐，第26轮 F171 启用 AI 后立刻暴露）三条已勾选断言写死了「线上必须降级」的前提，AI 网关真正可用后全部假红：① `scripts/assert/ai-degraded-parity.mjs`（F170）与 `scripts/e2e/degraded-banner.mjs`（F118）都要求 `/ai-action` 回包 `degraded:true`，而现在散文走 F174 快路径根本不降级；② `scripts/assert/flee-guidance-wording.mjs`（F168）把 `E2E_BASE_URL` 写死成 `http://127.0.0.1:3098/game`，该端口无实例时直接 `ERR_CONNECTION_REFUSED`。要求：① 降级类断言改为**显式制造降级环境**——要么用「无任何 AI key」的隔离实例（`env -i` 起 `PORT=…行 node server/index.js`，断言脚本自己起停），要么以「配置了 key 但上游不可达」的方式触发；不得再依赖线上恰好没有 key；② 降级断言同时覆盖「降级时 /ai-action 与 /action 正文逐字一致」与「非降级时同一句散文也必须否认具象化、不得出现通用观察模板『重新审视』」，两条都要在**当前线上（AI 可用）**这种环境下可执行；③ `flee-guidance-wording.mjs` 默认目标改成与其它断言一致的 `E2E_BASE_URL || "https://openfolio.uk/game"`，禁止写死端口；④ 断言强度不降：删掉的每一条「必须 degraded」都要有等价的正向断言替代（隔离无 key 实例上确实 degraded + 正文含否认词）。断言：`bash scripts/verify.sh F170 && bash scripts/verify.sh F118 && bash scripts/verify.sh F168` 在**线上已配置 AI** 的环境下三条全绿；并且在隔离无 key 实例上跑 F170/F118 的两条断言仍能看到 `degraded:true`
   verify: bash scripts/verify.sh F170 && bash scripts/verify.sh F118 && bash scripts/verify.sh F168
   risk: med
+- [ ] F176 （P1 文本质量/沉浸，第27轮走查）自由输入回包一律挂指令表尾巴 + 正文夹机制说明句：任何人写一句行动描写（「我把手按在石碑上，试着辨认第三条刻痕」），正文之后紧接「眼下可以做：说「观察」环顾四周；说「前进」推进剧情。输入「帮助」查看完整指令表。」——每句复读一遍操作说明（代码注释第 ④ 条自己写着「不复读『眼下可以做』」，实现却每条都拼）；且章节收束正文里直接出现「（遇敌率随疾行上升）」这类机制括号句。要求：① 指令表尾巴改为**条件出现**——同一会话内最多出现 1 次（首次进入或连续 2 次未命中词族时），正常叙事回包不得再挂「眼下可以做…输入「帮助」」；② 出现次数由进程内计数/存档字段决定，跨刷新可复位但不得每句都出现；③ 正文不得出现「遇敌率」「体力消耗公式」「HP 3 · MP 2」这类机制术语句，改成世界语言（例：脚步越快，越容易惊动这里的东西）；数值结算与日志条数零改动。断言：`node scripts/assert/repetition-and-jargon.mjs` 之外新增 `node scripts/assert/free-tail-jargon.mjs` —— 新存档连发 4 句自然语言长句，回包中含「眼下可以做」的次数 ≤1、含「输入「帮助」」的次数 ≤1；4 句正文均不得匹配 `遇敌率|机制|公式`；同时 `bash scripts/verify.sh F157 && bash scripts/verify.sh F166` 不得回归（长句仍须具象否认、不得出现「系统未识别该指令」）
+  verify: node scripts/assert/free-tail-jargon.mjs
+  risk: med
+- [ ] F177 （P2 可用性，第27轮走查）「休息」按钮灰置且无任何理由：第 1 章 1/7 与刚进入第 2 章时「休息」都是 disabled，点下去没有反馈，而同栏的「战斗」灰键至少写了「当前没有可攻击的目标」。要求：灰置的「休息」必须给出 `title` + 可见小字提示（交战中 / 本日次数已用完 / 本幕未付代价等按状态分句），不得用一个笼统句子兜住；数值与休息机制零改动。断言：`node scripts/assert/rest-disabled-hint.mjs` —— 新存档首屏 `footer.actions button:has-text("休息")` disabled 且 `title` 非空且与场景状态一致；交战中进入战斗断言提示文案变为交战口径
+  verify: node scripts/assert/rest-disabled-hint.mjs
+  risk: low
 
 ### 第 26 轮验收记录（2026-11-17 cron；走查 → F171/F172 → 上线即现回归 F174 → 断言对齐 F175）
 - 走查（390×844 / 1440×900，干净上下文）：首屏 0.4s 可开始、前进 425–479ms、战斗 6 回合无死路、刷新续档精确、console error 0、双视口 overflow 0；四维 4/3/5/3，详见 docs/PRODUCT-REVIEW.md「第 26 轮」。
