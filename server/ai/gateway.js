@@ -1,5 +1,14 @@
-// OpenCode Go AI gateway: the only place in the server that talks to an LLM.
+// AI gateway: the only place in the server that talks to an LLM.
 // CommonJS, no npm dependencies (global fetch from Node 24).
+//
+// Provider resolution (read at call time):
+//   1. OPENCODE_GO_API_KEY        → OpenCode Go endpoint, sends
+//      x-opencode-session so the upstream can tie usage to a session.
+//   2. AI_ALIYUN_API_KEY          → DashScope OpenAI-compatible endpoint
+//      (AI_ALIYUN_BASE_URL / AI_ALIYUN_MODEL); only Authorization and
+//      Content-Type headers are sent — the opencode session header is
+//      an upstream-specific concept and must not leak elsewhere.
+//   3. neither                    → no request is made.
 //
 // generate(...) never throws and never resolves with anything but
 // { ok: true, text, model, ms, sessionId } or { ok: false, error, code }.
@@ -9,27 +18,49 @@ const crypto = require("crypto");
 
 const MODEL = "deepseek-v4.1-flash";
 const DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1";
+const ALIYUN_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const ALIYUN_DEFAULT_MODEL = "qwen3.8-flash";
 const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_TEMPERATURE = 0.7;
 const DEFAULT_MAX_TOKENS = 800;
 const ERROR_BODY_LIMIT = 300;
 
-function readKey() {
-  const raw = process.env.OPENCODE_GO_API_KEY;
+function readEnv(name) {
+  const raw = process.env[name];
   if (typeof raw !== "string") return "";
   return raw.trim();
 }
 
-// Reads the env at call time so a key set after module load still counts.
-function isConfigured() {
-  return readKey().length > 0;
+// Trailing slashes would produce "//chat/completions" on some proxies.
+function stripSlashes(url) {
+  return url.replace(/\/+$/, "");
 }
 
-function baseUrl() {
-  const raw = process.env.OPENCODE_GO_BASE_URL;
-  const value = typeof raw === "string" ? raw.trim() : "";
-  // Trailing slashes would produce "//chat/completions" on some proxies.
-  return (value || DEFAULT_BASE_URL).replace(/\/+$/, "");
+function resolveProvider() {
+  const opencodeKey = readEnv("OPENCODE_GO_API_KEY");
+  if (opencodeKey) {
+    return {
+      key: opencodeKey,
+      baseUrl: stripSlashes(readEnv("OPENCODE_GO_BASE_URL") || DEFAULT_BASE_URL),
+      model: MODEL,
+      sessionHeader: true,
+    };
+  }
+  const aliyunKey = readEnv("AI_ALIYUN_API_KEY");
+  if (aliyunKey) {
+    return {
+      key: aliyunKey,
+      baseUrl: stripSlashes(readEnv("AI_ALIYUN_BASE_URL") || ALIYUN_DEFAULT_BASE_URL),
+      model: readEnv("AI_ALIYUN_MODEL") || ALIYUN_DEFAULT_MODEL,
+      sessionHeader: false,
+    };
+  }
+  return null;
+}
+
+// Reads the env at call time so a key set after module load still counts.
+function isConfigured() {
+  return resolveProvider() !== null;
 }
 
 function resolveSessionId(sessionId) {
@@ -70,12 +101,14 @@ async function generate({
   fetchImpl,
 } = {}) {
   const sid = resolveSessionId(sessionId);
-  const key = readKey();
+  const provider = resolveProvider();
 
-  if (!key) {
+  if (!provider) {
     // No key: report it locally, never hit the network.
     console.warn(`[ai] skipped request (session ${sid}): no API key configured`);
-    return fail("no-key", "OPENCODE_GO_API_KEY is not set", { sessionId: sid });
+    return fail("no-key", "no AI API key configured (OPENCODE_GO_API_KEY / AI_ALIYUN_API_KEY)", {
+      sessionId: sid,
+    });
   }
 
   const doFetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
@@ -84,9 +117,9 @@ async function generate({
   }
 
   const timeout = numberOr(timeoutMs, DEFAULT_TIMEOUT_MS);
-  const url = `${baseUrl()}/chat/completions`;
+  const url = `${provider.baseUrl}/chat/completions`;
   const body = JSON.stringify({
-    model: MODEL,
+    model: provider.model,
     messages: Array.isArray(messages) ? messages : [],
     temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : DEFAULT_TEMPERATURE,
     max_tokens: numberOr(maxTokens, DEFAULT_MAX_TOKENS),
@@ -102,13 +135,15 @@ async function generate({
   const startedAt = Date.now();
 
   try {
+    const headers = {
+      Authorization: `Bearer ${provider.key}`,
+      "Content-Type": "application/json",
+    };
+    if (provider.sessionHeader) headers["x-opencode-session"] = sid;
+
     const res = await doFetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "x-opencode-session": sid,
-      },
+      headers,
       body,
       signal: controller.signal,
     });
@@ -154,7 +189,7 @@ async function generate({
     return {
       ok: true,
       text,
-      model: (payload && typeof payload.model === "string" && payload.model) || MODEL,
+      model: (payload && typeof payload.model === "string" && payload.model) || provider.model,
       ms: Date.now() - startedAt,
       sessionId: sid,
     };
