@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS saves (
   encounter_cd INTEGER NOT NULL DEFAULT 0,
   main_steps INTEGER NOT NULL DEFAULT 0,
   boss_cleared_json TEXT NOT NULL DEFAULT '[]',
+  boss_hp_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -141,6 +142,12 @@ if (!saveCols.includes("rest_used")) {
 if (!saveCols.includes("boss_cleared_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN boss_cleared_json TEXT NOT NULL DEFAULT '[]'");
 }
+// F182 守关者残血：{ chapter_id: 剩余 hp }，撤离/阵亡未击杀的守关者带着
+// 残血等下次叫阵；真正击杀才删 key。与 boss_cleared_json 同章 id 口径，
+// 老存档自动落 '{}'，无回填、无感知。
+if (!saveCols.includes("boss_hp_json")) {
+  db.exec("ALTER TABLE saves ADD COLUMN boss_hp_json TEXT NOT NULL DEFAULT '{}'");
+}
 // F081 技能冷却：{ skill_id: 剩余回合数 }，只随已结算的战斗回合衰减。
 if (!saveCols.includes("skill_cd_json")) {
   db.exec("ALTER TABLE saves ADD COLUMN skill_cd_json TEXT NOT NULL DEFAULT '{}'");
@@ -228,7 +235,7 @@ const stmts = {
 
 function toSave(row) {
   if (!row) return null;
-  const { stats_json, rewards_json, boss_cleared_json, skill_cd_json, ...rest } = row;
+  const { stats_json, rewards_json, boss_cleared_json, boss_hp_json, skill_cd_json, ...rest } = row;
   let stats = {};
   try {
     stats = JSON.parse(stats_json || "{}");
@@ -261,7 +268,19 @@ function toSave(row) {
   } catch {
     skill_cds = {};
   }
-  return { ...rest, stats, rewards, boss_cleared, skill_cds };
+  let boss_hp = {};
+  try {
+    const parsed = JSON.parse(boss_hp_json || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed)) {
+        const n = Math.trunc(Number(v) || 0);
+        if (n > 0) boss_hp[k] = n;
+      }
+    }
+  } catch {
+    boss_hp = {};
+  }
+  return { ...rest, stats, rewards, boss_cleared, skill_cds, boss_hp };
 }
 
 function createSave(playerName) {
@@ -339,6 +358,11 @@ function updateSave(id, patch) {
     sets.push("skill_cd_json = ?");
     const cds = patch.skill_cds && typeof patch.skill_cds === "object" ? patch.skill_cds : {};
     values.push(JSON.stringify(cds));
+  }
+  if (patch.boss_hp !== undefined) {
+    sets.push("boss_hp_json = ?");
+    const map = patch.boss_hp && typeof patch.boss_hp === "object" ? patch.boss_hp : {};
+    values.push(JSON.stringify(map));
   }
   if (!sets.length) return getSave(id);
   db.prepare(`UPDATE saves SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
