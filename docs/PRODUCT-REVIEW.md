@@ -1852,3 +1852,5 @@
 - 合并：`feat/F190` → main、`feat/F191` → main 各 `--no-ff`，零冲突；`ci-deploy.sh` 全闸门绿 + 内置 e2e 7/7，`DEPLOY OK`；本地 3020 / health / 公网 `https://openfolio.uk/game` 均 200；部署后 live 上 `verify.sh F191/F190/F192/F159` 四条全 PASS；`--test` 233 pass；pm2 进程无 `DB_PATH/API_BASE` 泄漏。
 - 本轮 **3 条 devin 车道（F190+F192 合并一条、F191、两条断言口径 pass），零回退**。
 - 遗留：F193（观察无回报，内容厚度）与 F191 同触 `server/index.js`，按车道切分顺延下一轮；`CombatPanel` 已不再使用 `equipment` prop，App.tsx 仍在传（vite 构建不类型检查，无运行时影响），下轮顺手清掉。
+- 全表：`docs/runs/2026-11-17_1735.md`（PASS 129 / FAIL 8 / 缺断言 30）。8 条 FAIL 里 7 条是既有的「断言脚本尚未实现」待办（F078 无 jq、F093/F097/F102/F128/F138/F193 的 mjs 不存在）。**第 8 条 F076 是我自己的操作事故**：我在 report.sh 跑的同时清理生产库测试存档，把断言正在用的 save 一起删了（GET → 404）。收尾后在 live 上单独复跑 `verify.sh F076` 两次均 PASS（30.4s / 50.3s），确认非回归。教训：库清理必须排在 report.sh **之后**，别与全表并发。
+- 收尾清理：生产库按前缀删除历次测试存档（first pass 611 条、report 后再清 144 条），保留 `试玩*` / 真实代号 / 早期「影子持久化测试」样本；`git worktree` 与隔离实例（3107/3109）已回收，端口已释放。
