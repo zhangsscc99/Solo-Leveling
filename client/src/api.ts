@@ -32,6 +32,20 @@ export interface CombatState {
 // 前端只渲染 state/blocked_reasons/hint，不再自拼门槛文案。
 export type ChapterGateState = "locked" | "soft" | "open";
 
+// F197 软门量化风险：state === "soft" 时服务端随 unlock 视图下发，
+// 数字与 hint/过门播报同一事实源（encounterEngine 预演 + computeDamage
+// est_take 口径），前端如需结构化展示直接用字段，不从文案里抠数。
+export interface SoftGateRisk {
+  enemy_name: string;
+  enemy_level: number;
+  enemy_hp: number;
+  player_level: number;
+  player_hp: number;
+  player_max_hp: number;
+  est_take_lo: number;
+  est_take_hi: number;
+}
+
 export interface ChapterUnlockView {
   level: number | null;
   chapter: number | null;
@@ -40,6 +54,7 @@ export interface ChapterUnlockView {
   state?: ChapterGateState | null;
   blocked_reasons?: string[];
   hint: string | null;
+  risk?: SoftGateRisk | null;
 }
 
 // F117 章尾入口：advance_mode === "next_chapter" 时主按钮按此换标
