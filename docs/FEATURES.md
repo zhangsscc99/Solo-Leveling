@@ -188,7 +188,7 @@
 - [x] F096 （阻断）章节门必须校验守关者击杀：当前 8 章守关者全部可被「前进」逃跑绕过——交战中「前进」=撤离骰，逃跑成功同一次点击即推进主线（实测 Lv.1/0 击杀/8 次死亡/63 次前进直达终章 `cleared:true`）。要求：`chapter` 推进 join 结算事件（`boss_cleared[chapter]` 为真才通章），交战中「前进」改文案为「撤离」且禁止同响应推进场景/主线，未击杀守关者时「前进」最多退回本景 ✅ (2026-11-15 devin; 章节门在 `unlockedFor` 之后追加 `bossRequirementMet` 硬门槛，未击杀时正文点名守关者（「必须击败「石像守卫」才能通过（当前进度 7/7）」）；交战「前进」改为 `retreatOnFlee` 撤离结算、**不再调用 advanceOutcome**，成功只脱离交战（守关战撤回上一主线场景 + F095 冷却），前端交战态按钮改标「撤离」并写「撤离不会推进主线」；收尾补丁：两条门拒绝分支零消耗零日志（`refused` 短路），否则章尾连点会原地耗死（实测 HP 100→33→死亡回溯）；新断言 `chapter-boss-gate.mjs` 覆盖纯前进不通章/交战不推进/击杀后放行 + 变异敏感，`chapter-gate.mjs` 终章段改为 DB 落点（真打需 ~1.2 万动作，已在文件头写明预算约束）；`encounter-combat.mjs` 道具段 setup 去竞态，连跑 6 次稳定；二次收尾（2026-11-15 devin）：线上死路——撤离后负冷却内连点「前进」可穿过 boss 房到章尾，守关者未击杀而章尾只拒绝、回不了守关房 → 永久卡死（线上 save 550 复现）。补丁：守关者未击杀时玩家位置不得越过 boss 场景（房内「前进」被出口封回上一景；越线落点/链尾「前进」改折返回守关房、`encounter_clock=0` + `forceBoss` 落地真打，`saveView.advance_mode` 下发前端换标「折返守关者」）；`chapter-boss-gate.mjs` 重写并补 (f)(g) 变异敏感，(f)/(d) 用 DB 落点复刻旧档状态（新口径下真实路径已不可达，文件头注明）；`encounter-combat` B 段同因改 DB 落点，连跑 3 次稳定)
   verify: node scripts/assert/chapter-boss-gate.mjs
   risk: high
-- [ ] F097 （阻断）遭遇/守关者等级按玩家等级带宽缩放：ch2 守关者 200HP / 18 伤害、ch7「地狱之犬 Lv.19 HP185」对 Lv.3 玩家每回合打 4 点挨 44 点 → 必死循环。要求：遭遇与守关者等级钳制到 `player.level ± 2`（或与章节 `expected_level` 取小），`expected_level` 写入 `chapters.json` 并做 CI 断言；ch2 守关者应让 Lv.1–2 在 ≤12 回合内可赢
+- [x] F097 ✅ (2026-11-17 devin) （阻断）遭遇/守关者等级按玩家等级带宽缩放：ch2 守关者 200HP / 18 伤害、ch7「地狱之犬 Lv.19 HP185」对 Lv.3 玩家每回合打 4 点挨 44 点 → 必死循环。要求：遭遇与守关者等级钳制到 `player.level ± 2`（或与章节 `expected_level` 取小），`expected_level` 写入 `chapters.json` 并做 CI 断言；ch2 守关者应让 Lv.1–2 在 ≤12 回合内可赢
   verify: node scripts/assert/encounter-level-band.mjs
   risk: high
 - [x] F098 死亡回溯不清空章节主线进度：死亡后 `chapter_progress` 从 3/3 打回 1/3 且无确认，叠加等级墙形成零收益循环。要求回溯保留已到达的最远 scene（或给保底 XP），并在播报里说明保留了哪些里程碑 ✅ (2026-11-15 cron devin; 新增持久列 `main_steps` 作「本章主线高水位」，`sceneView`/`/chapters` 取 `max(当前位置, 高水位)`，回溯落点仍回入口但水位不清；首死一次性 +30 XP（与 ch1 濒死觉醒叠加属预期，重复死亡不补），播报写明保留的里程碑；老存档水位从下次推进开始记录、不回填；新断言 `death-progress-keep.mjs` 覆盖计数不退/保底一次性/文案不矛盾/`deaths`+1)
@@ -580,4 +580,16 @@
 
 - [x] F195 ✅ (2026-11-17 devin) （P1 文本不说谎，第33轮走查）守关房被逼退的提示在撒谎：连续两次「前进」被威压逼退时，HP 逐次实测都是 94/94 不变，文案却写「它每回合仍在耗你的血」；同一句「第 N 次被威压逼退」除数字外逐字重复，玩家连按只会读到同义句。要求：① 只有真的扣了血（有 HP 增量）才允许出现「耗你的血」这类句子，未扣血时改为如实口径（例如「它只是把路封着，暂时没动你」）；② 逼退文案按次数轮换 ≥3 条变体，除计数器外正文不得逐字相同；③ 段落里给出的出路必须真实可达（「攻击」/「叫阵」按钮在守关房可用，已实测可行）；④ 不改门禁逻辑与数值。断言：`node scripts/assert/boss-refusal-truthful.mjs` —— 新档走到守关房连按 4 次「前进」，逐次记录 HP 并解析回包：HP 没变的那些次不得含「耗你的血/流失」等扣血表述，且 4 次正文去重后 ≥3 种；旧码上必红
   verify: node scripts/assert/boss-refusal-truthful.mjs
+  risk: low
+
+- [x] F196 ✅ (2026-11-17 devin) （P1 选择感，第34轮走查）选项是假的：`chapters.json` 有 8 个场景的两个选项 `next` 完全相同，服务端只按 `choice.next` 跳转，正文/奖励/风险一律不区分——实测 Ch.2 开场选「今天实在撑不住了，先睡」与「按部就班完成今天的训练」落到逐字相同的下一屏，「站定，等它露头」与「绕向石柱借掩体」也是同一场毒牙蛇。玩家一旦发现选择被吞掉，后面所有选项都当装饰。要求：① 这 8 处（ch1_double_gate / ch1_watch / ch1_statues / ch1_awaken / ch2_daily_quest / ch2_penalty_gate / ch4_raid_party / ch6_red_gate）每个选项必须产生**可观察的差异**：至少一项为不同的回包正文（该选项专属 first-line，不得与另一选项逐字相同）；② 至少一半场景的选项要带真实后果（不同 HP/MP 消耗、不同道具、不同阵营/线索记录、或不同敌人等级），写在 `choices[].effects` 之类可由服务端读的数据里，不得只在文案里假装；③ 不改主线链、不改场景 `next` 拓扑（两条路仍汇聚到原节点，避免破坏既有断言与章节进度）；④ 不改战斗数值公式。断言：`node scripts/assert/choice-branching.mjs` —— 新档走到 ch1_double_gate / ch2_daily_quest / ch2_penalty_gate，逐场景分别选 A 与 B（两个独立新档），断言两次回包正文首段不完全相同、且至少一个场景的 `save.hp/mp/items` 或 `save.flags` 有可观察差异；旧码上必红
+  verify: node scripts/assert/choice-branching.mjs
+  risk: med
+
+- [ ] F197 （P1 数值可信/风险告知，第34轮走查）「可强行进入」不给量化危险：地图 Ch.2 写「推荐 Lv.5 · 可强行进入（本章战斗难度高于你的当前等级）」，Lv.3 玩家进入后遇到 Lv.6 敌人毫无提示，实测在惩罚副本毒牙蛇（200 HP）战后剩 HP 4/172、靠两次 miss 才没死。要求：① 软门进入前的回包与地图节点给出**本次遭遇的真实对比**（敌方等级/HP 与玩家等级/HP，或沿用 F191 的 `est_take_lo/hi` 承伤口径给一行「单回合预计承受 X–Y」）；② 数字必须来自 `encounterEngine` 与 `computeDamage` 同一事实源，不得前端硬编码；③ 软门仍然放行（不改 F093 判定），只补告知。断言：`node scripts/assert/soft-gate-risk.mjs` —— Lv.1 新档强行进入 Ch.2，断言回包/章节视图含敌方等级数字与玩家等级数字、且承伤区间两端均为正整数；旧码上必红
+  verify: node scripts/assert/soft-gate-risk.mjs
+  risk: low
+
+- [ ] F198 （P2 文本质量，第34轮走查上线后实测）分支选项的回显行写的是英文 id 而不是玩家点的中文标签：点「先放慢脚步，绕墙观察那些石像」，日志里先落一行「选择 observe」，玩家会以为自己敲了什么暗号。要求：回显行用 `choices[].label` 原文（或直接不落回显行、只落 lead 正文），不得把内部 id 暴露给玩家；服务端回包与前端本地 echo 两处同口径。断言：`node scripts/assert/choice-echo-label.mjs` —— 新档点第二个选项，断言日志里出现的回显文本等于该按钮 label，且不含 `[a-z_]{3,}` 形式的 id；旧码上必红
+  verify: node scripts/assert/choice-echo-label.mjs
   risk: low
