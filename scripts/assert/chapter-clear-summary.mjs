@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // F165 章节结算断言：新档打通第 1 章主线链（7/7），链尾回包必须带一张
-// 【章节结算】卡——战绩（累计击杀/XP/金币，账本结算后值）+ 本章进度 +
+// 【章节结算】卡——战绩（击杀/经验 当前进度+分母/金币，账本结算后值）+ 本章进度 +
 // 下一章去处 + 一个真实可达的动作词（「前进」）。同一章只播一次：
 // 再发一次「前进」（链尾之后走的是过门/交战分支），回包不得再刷。
 //
@@ -45,8 +45,15 @@ console.log("── 结算原文 ──");
 console.log(text.slice(cardStart).split("\n").slice(0, 3).join("\n"));
 console.log("──────────────");
 
-assert(/累计击杀\s*\d+/.test(text), `结算缺累计击杀数字：${text.slice(cardStart, cardStart + 160)}`);
-assert(/XP\s*\d+/.test(text), `结算缺 XP 数字：${text.slice(cardStart, cardStart + 160)}`);
+assert(/击杀\s*\d+/.test(text), `结算缺击杀数字：${text.slice(cardStart, cardStart + 160)}`);
+assert(
+  /经验\s*\d+\s*\/\s*\d+/.test(text),
+  `结算缺「经验 当前/所需」口径：${text.slice(cardStart, cardStart + 160)}`
+);
+assert(
+  !text.includes("累计 XP"),
+  `结算仍用错误的「累计 XP」口径：${text.slice(cardStart, cardStart + 160)}`
+);
 assert(/7\/7|7\s*\/\s*7/.test(text), `结算缺本章进度 7/7：${text.slice(cardStart, cardStart + 160)}`);
 assert(
   text.includes("第 2 章") || text.includes("每日任务"),
@@ -55,13 +62,14 @@ assert(
 assert(text.includes("前进"), `结算缺可执行动作词「前进」：${text.slice(cardStart, cardStart + 200)}`);
 
 // 账本对账：结算卡上的数字必须与回包 save 的真实字段一致（结算后值）。
-const m = text.slice(cardStart).match(/累计击杀\s*(\d+)\s*·\s*累计 XP\s*(\d+)\s*·\s*金币\s*(\d+)/);
+const m = text.slice(cardStart).match(/击杀\s*(\d+)\s*·\s*经验\s*(\d+)\s*\/\s*(\d+)（Lv\.(\d+)）\s*·\s*金币\s*(\d+)/);
 assert(m, `结算卡数字行形态异常：${text.slice(cardStart, cardStart + 160)}`);
 assert(
   Number(m[1]) === settled.save.kills &&
     Number(m[2]) === settled.save.xp &&
-    Number(m[3]) === settled.save.gold,
-  `结算卡数字与账本不符：卡(kills=${m[1]},xp=${m[2]},gold=${m[3]}) vs save(kills=${settled.save.kills},xp=${settled.save.xp},gold=${settled.save.gold})`
+    Number(m[5]) === settled.save.gold &&
+    Number(m[4]) === settled.save.level,
+  `结算卡数字与账本不符：卡(kills=${m[1]},xp=${m[2]}/${m[3]},lv=${m[4]},gold=${m[5]}) vs save(kills=${settled.save.kills},xp=${settled.save.xp},level=${settled.save.level},gold=${settled.save.gold})`
 );
 assert(
   settled.save.chapter === 1 && settled.save.chapter_completed === true,
