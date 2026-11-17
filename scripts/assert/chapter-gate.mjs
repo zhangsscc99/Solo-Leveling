@@ -296,13 +296,16 @@ assert(tailReply, `never reached ch1 tail, stuck at ${(await fetchSaveView(id)).
     `gate reply missing 开启播报: ${reply.content}`
   );
   // 软门：放行但不得静默——播报与 saveView 都必须显性暴露。
+  // F152 契约：旧口径「等级未达 + 系统压制了传送门...」自相矛盾（人已进门却说进不去），
+  // 改为「已强行进入 · 推荐 Lv.N」+ 后果说明；此处锁定新口径并保留负向红证。
   assert(
-    reply.content.includes(`等级未达 Lv.${ch2Unlock.level}`),
-    `gate reply missing 等级未达 hint: ${reply.content}`
+    reply.content.includes(`推荐 Lv.${ch2Unlock.level}`) &&
+      reply.content.includes("已强行进入"),
+    `gate reply missing 强行进入/推荐 Lv 口径: ${reply.content}`
   );
   assert(
-    reply.content.includes("系统压制了传送门——继续任务/战斗提升等级"),
-    `gate reply missing suppression text: ${reply.content}`
+    !reply.content.includes("压制了传送门"),
+    `gate reply 仍带自相矛盾的旧压制话术: ${reply.content}`
   );
   const cu = s.chapter_unlock;
   assert(cu && typeof cu === "object", "chapter_unlock missing from saveView");
@@ -348,8 +351,12 @@ for (let i = 0; i < 120 && !enteredCh3; i++) {
 }
 assert(enteredCh3, `never reached ch3 — ch2 gate stayed shut (leveling loop broke)`);
 assert(
-  enteredCh3.includes(`等级未达 Lv.${ch3Unlock.level}`),
-  `ch3 gate reply missing its own 等级未达 hint: ${enteredCh3}`
+  enteredCh3.includes(`推荐 Lv.${ch3Unlock.level}`) && enteredCh3.includes("已强行进入"),
+  `ch3 gate reply missing 强行进入/推荐 Lv 口径: ${enteredCh3}`
+);
+assert(
+  !enteredCh3.includes("压制了传送门"),
+  `ch3 gate reply 仍带旧压制话术: ${enteredCh3}`
 );
 await dualSource("ch3-enter");
 

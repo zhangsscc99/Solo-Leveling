@@ -133,7 +133,7 @@ async function snapshot(id) {
 
 // 门拒绝契约：连续 n 次「前进」每次都必须 refused===true 且零变化。
 // perPress 可挂各段特有的逐次断言（如终章的 ending_ready）。
-async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null } = {}) {
+async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null, logsPerRefusal = 2 } = {}) {
   let prev = before;
   for (let i = 0; i < presses; i++) {
     const r = await act(id, "前进");
@@ -169,9 +169,11 @@ async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null
     prev = r.save;
   }
   const after = await logCount(id);
+  // F142 契约：普通 refused 留痕——每次拒绝恰写 2 条（user 原文 + system 拒绝），
+  // 但不得有任何数值结算/位移（上面逐推已断言）。终章入口沿用 F089 零日志短路（logsPerRefusal: 0）。
   assert(
-    after === before.logLen,
-    `${tag} wrote ${after - before.logLen} log entries across ${presses} refused pushes`
+    after - before.logLen === presses * logsPerRefusal,
+    `${tag} refused pushes should append ${logsPerRefusal} log rows each (got ${after - before.logLen} for ${presses})`
   );
   return prev;
 }
@@ -328,8 +330,8 @@ async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null
     `(b1) soft gate should land on ch2 chain head ${CH2_PATH[0]}, got ${r.save.scene}`
   );
   assert(
-    r.reply.content.includes("等级未达"),
-    `(b1) suppressed gate must announce「等级未达」: ${r.reply.content.slice(-200)}`
+    /推荐 Lv\.|已强行进入/.test(r.reply.content),
+    `(b1) suppressed gate must announce「推荐 Lv.」/「已强行进入」: ${r.reply.content.slice(-200)}`
   );
   assert(
     r.save.chapter_unlock && r.save.chapter_unlock.level === 5 && r.save.chapter_unlock.level_ok === false,
@@ -361,11 +363,13 @@ async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null
     `(b3) MP-gated skill must be free: ${s0.hp}/${s0.mp} -> ${g2.save.hp}/${g2.save.mp}`
   );
   const lenAfterSkills = await logCount(id);
+  // F142 契约：两次技能拒绝（等级不足 / MP 不足）各写 2 条日志（user 原文 + 拒绝文案），
+  // 但零结算（上面已逐条断言 hp/mp/scene 不变）。
   assert(
-    lenAfterSkills === lenBeforeSkills,
-    `(b2/b3) refused intents must not write logs: ${lenBeforeSkills} -> ${lenAfterSkills}`
+    lenAfterSkills - lenBeforeSkills === 4,
+    `(b2/b3) refused skills should append exactly 2 rows each: ${lenBeforeSkills} -> ${lenAfterSkills}`
   );
-  console.log(`    (b2/b3) level/MP gated skills refused, zero-cost, no logs`);
+  console.log(`    (b2/b3) level/MP gated skills refused, zero-cost, refusal logged (2 rows each)`);
 }
 
 // ── (c) 终章门：结局后的「前进」一律零消耗拒回 ──────────────────────
@@ -383,6 +387,7 @@ async function assertFreeRefusal(id, before, tag, { presses = 6, perPress = null
     `(c) setup broken: ${before.scene} ch${before.chapter}`
   );
   const after = await assertFreeRefusal(id, before, "(c) epilogue", {
+    logsPerRefusal: 0, // F089：终章入口短路，零日志
     perPress: (r, i) =>
       assert(
         r.ending_ready === true,
