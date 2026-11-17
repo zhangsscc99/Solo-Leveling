@@ -3397,3 +3397,26 @@ button {
     display: none;
   }
 }
+
+/* ── F177 「休息」死键原因的就地小字 ──
+   与 .save-blocked-hint 同一语气：服务端 reason 原文透传，弱一级对比度，
+   不是告警条。flex 整行落在行动组四键与系统 meta 行之间；单行不换行、
+   窄屏省略号收尾，不产生横向溢出；仅禁用态渲染，可休息/交战不占位。 */
+.rest-hint {
+  flex: 0 0 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rest-hint::before {
+  content: "▪";
+  margin-right: var(--sp-2);
+  color: var(--line-strong);
+}

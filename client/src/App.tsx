@@ -1370,6 +1370,15 @@ export default function App() {
                 <span className="bar-combat-hint">守关者封着出口——叫阵即开战</span>
               )}
             </div>
+            {/* F177「休息」死键的就地原因：title 在触屏等于不存在——
+                禁用态在四键下方常驻一行小字，文案原样透传服务端
+                save.rest.reason（单一事实源，前端不另写措辞）；可休息
+                不渲染不占位，交战态整组换战斗五键时一并消失。 */}
+            {!liveCombat && save.rest && !save.rest.available && save.rest.reason && (
+              <div className="rest-hint" role="note">
+                {save.rest.reason}
+              </div>
+            )}
             {/* F113/F119 非交战战斗入口：单行矮槽位，disabled +
                 aria-disabled 保留语义，文案即「当前没有可攻击的目标」提示；
                 桌面下跟随行动组同行，移动端与系统组共享一行 meta 条。 */}
