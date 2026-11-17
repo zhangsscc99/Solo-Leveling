@@ -920,6 +920,32 @@ function grantRewards(saveId, reward) {
   return lines;
 }
 
+// F165 章节结算卡：本章主线真正清完（主线奖励入账）的同一回包收尾——
+// 战绩账 + 本章进度 + 一条真实可达的下一步。数字只读 saves.kills/xp/gold
+// 的结算后值（存档累计口径，如实标「累计」，不编本章增量）；下一章名取
+// chapters 数据，取不到不编名。触发点唯一（claimMainReward 经 rewards
+// 去重，同一章终生只播一次——死亡回溯重打、重启后续推都不会再刷），
+// 链尾守关战章（ch2/ch7 的 boss 场景即链尾）由击杀回包的 grantMain 同
+// 样汇入本出口：那时守关者才真的倒下，「前进」过门才是真出路。
+function chapterClearSummary(save, chapter) {
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  const idx = chaptersEngine.pathIndexOf(chapter, save && save.scene);
+  const steps = Math.min(path.length, Math.max(0, idx + 1));
+  const kills = Math.max(0, Math.trunc(Number(save && save.kills) || 0));
+  const xp = Math.max(0, Math.trunc(Number(save && save.xp) || 0));
+  const gold = Math.max(0, Math.trunc(Number(save && save.gold) || 0));
+  const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
+  const nextTitle = nextChapter ? nextChapter.title || nextChapter.subtitle || "" : "";
+  const nextLine = nextChapter
+    ? `下一章：第 ${nextChapter.index} 章${nextTitle ? `「${nextTitle}」` : ""}——说「前进」进入。`
+    : `已至全篇终章——打开「结算」面板，回看这一路的战绩。`;
+  return (
+    `【章节结算】第 ${chapter.index} 章 · ${chapter.title || chapter.subtitle || chapter.id}\n` +
+    `累计击杀 ${kills} · 累计 XP ${xp} · 金币 ${gold} · 本章进度 ${steps}/${path.length}\n` +
+    nextLine
+  );
+}
+
 // 主线奖励（quests.json main_rewards）：抵达本章主线链尾时入账，一次且仅
 // 一次——save.rewards 记已领章节 id，重复通关同一章不重复发。
 function claimMainReward(saveId, chapterId) {
@@ -939,7 +965,12 @@ function claimMainReward(saveId, chapterId) {
   if (Array.isArray(reward.items) && reward.items.length) {
     parts.push(reward.items.map((i) => `${i.name} ×${i.qty}`).join("、"));
   }
-  return [`【主线】第${chapter.index}章主线达成，奖励入账 ${parts.join(" · ")}。`, ...lines];
+  return [
+    `【主线】第${chapter.index}章主线达成，奖励入账 ${parts.join(" · ")}。`,
+    ...lines,
+    // F165：奖励入账后重读存档——结算卡引用的是含本次入账的账本值。
+    chapterClearSummary(store.getSave(saveId) || save, chapter),
+  ];
 }
 
 // F077 死亡结算：HP ≤ 0 触发系统回溯——清交战态、回溯至本章入口、
