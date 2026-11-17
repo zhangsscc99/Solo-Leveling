@@ -599,6 +599,19 @@ const BOSS_WARN_LINES = [
 ];
 const bossWarnSeq = new Map();
 
+// F168 交战态撤离指引：开战播报必须同时点名按钮「逃跑」与口述「前进」
+// 两条路径（旧口径只写「说『前进』尝试撤离」，390px 下玩家得猜「前进」
+// 是打字用的），并明示撤离可能失败——flee 判定不是必中，被拦下回合照推。
+// ≥2 变体按 encounter_seq 轮换：同档连开两场遭遇指引句不逐字复读。
+const FLEE_GUIDE_LINES = [
+  "【提示】想撤离？点「逃跑」或说「前进」都能尝试脱身——但撤离不一定成功，被拦下就得继续挨回合（撤离不推进主线）。",
+  "【提示】此战可以撤离：点「逃跑」按钮或说「前进」同效，只是撤离可能失败、被敌人拦下来（不推进主线）。",
+];
+function fleeGuidanceLine(seq) {
+  const n = Math.abs(Math.trunc(Number(seq) || 0));
+  return FLEE_GUIDE_LINES[n % FLEE_GUIDE_LINES.length];
+}
+
 function guardianWarning(save, chapter, boss, opts) {
   const o = opts && typeof opts === "object" ? opts : {};
   const bossTpl =
@@ -659,7 +672,7 @@ function guardianWarning(save, chapter, boss, opts) {
         : "背包里已没有回血补给，只能靠回合硬撑"
     );
     paths.push(
-      `说「前进」尝试撤离，脱战后再说「休息」（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`
+      `点「逃跑」或说「前进」尝试撤离（撤离可能失败），脱战后再说「休息」（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`
     );
   } else {
     paths.push(
@@ -1335,6 +1348,7 @@ function advanceWithEncounter(save) {
     patch.encounter_clock = enemy.boss ? 0 : rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
     res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+    res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
     // F158：踏进守关者房开战的同一回包追加状态预警——残血玩家被强拉进
     // 守关战之前没人告知他状态，Lv.1 残血进门几回合就倒。预警用结算后
     // 的 HP（本步体力扣费已入账）与真实承伤区间，并点名交战态下真实
@@ -1942,9 +1956,11 @@ function peacefulCombatIntent(save, input, action) {
     if (enemy) {
       return {
         patch: { encounter_clock: rawClock < 0 ? rawClock : 0, encounter_seq: enemy.seq },
-        content: bossChallenge
-          ? `【遭遇】你主动向仍未倒下的守关者叫阵——${enemy.name} Lv.${enemy.level} 被惊动，提前拦在出口前，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`
-          : `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`,
+        content:
+          (bossChallenge
+            ? `【遭遇】你主动向仍未倒下的守关者叫阵——${enemy.name} Lv.${enemy.level} 被惊动，提前拦在出口前，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`
+            : `【遭遇】${enemy.name} Lv.${enemy.level} 应声现身，拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`) +
+          `\n${fleeGuidanceLine(enemy.seq)}`,
         events: [],
         combat: { op: "set", enemy, turn: 1 },
       };
@@ -2361,6 +2377,7 @@ const INTENTS = [
         patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
         patch.encounter_seq = enemy.seq;
         res.content += `\n【遭遇】休憩被硬生生打断——${enemy.name} Lv.${enemy.level} 摸到了你的藏身处，它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+        res.content += `\n${fleeGuidanceLine(enemy.seq)}`;
       } else {
         patch.encounter_clock = rawClock < 0 ? Math.min(0, rawClock + 1) : rawClock + 1;
       }
