@@ -19,7 +19,7 @@ function baseState(overrides = {}) {
 }
 
 const KNOWN_EVENT_TYPES = new Set([
-  "hit", "crit", "miss", "dodge", "damage", "heal", "flee", "defeat", "error",
+  "hit", "crit", "miss", "dodge", "damage", "heal", "flee", "defeat", "error", "phase",
 ]);
 const CJK = /[\u4e00-\u9fa5]/;
 
@@ -811,6 +811,120 @@ function assertSaneResult(r, input) {
   assert.ok(hit, "该 seed 玩家应命中");
   const expected = S.physicalDamage(s.player, S.defenseFor(s.enemy), 0.55);
   assert.strictEqual(hit.value, expected, `触底系数应参与结算：${hit.value} vs ${expected}`);
+}
+
+// --- F169 敌方阶段反应：阈值首破追加叙述、纯文案不动数值 ---
+{
+  const { enemyPhaseKind, ENEMY_PHASE_TEMPLATES } = require("./combat");
+  const phaseEvents = (r) => r.events.filter((e) => e.type === "phase");
+
+  // 模板池契约：每敌型 × 每阶段 ≥3 条变体，均含 {name} 占位与中文。
+  for (const kind of Object.keys(ENEMY_PHASE_TEMPLATES)) {
+    for (const stage of ["half", "low"]) {
+      const pool = ENEMY_PHASE_TEMPLATES[kind][stage];
+      assert.ok(Array.isArray(pool) && pool.length >= 3,
+        `${kind}.${stage} 变体不足 3 条`);
+      for (const line of pool) {
+        assert.ok(line.includes("{name}"), `${kind}.${stage} 缺少 {name}：${line}`);
+        assert.ok(CJK.test(line), `${kind}.${stage} 非中文：${line}`);
+      }
+    }
+  }
+  // 敌型分池：石像/狼犬/蛇虫/通用四类归位。
+  assert.strictEqual(enemyPhaseKind({ name: "石像守卫" }), "stone");
+  assert.strictEqual(enemyPhaseKind({ id: "stone_guardian" }), "stone");
+  assert.strictEqual(enemyPhaseKind({ name: "试炼守护者" }), "stone");
+  assert.strictEqual(enemyPhaseKind({ name: "地下城狼" }), "beast");
+  assert.strictEqual(enemyPhaseKind({ id: "hellhound", name: "地狱之犬" }), "beast");
+  assert.strictEqual(enemyPhaseKind({ name: "沙地毒蛇" }), "serpent");
+  assert.strictEqual(enemyPhaseKind({ name: "惩罚沙虫" }), "serpent");
+  assert.strictEqual(enemyPhaseKind({ name: "魔蚁兵" }), "serpent");
+  assert.strictEqual(enemyPhaseKind({ name: "哥布林" }), "generic");
+  assert.strictEqual(enemyPhaseKind(null), "generic");
+
+  // 受控木桩：玩家高敏捷必中、感知 0 暴击率触底；敌人 zero 攻防，
+  // maxHp=100 便于按百分比摆位。玩家血池放大保证不被反击放倒。
+  const duel = (enemyHp) => {
+    const s = baseState();
+    s.player.hp = s.player.maxHp = 5000;
+    s.player.stats.agility = 999;
+    s.player.stats.perception = 0;
+    s.enemy.stats = { strength: 0, agility: 0, vitality: 0, intelligence: 0, perception: 0 };
+    s.enemy.def = 0;
+    s.enemy.hp = enemyHp;
+    s.enemy.maxHp = 100;
+    return s;
+  };
+  // 扫 seed 找一次「普通命中（非暴击）」的玩家攻击，让阈值跨越可预期。
+  const plainHit = (state, prefix, from = 0) => {
+    for (let i = from; i < from + 80; i++) {
+      const r = resolveTurn(state, "attack", `${prefix}-${i}`);
+      if (r.events.some((e) => e.type === "hit" && e.side === "player")) return { r, next: i + 1 };
+    }
+    throw new Error(`${prefix}: 80 个 seed 内没有普通命中`);
+  };
+
+  // ① 跨 50%：60/100 → 35/100，本回合末尾应恰好追加一句 half 阶段句。
+  {
+    const { r } = plainHit(duel(60), "f169-half");
+    const pe = phaseEvents(r);
+    assert.strictEqual(r.state.enemy.hp, 35, `用例前提：60 - 25 应剩 35，实际 ${r.state.enemy.hp}`);
+    assert.strictEqual(pe.length, 1, `跨 50% 应恰好一句阶段反应，实际 ${pe.length}`);
+    assert.strictEqual(pe[0].stage, "half");
+    assert.strictEqual(pe[0].side, "enemy");
+    assert.ok(pe[0].text.includes("石") === false || r.state.enemy.name !== "哥布林",
+      "通用池敌人不得借石像模板");
+    assert.ok(CJK.test(pe[0].text) && !pe[0].text.includes("{name}"), "阶段句应为成稿中文");
+    assert.strictEqual(r.events[r.events.length - 1].type, "phase", "阶段句应追加在回合事件流末尾");
+    assert.ok(r.narration.includes(pe[0].text), "阶段句应进回合叙述");
+    assertSaneResult(r);
+  }
+
+  // ② 再跨 25%：35/100 → 10/100，出现第二句且措辞与第一句不同。
+  {
+    const first = plainHit(duel(60), "f169-seq");
+    const second = plainHit(first.r.state, "f169-seq", first.next);
+    assert.strictEqual(second.r.state.enemy.hp, 10,
+      `用例前提：35 - 25 应剩 10，实际 ${second.r.state.enemy.hp}`);
+    const p1 = phaseEvents(first.r)[0];
+    const p2 = phaseEvents(second.r)[0];
+    assert.ok(p1 && p2, "两回合应各有一句阶段反应");
+    assert.strictEqual(p2.stage, "low");
+    assert.notStrictEqual(p2.text, p1.text, "同一战斗两个阶段的阶段句不得逐字重复");
+  }
+
+  // ③ 一击秒杀：10/100 → 0，跨过全部阈值但敌人倒下，不得追加阶段句。
+  {
+    const { r } = plainHit(duel(10), "f169-kill");
+    assert.strictEqual(r.state.enemy.hp, 0, "用例前提：应一击致死");
+    assert.ok(r.events.some((e) => e.type === "defeat" && e.side === "enemy"), "应有敌人倒下事件");
+    assert.strictEqual(phaseEvents(r).length, 0, "死亡回合不得出现阶段句");
+    assert.ok(!r.narration.includes("裂纹") && !r.narration.includes("黑血"),
+      "死亡回合叙述不得混入阶段句");
+  }
+
+  // ④ 数值零扰动：同一状态链在 phases 开/关两种模式下逐回合 hp/mp 全等，
+  //    且只有开启模式产出 phase 事件。
+  {
+    let on = duel(100);
+    let off = duel(100);
+    let sawPhase = false;
+    for (let t = 0; t < 8 && on.enemy.hp > 0; t++) {
+      const seed = `f169-parity-${t}`;
+      const ro = resolveTurn(on, "attack", seed);
+      const rf = resolveTurn(off, "attack", seed, { phases: false });
+      assert.strictEqual(rf.state.enemy.hp, ro.state.enemy.hp, `t${t} 敌 hp 分叉`);
+      assert.strictEqual(rf.state.player.hp, ro.state.player.hp, `t${t} 玩家 hp 分叉`);
+      assert.strictEqual(rf.state.player.mp, ro.state.player.mp, `t${t} 玩家 mp 分叉`);
+      assert.strictEqual(rf.state.turn, ro.state.turn, `t${t} turn 分叉`);
+      assert.strictEqual(phaseEvents(rf).length, 0, "phases=false 不得产阶段事件");
+      sawPhase = sawPhase || phaseEvents(ro).length > 0;
+      on = ro.state;
+      off = rf.state;
+    }
+    assert.ok(sawPhase, "该序列应至少触发过一句阶段反应");
+    assert.strictEqual(on.enemy.hp, 0, "木桩应在 8 回合内被打死");
+  }
 }
 
 console.log("OK");
