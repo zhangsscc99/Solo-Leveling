@@ -34,29 +34,42 @@ const doAct = (input) => act(id, input);
 
 // equipment.json 是按 save_id 留存的边车文件，不随删档/换库清理——全新
 // scratch DB 回收到的 id 可能继承旧装备位（残留武器 atk 高于猎刀时，
-// 正向断言「atk 增大」会假红）。setup 先把本 id 的遗留装备位清到真空：
-// 背包临时塞一件同名物再反复「丢弃」，qty 归零触发服务端 clearSlot——
-// 全部走真实 API + DB，位清空后正向断言按「空 → knife」的增量口径判定。
-{
+// 正向断言「atk 增大」会假红）；且 F147 起新档本身自带配发装备。
+// 没有 unequip op——清空走真实 discard：每次真扣 1 件，qty 扣到 0 服务端
+// clearSlot；背包没货时先 DB 塞一件凑 discard 前置（qty>0），绝不再
+// 「塞一件丢一件」空转（F147 配发品 bag qty>=1，旧写法 qty 永远回不到 0）。
+async function clearEquipSlots() {
   for (const slot of ["weapon", "armor"]) {
     for (let t = 0; t < 8; t++) {
-      const cur = (await fetchSaveView(id)).equipment;
-      const eq = cur && cur[slot];
+      const view = await fetchSaveView(id);
+      const eq = view.equipment && view.equipment[slot];
       if (!eq || !eq.item_id) break;
-      db.prepare(
-        "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, ?, 1) " +
-          "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = qty + 1"
-      ).run(id, eq.item_id);
+      const owned = (view.inventory || []).find(
+        (r) => r.item_id === eq.item_id && Number(r.qty) > 0
+      );
+      if (!owned) {
+        db.prepare(
+          "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, ?, 1) " +
+            "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = qty + 1"
+        ).run(id, eq.item_id);
+      }
       const { status } = await post(`/saves/${id}/item`, { item_id: eq.item_id, op: "discard" });
       assert(status === 200, `setup: discard stale ${slot}「${eq.item_id}」failed (HTTP ${status})`);
     }
   }
+}
+
+{
+  await clearEquipSlots();
   const cleared = await fetchSaveView(id);
   assert(
     !cleared.equipment.weapon && !cleared.equipment.armor,
     `setup: stale equipment not cleared: ${JSON.stringify(cleared.equipment)}`
   );
-  // 丢弃动作可能顺带把背包里的猎刀一并清掉——正向装备断言需要它，补足 1 把。
+  // 交战中被拒的 equip 必须真正打到 getCombat 门禁——包里得有刀，否则
+  // 400「item not in inventory」在 qty 检查就被拦下，门禁被删也看不
+  // 出来（假绿）。补足 1 把；注意下一次 GET 的 ensureStarterKit 会把它
+  // 自动穿回武器位（F147 口径）——交战期装备基线 = 猎刀已穿上。
   db.prepare(
     "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, 'rusty_hunting_knife', 1) " +
       "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = MAX(qty, 1)"
@@ -157,6 +170,19 @@ for (let i = 0; i < 20; i++) {
 const outView = await fetchSaveView(id);
 assert(!outView.save.combat, "setup: still in combat after flee/clear");
 
+// 交战期每次 GET 的 ensureStarterKit 已把包里的猎刀自动穿回武器位
+// （F147：空槽+包里有配发品→自动穿）。正向「空 → knife」精确增量断言
+// 要求槽位真空，再清一次——连同背包那份丢到 qty 0，否则下一次 GET
+// 又会把它穿回去。
+await clearEquipSlots();
+{
+  const c = await fetchSaveView(id);
+  assert(
+    !c.equipment.weapon && !c.equipment.armor,
+    `setup: post-combat equipment not cleared: ${JSON.stringify(c.equipment)}`
+  );
+}
+
 // 玩家可能阵亡（hp 重置）或 free_points 被花掉前已落点——重新确认
 // free_points>0，不够就补一次 DB 落点（正向 spend 的先决条件）。
 if ((Number(outView.save.free_points) || 0) <= 0) {
@@ -175,6 +201,11 @@ assert(freeBase > 0, "setup: no free_points for positive spend check");
     !base.equipment.weapon,
     `setup: weapon slot should be empty after clearing, got ${JSON.stringify(base.equipment.weapon)}`
   );
+  // post-combat 清仓把背包里的猎刀一并丢了——equip 前置 qty>0，补回 1 把。
+  db.prepare(
+    "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, 'rusty_hunting_knife', 1) " +
+      "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = MAX(qty, 1)"
+  ).run(id);
   const { status, body } = await post(`/saves/${id}/item`, {
     item_id: "rusty_hunting_knife",
     op: "equip",

@@ -3,8 +3,8 @@
 //   1. 顶栏 .status-nums 同时出现「攻」「防」标签，数值为纯数字；
 //   2. 属性抽屉有「战斗数值」段，攻击/防御合计 = floor(系数×属性) + 装备加成，
 //      真值取自 GET /api/saves/:id（容差 0），系数直接取 server/engine/stats.js；
-//      装备为空时显示「无配发装备」；
-//   3. 装备武器 + 防具刷新后数值随 equipment 更新；
+//      F147 起新档自动穿上配发装备 → 装备列逐格 +N；真卸下后显示「未装备」；
+//   3. 卸下→重新装备武器 + 防具刷新后数值随 equipment 更新；
 //   4. 移动端 360/375/390/414：每个 .stat 的 <b> 与标签同行（sameLine），
 //      header 高度 ≤142px（main 版 390px 实测 137px 量级）；
 //   5. 负向：数值单元格无 NaN / undefined / +0 裸占位。
@@ -163,18 +163,109 @@ async function main() {
     assert(Number(top.atk) === nums.攻击.total, `顶栏攻 ${top.atk} ≠ 面板合计 ${nums.攻击.total}`);
     assert(Number(top.def) === nums.防御.total, `顶栏防 ${top.def} ≠ 面板合计 ${nums.防御.total}`);
 
-    // 新存档未装备任何物品 → 装备列应为「无配发装备」而非 +0。
-    const eqCells = await page.locator(".combat-nums .cn-eq").allInnerTexts();
-    assert(eqCells.length === 2, `战斗数值应有两行装备列，实测 ${eqCells.length}: ${eqCells}`);
-    assert(eqCells.every((t) => t.includes("无配发装备")), `空装备应显示「无配发装备」，实际 ${eqCells}`);
+    // F147 后新档自带配发装备：旧契约「空装备显示『无配发装备』」作废——
+    // 新契约是「装备列逐格 +N，合计 = 基础 + N」。逐格核对 aria 三元组与
+    // 可见单元格，真值全部取自 GET /saves/:id + save.stats 现算，禁写死。
+    assert(truth.equipment.weapon && truth.equipment.armor,
+      `F147: 新档应自动穿上配发武器/防具: ${JSON.stringify(truth.equipment)}`);
+    assert(nums.攻击.base === expAtk(truth.save.stats, null),
+      `攻击基础 ${nums.攻击.base} ≠ floor(${ATK_COEF}×${truth.save.stats.strength})`);
+    assert(nums.防御.base === expDef(truth.save.stats, null),
+      `防御基础 ${nums.防御.base} ≠ floor(0.8×${truth.save.stats.vitality})`);
+    assert(nums.攻击.eq === truth.equipment.atk,
+      `攻击装备加成 ${nums.攻击.eq} ≠ ${truth.equipment.atk}（配发武器）`);
+    assert(nums.防御.eq === truth.equipment.def,
+      `防御装备加成 ${nums.防御.eq} ≠ ${truth.equipment.def}（配发防具）`);
+    assert(nums.攻击.total === nums.攻击.base + nums.攻击.eq,
+      `攻击合计 ${nums.攻击.total} ≠ 基础${nums.攻击.base}+装备${nums.攻击.eq}`);
+    assert(nums.防御.total === nums.防御.base + nums.防御.eq,
+      `防御合计 ${nums.防御.total} ≠ 基础${nums.防御.base}+装备${nums.防御.eq}`);
+    const eqCells0 = await page.evaluate(() =>
+      [...document.querySelectorAll(".combat-nums-row")].map((row) => ({
+        label: row.querySelector(".cn-label")?.textContent.trim(),
+        eq: row.querySelector(".cn-eq")?.textContent.trim(),
+      }))
+    );
+    const eqCell0 = (label) => (eqCells0.find((r) => r.label === label) || {}).eq;
+    assert(eqCells0.length === 2, `战斗数值应有两行装备列，实测 ${eqCells0.length}`);
+    assert(eqCell0("攻击") === `+${truth.equipment.atk}`,
+      `攻击装备列应显示 +${truth.equipment.atk}: ${JSON.stringify(eqCells0)}`);
+    assert(eqCell0("防御") === `+${truth.equipment.def}`,
+      `防御装备列应显示 +${truth.equipment.def}: ${JSON.stringify(eqCells0)}`);
 
     fs.mkdirSync(SHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(SHOT_DIR, "f083-stats-panel.png") });
     await page.keyboard.press("Escape");
     await page.locator(".status").screenshot({ path: path.join(SHOT_DIR, "f083-statusbar.png") });
 
-    // ── 3) 装备武器 + 防具后刷新：顶栏/面板攻防合计都随 equipment 更新 ──
-    for (const itemId of ["rusty_hunting_knife", "worn_leather_vest"]) {
+    // ── 2b) 空装备态：没有 unequip op——配发品在背包仅剩 1 件，走真实
+    //     discard：qty 扣到 0 服务端 clearSlot 清空装备位（equipped 槽随
+    //     物品消失而空）。先 GET 确认 weapon/armor 真为空，再刷新断言
+    //     「未装备」与 合计=基础。
+    const removed = {};
+    for (const slot of ["weapon", "armor"]) {
+      const itemId = truth.equipment[slot] && truth.equipment[slot].item_id;
+      assert(itemId, `equipment.${slot} 应有配发装备可卸下: ${JSON.stringify(truth.equipment)}`);
+      const rm = await api(`/saves/${saveId}/item`, {
+        method: "POST",
+        body: JSON.stringify({ item_id: itemId, op: "discard" }),
+      });
+      assert(rm.status === 200, `discard ${slot}「${itemId}」failed (HTTP ${rm.status})`);
+      removed[slot] = itemId;
+    }
+    truth = (await api(`/saves/${saveId}`)).body;
+    assert(!truth.equipment.weapon && !truth.equipment.armor,
+      `卸下后 equipment.weapon/armor 应为空: ${JSON.stringify(truth.equipment)}`);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".status .status-nums");
+    const topEmpty = await page.evaluate(() => {
+      const stats = [...document.querySelectorAll(".status-nums .stat")];
+      const pick = (label) => {
+        const el = stats.find((s) => s.textContent.trim().startsWith(label));
+        return el?.querySelector("b")?.textContent.trim() ?? null;
+      };
+      return { atk: pick("攻"), def: pick("防") };
+    });
+    assert(Number(topEmpty.atk) === expAtk(truth.save.stats, null),
+      `空装备顶栏攻 ${topEmpty.atk} ≠ 基础 ${expAtk(truth.save.stats, null)}`);
+    assert(Number(topEmpty.def) === expDef(truth.save.stats, null),
+      `空装备顶栏防 ${topEmpty.def} ≠ 基础 ${expDef(truth.save.stats, null)}`);
+
+    await page.locator('.btn-group-sys .btn', { hasText: "属性" }).click();
+    await page.waitForSelector(".stat-panel .combat-nums");
+    const numsEmpty = await readCombatNums(page);
+    assert(numsEmpty.攻击 && numsEmpty.防御, "空装备时战斗数值段缺攻击或防御行");
+    assert(numsEmpty.攻击.eq === 0 && numsEmpty.防御.eq === 0,
+      `空装备时装备加成应为 0: ${JSON.stringify(numsEmpty)}`);
+    assert(numsEmpty.攻击.total === expAtk(truth.save.stats, null),
+      `空装备攻击合计 ${numsEmpty.攻击.total} ≠ 基础 ${expAtk(truth.save.stats, null)}`);
+    assert(numsEmpty.防御.total === expDef(truth.save.stats, null),
+      `空装备防御合计 ${numsEmpty.防御.total} ≠ 基础 ${expDef(truth.save.stats, null)}`);
+    const eqCellsEmpty = await page.locator(".combat-nums .cn-eq").allInnerTexts();
+    assert(eqCellsEmpty.length === 2,
+      `战斗数值应有两行装备列，实测 ${eqCellsEmpty.length}: ${eqCellsEmpty}`);
+    assert(eqCellsEmpty.every((t) => t.trim() === "未装备"),
+      `空装备应显示「未装备」，实际 ${eqCellsEmpty}`);
+    await page.keyboard.press("Escape");
+
+    // ── 3) 重新装备武器 + 防具刷新：顶栏/面板攻防合计都随 equipment 更新 ──
+    //     上面 discard 已把配发品从背包清掉——先按 DB 直插补回再 equip
+    //     （combat-equip-gate 同款口径），equip 是真实的空槽→落位迁移。
+    {
+      const Database = createRequire(import.meta.url)("better-sqlite3");
+      const dbPath =
+        process.env.DB_PATH || process.env.SL_GAME_DB || path.join(ROOT, "data", "game.db");
+      const db = new Database(dbPath);
+      const addInv = db.prepare(
+        "INSERT INTO inventory (save_id, item_id, qty) VALUES (?, ?, 1) " +
+          "ON CONFLICT(save_id, item_id) DO UPDATE SET qty = qty + 1"
+      );
+      addInv.run(saveId, removed.weapon);
+      addInv.run(saveId, removed.armor);
+      db.close();
+    }
+    for (const itemId of [removed.weapon, removed.armor]) {
       const eq = await api(`/saves/${saveId}/item`, {
         method: "POST",
         body: JSON.stringify({ item_id: itemId, op: "equip" }),
