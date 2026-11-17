@@ -12,6 +12,7 @@
 // 所有掷点都过 createRng(seed)：同一（存档, 场景, 计数）永远得到同一结果。
 
 const { createRng } = require("./rng");
+const chaptersEngine = require("./chapters");
 const S = require("./stats");
 
 // F115 场景遭遇许可：场景对象上的 encounters 字段是「这里能不能刷怪」
@@ -38,17 +39,49 @@ function streakBonus(streak) {
   return s >= STREAK_THRESHOLD ? (s - STREAK_THRESHOLD + 1) * STREAK_PER_ADVANCE : 0;
 }
 
-// F095 章节期望等级：玩家抵达本章时按 XP 曲线应处的等级。取「本章小怪
-// + boss + 主线奖励 + 每日任务」全收后大致够到下一章期望的中位——
-// ch1 期望 Lv.2（新档 Lv.1 + 新手装备 + 3 瓶药水即可险胜守关者），
-// 之后随章节单调抬升；后章略压半档，留出练级空间但不再出现
-// mobLevel(1)=2、boss+3=Lv.5 碾压 Lv.1 的死锁。
-const EXPECTED_LEVEL = { 1: 2, 2: 4, 3: 6, 4: 9, 5: 12, 6: 15, 7: 19, 8: 24 };
+// F097 章节期望等级：改由 chapters.json 的 expected_level 字段提供——
+// 与 unlock.level 同一组数（门内敌人强度与准入门槛同源），加载期校验
+// 保证每章必填（chapters.js validateChapters，缺字段直接拒绝进运行时）。
+// 本表只作越界下标/数据缺失的兜底，正常路径永远走 JSON。
+const FALLBACK_EXPECTED_LEVEL = { 1: 1, 2: 5, 3: 10, 4: 20, 5: 30, 6: 40, 7: 55, 8: 70 };
 const BOSS_LEVEL_BONUS = 1;
 
 function expectedLevel(chapterIndex) {
   const ch = Math.max(1, Math.trunc(S.num(chapterIndex)) || 1);
-  return EXPECTED_LEVEL[ch] || EXPECTED_LEVEL[8];
+  const chapter = chaptersEngine.getChapter(ch);
+  const lv = chapter ? Math.trunc(S.num(chapter.expected_level)) : 0;
+  if (lv >= 1) return lv;
+  return FALLBACK_EXPECTED_LEVEL[ch] || FALLBACK_EXPECTED_LEVEL[8];
+}
+
+// F097 玩家等级带宽（可选）：playerLevel 是正整数时，生成等级钳制到
+//   [max(1, playerLevel − 2), min(本章期望 + 1, playerLevel + 2)]
+// ——软门放进来的低等级玩家不再对上按章节硬推的怪；玩家远超本章期望时
+// 上界仍压住（钳制结果落到 hi——章节内容不被反向拉抬）。playerLevel
+// 缺省/非法 → null，调用方退回旧行为（纯按章节表生成）。
+function bandFor(chapterIndex, playerLevel) {
+  const lv = Math.trunc(S.num(playerLevel));
+  if (!(lv >= 1)) return null;
+  return {
+    lo: Math.max(1, lv - 2),
+    hi: Math.min(expectedLevel(chapterIndex) + 1, lv + 2),
+  };
+}
+
+function clampToBand(raw, band) {
+  return Math.min(band.hi, Math.max(band.lo, Math.max(1, Math.trunc(S.num(raw)) || 1)));
+}
+
+// 钳制生效时，模板显式 hp/xp 预算按「实际等级 / 模板意图等级」折算——
+// 预算是按意图等级写死的（ch2 守关者 200 HP 是为 Lv.6 设计的），压级后
+// 不折算等于把章节预算原样塞给低等级玩家。模板未写预算时仍走既有
+// 等级公式（与旧路径同一组系数）。
+function scaledBudget(explicit, base, perLevel, level, rawLevel) {
+  if (explicit !== undefined && explicit !== null && S.num(explicit) > 0) {
+    const raw = Math.max(1, Math.trunc(S.num(rawLevel)) || 1);
+    return Math.max(1, Math.round((S.num(explicit) * level) / raw));
+  }
+  return Math.max(1, Math.round(base + level * perLevel));
 }
 
 // 小怪等级 = 本章期望等级（模板 levelBonus 叠加出强一档的变体）；
@@ -177,24 +210,39 @@ function chanceFor(chapterIndex) {
 }
 
 // 从小怪池确定性抽一只并展开。seed 相同 → 同一只。
-function spawn(chapterIndex, seed) {
+// playerLevel（可选）启用 F097 带宽钳制：等级压进玩家 ±2 且不超过
+// 本章期望 +1，hp/xp 预算随实际等级折算；缺省时维持旧行为。
+function spawn(chapterIndex, seed, playerLevel) {
   const table = tableFor(chapterIndex);
   const base = mobLevel(chapterIndex);
   const rng = createRng(`encounter:${chapterIndex}:${seed}`);
   const pick = table.mobs[rng.int(0, table.mobs.length - 1)];
-  const level = base + Math.max(0, Math.trunc(S.num(pick.levelBonus)));
-  const hp = pick.hp || MOB_HP_BASE + level * MOB_HP_PER_LEVEL;
-  const xp = pick.xp || MOB_XP_BASE + level * MOB_XP_PER_LEVEL;
+  const band = bandFor(chapterIndex, playerLevel);
+  const raw = base + Math.max(0, Math.trunc(S.num(pick.levelBonus)));
+  const level = band ? clampToBand(raw, band) : raw;
+  const hp = band
+    ? scaledBudget(pick.hp, MOB_HP_BASE, MOB_HP_PER_LEVEL, level, raw)
+    : pick.hp || MOB_HP_BASE + level * MOB_HP_PER_LEVEL;
+  const xp = band
+    ? scaledBudget(pick.xp, MOB_XP_BASE, MOB_XP_PER_LEVEL, level, raw)
+    : pick.xp || MOB_XP_BASE + level * MOB_XP_PER_LEVEL;
   return makeEnemy({ ...pick, level, hp, xp });
 }
 
 // 本章 boss：boss 场景（kind === "boss"）落地必触发，不走遭遇率。
-function spawnBoss(chapterIndex) {
+// playerLevel（可选）与小怪同一套带宽钳制。
+function spawnBoss(chapterIndex, playerLevel) {
   const table = tableFor(chapterIndex);
-  const level = mobLevel(chapterIndex) + BOSS_LEVEL_BONUS;
   const tpl = table.boss;
-  const hp = tpl.hp || BOSS_HP_BASE + level * BOSS_HP_PER_LEVEL;
-  const xp = tpl.xp || BOSS_XP_BASE + level * BOSS_XP_PER_LEVEL;
+  const band = bandFor(chapterIndex, playerLevel);
+  const raw = mobLevel(chapterIndex) + BOSS_LEVEL_BONUS;
+  const level = band ? clampToBand(raw, band) : raw;
+  const hp = band
+    ? scaledBudget(tpl.hp, BOSS_HP_BASE, BOSS_HP_PER_LEVEL, level, raw)
+    : tpl.hp || BOSS_HP_BASE + level * BOSS_HP_PER_LEVEL;
+  const xp = band
+    ? scaledBudget(tpl.xp, BOSS_XP_BASE, BOSS_XP_PER_LEVEL, level, raw)
+    : tpl.xp || BOSS_XP_BASE + level * BOSS_XP_PER_LEVEL;
   return makeEnemy({ ...tpl, level, hp, xp, boss: true });
 }
 
@@ -205,16 +253,16 @@ function spawnBoss(chapterIndex) {
 // 按叠加后概率掷点（streak 加成对普通场景同样线性叠加）。
 // boss 场景必中；否则 pity 计数到顶必中；再否则按本章遭遇率掷点。
 // 返回敌人实体或 null（caller 负责计数落库）。
-function roll({ chapterIndex, scene, clock, seed, streak }) {
+function roll({ chapterIndex, scene, clock, seed, streak, playerLevel }) {
   if (!scene || typeof scene !== "object") return null;
   const bonus = streakBonus(streak);
   if (scene.encounters === ENCOUNTERS_NONE && bonus <= 0) return null;
-  if (scene.kind === "boss") return spawnBoss(chapterIndex);
+  if (scene.kind === "boss") return spawnBoss(chapterIndex, playerLevel);
   const c = Math.max(0, Math.trunc(S.num(clock)));
-  if (c + 1 >= PITY_LIMIT) return spawn(chapterIndex, `${seed}:pity`);
+  if (c + 1 >= PITY_LIMIT) return spawn(chapterIndex, `${seed}:pity`, playerLevel);
   const rng = createRng(`encounter-roll:${chapterIndex}:${scene.id || "?"}:${seed}`);
   const chance = Math.min(MAX_CHANCE, chanceFor(chapterIndex) + bonus);
-  return rng.chance(chance) ? spawn(chapterIndex, `${seed}:hit`) : null;
+  return rng.chance(chance) ? spawn(chapterIndex, `${seed}:hit`, playerLevel) : null;
 }
 
 module.exports = {
@@ -228,6 +276,7 @@ module.exports = {
   spawnBoss,
   roll,
   expectedLevel,
+  bandFor,
   mobLevel,
   scaledStats,
   makeEnemy,
