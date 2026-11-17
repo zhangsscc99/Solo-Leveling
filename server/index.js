@@ -444,6 +444,48 @@ const proseStmts = {
   ),
 };
 
+// F193 一次性可发现物：chapters.json 场景可挂 discoveries（按 entityDetail
+// 规范实体名命中）。第一眼回「发现正文 + 奖励入账」——物品走既有
+// applyOutcome → grantRewards 发奖管线（不新造表、不写新字段）；幂等
+// 标记是写进日志的发现尾注「【发现·名字】」（与 observeCount 同一口径
+// 的 LIKE 查账）——同一实体第二眼改口「已经查过」，奖励只发一次。
+const discoveryStmts = {
+  seen: db.prepare(
+    "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND content LIKE ?"
+  ),
+};
+
+// 场景里挂在某个可观察实体上的一次性发现物；数据缺 name/line 一律视作
+// 未配置，回落普通实体细节，不让坏数据炸掉观察。
+function sceneDiscoveryOf(scene, entity) {
+  const list = scene && Array.isArray(scene.discoveries) ? scene.discoveries : [];
+  return (
+    list.find(
+      (d) =>
+        d &&
+        d.entity === entity &&
+        typeof d.name === "string" &&
+        d.name !== "" &&
+        typeof d.line === "string" &&
+        d.line !== ""
+    ) || null
+  );
+}
+
+function discoverySeen(saveId, name) {
+  const row = discoveryStmts.seen.get(saveId, `%【发现·${name}】%`);
+  return Boolean(row && Number(row.n) > 0);
+}
+
+// 发放只认 items.json 目录内 id——未知 id 丢弃不记假账；全无效时返回
+// null，发现正文与幂等尾注照常（发现本身也是收获）。
+function discoveryReward(disc) {
+  const items = (disc.reward && Array.isArray(disc.reward.items) ? disc.reward.items : [])
+    .map((r) => ({ id: String((r && r.id) || ""), qty: Math.trunc(Number(r && r.qty) || 0) }))
+    .filter((r) => r.id && r.qty > 0 && ITEMS.has(r.id));
+  return items.length ? { items } : null;
+}
+
 const STARTER_KIT = [
   ["rusty_hunting_knife", 1],
   ["worn_leather_vest", 1],
@@ -2486,6 +2528,31 @@ const INTENTS = [
       if (!entity) {
         const present = entityDetail.entitiesIn(blob);
         if (present.length) entity = present[n % present.length];
+      }
+      // F193：命中带发现物的实体时第一眼回发现正文、奖励交 applyOutcome →
+      // grantRewards 入账；日志尾注「【发现·名字】」是幂等标记，同一实体
+      // 第二眼改口「已经查过」不再发奖。无发现物的实体维持 F181 轮换。
+      const disc = entity ? sceneDiscoveryOf(scene, entity) : null;
+      if (disc) {
+        if (discoverySeen(save.id, disc.name)) {
+          return {
+            patch: null,
+            content:
+              `「${sceneNarrName(scene)}」——你凑近${entity}又看了一遍——` +
+              `这里你已经查过了，「${disc.name}」不会再有第二份收获。${OBSERVE_TAIL}`,
+          };
+        }
+        const rewards = discoveryReward(disc);
+        const got = ((rewards && rewards.items) || [])
+          .map((r) => `「${ITEMS.get(r.id).name}」×${r.qty}`)
+          .join("、");
+        return {
+          patch: null,
+          rewards,
+          content:
+            `「${sceneNarrName(scene)}」——${disc.line}\n` +
+            `【发现·${disc.name}】${got ? `获得 ${got}。` : "已记下。"}${OBSERVE_TAIL}`,
+        };
       }
       let line;
       if (entity) {
