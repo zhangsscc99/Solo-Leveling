@@ -1463,7 +1463,7 @@ export default function App() {
                 与口述同一结算路径）。选项带 effects 时代价小字随 save
                 下发的 cost 字段渲染（「体力 −5」），前端不自算。 */}
             {!liveCombat && save.next_choices && save.next_choices.length >= 2 && (
-              <div className="btn-group">
+              <div className="btn-group btn-group-choice">
                 <span className="group-label">选择</span>
                 {save.next_choices.map((c) => (
                   <button
