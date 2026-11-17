@@ -583,6 +583,22 @@ const BOSS_GATE_LINES = [
 ];
 const bossGatePushes = new Map();
 
+// F183 门前拒绝提示分级计数：同一次守关房逗留内，第 1 次被拒给完整
+// guardianWarning（数字 + 三条下一步），第 2 次起只给一行行动指引——
+// 玩家要的是「下一步干什么」，不是把同一张状态面板复读五遍。
+// 按 (save_id, chapter_id, scene) 分桶：A 存档的连点不污染 B 存档，
+// 也不污染同一存档在别章/别房的逗留。清零口径（applyOutcome 挂钩）：
+//   ① 任何真实场景变更（离开房门，含撤离折返/死亡回溯/后退）；
+//   ② combat op=set——真打一场（叫阵/落地遭遇/折返再战）后再回门前；
+// 进程内 Map 与 bossGatePushes 同口径，重启自然清零。
+const gateHintSeq = new Map();
+function gateHintReset(saveId) {
+  const prefix = `${saveId}|`;
+  for (const k of gateHintSeq.keys()) {
+    if (k.startsWith(prefix)) gateHintSeq.delete(k);
+  }
+}
+
 // F158 守关者状态预警：「进入守关者房」（落地掷出守关战）与「门前被拒」
 // （F150 威压拒绝）两条路径共用的系统行。硬约束：
 //   ① 玩家 HP 绝对值 + 百分比（HP 39/100 · 39%）；
@@ -710,7 +726,13 @@ function guardianWarning(save, chapter, boss, opts) {
   }
   const n = (bossWarnSeq.get(save.id) || 0) + 1;
   bossWarnSeq.set(save.id, n);
-  return BOSS_WARN_LINES[(n - 1) % BOSS_WARN_LINES.length]({
+  // F183：opts.variant 显式钉住变体下标（门前被拒的首屏完整提示需要
+  // 确定出现「估算每回合…」那条），缺省沿用进程内计数轮换。
+  const warnIdx =
+    Number.isInteger(o.variant)
+      ? Math.abs(o.variant) % BOSS_WARN_LINES.length
+      : (n - 1) % BOSS_WARN_LINES.length;
+  return BOSS_WARN_LINES[warnIdx]({
     hp,
     maxHp,
     pct,
@@ -867,6 +889,22 @@ function advanceOutcome(save) {
     //      可输入动词与按钮名双指路——只指按钮对纯输入玩家是死路。
     const pushN = (bossGatePushes.get(save.id) || 0) + 1;
     bossGatePushes.set(save.id, pushN);
+    // F183：状态提示分级——同一次逗留内第 1 次给完整 guardianWarning
+    // （钉 variant 0 保证「估算每回合…」首屏必达），第 2 次起一行行动
+    // 指引（仍点名可输入的「攻击」/「叫阵」、带本次逗留内的第 N 次），
+    // 不再整块复读承伤估算与恢复清单。计数按 (save_id, chapter_id,
+    // scene) 分桶，离房/真打一场由 applyOutcome 清零（gateHintReset）。
+    const hintKey = `${save.id}|${chapter.id}|${save.scene}`;
+    const hintN = (gateHintSeq.get(hintKey) || 0) + 1;
+    gateHintSeq.set(hintKey, hintN);
+    // F158 既有契约仍须满足：预警行带玩家 HP、点名一条恢复路径
+    // （休息/药水/补给）、含「每回合」威胁陈述且相邻两次不逐字复读——
+    // 短指引把承伤估算压成一句定性提醒，不再报区间数字。
+    const hint =
+      hintN === 1
+        ? guardianWarning(save, chapter, null, { inCombat: false, variant: 0 })
+        : `【系统】第 ${hintN} 次被威压逼退——它每回合仍在耗你的血，` +
+          `说「攻击」或「叫阵」开战（HP ${save.hp}/${save.max_hp}，先用补给也行）。`;
     return {
       patch: null,
       refused: true,
@@ -876,7 +914,7 @@ function advanceOutcome(save) {
         BOSS_GATE_LINES[(pushN - 1) % BOSS_GATE_LINES.length](
           chapterBossName(chapter),
           pushN
-        ) + `\n${guardianWarning(save, chapter, null, { inCombat: false })}`,
+        ) + `\n${hint}`,
     };
   }
   if (bossAlive && idx > idxBoss) {
@@ -1390,7 +1428,14 @@ function advanceWithEncounter(save) {
   const landedScene = chaptersEngine.getScene(patch.scene);
   let enemy = null;
   let rolled = false;
-  if (!encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, landedScene)) {
+  // F184 潜行收益结算：潜行攒下的「未被察觉」额度在这一步吃掉一格，
+  // 本幕直接不掷遭遇——不是把概率调低，是这一幕根本没有掷点（守关房
+  // 落地同样掠过，由 F125 的重入播报与门拒收口径，玩家仍越不过守关
+  // 者）。额度如实写回存档，播报放在 landedGuardianAlive 收口之后。
+  const stealthN = Math.max(0, Math.trunc(Number(save.stealth_charges) || 0));
+  if (stealthN > 0) {
+    patch.stealth_charges = stealthN - 1;
+  } else if (!encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, landedScene)) {
     rolled = true;
     enemy = tryEncounter(
       {
@@ -1481,6 +1526,12 @@ function advanceWithEncounter(save) {
         null,
         { inCombat: false }
       );
+  }
+
+  // F184：潜行吃掉一格额度的如实播报——正文追加一行「没有被察觉」，
+  // 剩余次数与存档 stealth_charges 同口径。
+  if (stealthN > 0) {
+    res.content += `\n【潜行】你压着气息掠过——这一幕没有被察觉（剩余潜行 ${stealthN - 1} 次）。`;
   }
 
   applyTailGate(res, nextChapter, Boolean(enemy && enemy.boss));
@@ -2405,11 +2456,19 @@ const INTENTS = [
         proseEngine.poolFor(save.chapter).stealth,
         n
       );
+      // F184 潜行收益：每次潜行攒一格「未被察觉」额度（上限 2），下一步
+      // 真实推进掷遭遇前由 advanceWithEncounter 吃掉一格换这一幕不开战
+      // ——烧 MP 必须换来可观测的世界变化，不再只是两句轮播文案。
+      const stealthNext = Math.min(
+        2,
+        Math.max(0, Math.trunc(Number(save.stealth_charges) || 0)) + 1
+      );
       return {
-        patch: { mp },
+        patch: { mp, stealth_charges: stealthNext },
         content:
           `${line}\n` +
-          (mp !== save.mp ? `（魔力消耗 MP ${save.mp}→${mp}）` : "（魔力已见底）"),
+          (mp !== save.mp ? `（魔力消耗 MP ${save.mp}→${mp}）` : "（魔力已见底）") +
+          `\n【潜行】你的气息沉入阴影——接下来更难被发现（潜行 ${stealthNext}/2）。`,
       };
     },
   },
@@ -2623,10 +2682,21 @@ function applyOutcome(saveId, outcome) {
     }
     if (outcome.patch) {
       store.updateSave(saveId, outcome.patch);
+      // F183：真实场景变更 = 本次守关房逗留结束——门拒提示分级计数清零，
+      // 下次再到门前被拒重新给完整提示（含撤离折返/死亡回溯/后退）。
+      if (
+        outcome.patch.scene !== undefined &&
+        outcome.patch.scene !== (before && before.scene)
+      ) {
+        gateHintReset(saveId);
+      }
     }
     if (outcome.combat) {
       if (outcome.combat.op === "set") {
         store.setCombat(saveId, outcome.combat.enemy, outcome.combat.turn || 1);
+        // F183：真打一场后提示分级同步清零——再战之后再回门前被拒，
+        // 玩家重新需要完整状态面板而不是一行指引。
+        gateHintReset(saveId);
       } else if (outcome.combat.op === "turn") {
         store.setCombatTurn(saveId, outcome.combat.enemy, outcome.combat.turn);
       } else if (outcome.combat.op === "clear") {
