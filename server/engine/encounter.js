@@ -265,6 +265,42 @@ function roll({ chapterIndex, scene, clock, seed, streak, playerLevel }) {
   return rng.chance(chance) ? spawn(chapterIndex, `${seed}:hit`, playerLevel) : null;
 }
 
+// F138 休憩惊动池：「休息」掷敌一律走杂兵池——守关 Boss 只应被玩家主动
+// 叫阵或「前进」落地守关房惊动，绝不允许被一次安歇召进藏身处。等级
+// 钳制比 F097 带宽再收半档：上界 min(本章期望+1, 玩家等级+1)——被惊动
+// 摸进来的杂兵至多略高于玩家，绝不跨两档碾压。
+function spawnRest(chapterIndex, seed, playerLevel) {
+  const table = tableFor(chapterIndex);
+  const base = mobLevel(chapterIndex);
+  const rng = createRng(`encounter:${chapterIndex}:${seed}`);
+  const pick = table.mobs[rng.int(0, table.mobs.length - 1)];
+  const band = bandFor(chapterIndex, playerLevel);
+  if (band) band.hi = Math.min(band.hi, Math.max(1, Math.trunc(S.num(playerLevel))) + 1);
+  const raw = base + Math.max(0, Math.trunc(S.num(pick.levelBonus)));
+  const level = band ? clampToBand(raw, band) : raw;
+  const hp = band
+    ? scaledBudget(pick.hp, MOB_HP_BASE, MOB_HP_PER_LEVEL, level, raw)
+    : pick.hp || MOB_HP_BASE + level * MOB_HP_PER_LEVEL;
+  const xp = band
+    ? scaledBudget(pick.xp, MOB_XP_BASE, MOB_XP_PER_LEVEL, level, raw)
+    : pick.xp || MOB_XP_BASE + level * MOB_XP_PER_LEVEL;
+  return makeEnemy({ ...pick, level, hp, xp });
+}
+
+// 休息掷点（纯函数）：与 roll 同一组闸口——encounters:"none" 的现实世界/
+// 收束场景照样不掷怪；保底计数与章节基础遭遇率照常适用。差异只在出怪
+// 池：守关房（kind:"boss"）被休息惊动时同样只出杂兵，守关者不吃惊动。
+function rollRest({ chapterIndex, scene, clock, seed, playerLevel }) {
+  if (!scene || typeof scene !== "object") return null;
+  if (scene.encounters === ENCOUNTERS_NONE) return null;
+  const c = Math.max(0, Math.trunc(S.num(clock)));
+  if (c + 1 >= PITY_LIMIT) return spawnRest(chapterIndex, `${seed}:pity`, playerLevel);
+  const rng = createRng(`encounter-rest:${chapterIndex}:${scene.id || "?"}:${seed}`);
+  return rng.chance(chanceFor(chapterIndex))
+    ? spawnRest(chapterIndex, `${seed}:rest`, playerLevel)
+    : null;
+}
+
 module.exports = {
   PITY_LIMIT,
   ENCOUNTERS_NONE,
@@ -274,7 +310,9 @@ module.exports = {
   chanceFor,
   spawn,
   spawnBoss,
+  spawnRest,
   roll,
+  rollRest,
   expectedLevel,
   bandFor,
   mobLevel,
