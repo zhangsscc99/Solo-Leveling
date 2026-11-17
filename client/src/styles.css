@@ -1425,7 +1425,7 @@ button {
   color: #fff;
 }
 
-/* F086 休息剩余次数：左上角小角标，与 kbd 键帽成对 */
+/* F086 休息剩余次数：左上角小角标，与右下角快捷键角标成对 */
 .btn .rest-count {
   position: absolute;
   top: -7px;
@@ -1498,23 +1498,23 @@ button {
   text-overflow: ellipsis;
 }
 
-/* 数字快捷键：右上角小键帽 */
-.btn kbd {
+/* F172 数字快捷键角标：收进按钮右下角——无边无底色的低对比小字
+   （opacity .5 / 10px），不再悬在按钮上缘像调试角标；
+   pointer-events 穿透，不挡按钮自身点击。 */
+.btn .key-badge {
   position: absolute;
-  top: -7px;
-  right: -4px;
-  min-width: 14px;
-  height: 14px;
+  right: 5px;
+  bottom: 3px;
   margin: 0;
-  padding: 0 3px;
-  line-height: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
   font-family: var(--font-mono);
-  font-size: 9.5px;
-  text-align: center;
+  font-size: 10px;
+  line-height: 1;
   color: var(--dim);
-  background: var(--hull);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-hard);
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* F094 行动栏技能列表 / F163 道具列表：发丝线行 + 硬件方角按钮。
@@ -1905,7 +1905,8 @@ button {
 
   /* F113/F119：系统组收成一条可横滑的 meta 行，与 .combat-entry
      共享第二行——不再独占两行按钮把底栏撑高。右缘渐隐同 .status-nums，
-     暗示可滑；padding-top 给 kbd 键帽留位（纵向不裁）。 */
+     暗示可滑；padding-top 与行动组同节奏（仍给探出上缘的
+     .rest-count 角标留位，纵向不裁）。 */
   .btn-group-sys {
     display: flex;
     flex-wrap: nowrap;
@@ -1937,7 +1938,7 @@ button {
     overflow: hidden;
   }
 
-  /* 不裁 overflow：kbd 快捷键键帽探出按钮上缘，需要可见。 */
+  /* 不裁 overflow：.rest-count 角标仍探出按钮上缘，需要可见。 */
   .btn {
     min-width: 0;
     min-height: 44px;
@@ -3342,4 +3343,57 @@ button {
   text-indent: 0;
   letter-spacing: 0.03em;
   color: var(--faint);
+}
+
+/* ── F172 桌面版心（≥1200px）────────────────────────
+   旧版版心在舞台列内居中——1440 下整列比视口中心左偏 ~150px，
+   左缘空洞 ~300px，右侧栏下方也留一块死白。修法纯 CSS：
+   · --side-w：右侧栏宽，1200 处 220px 起步、1360 起固定 300px。
+     「300px 侧栏 + ≥760px 居中版心」在 1200px 视口几何上无法
+     共存，于是窄端先压缩侧栏而不是压版心；
+   · --main-w：版心宽 = min(1100px, 视口 − 2×侧栏 − 16px 间隙)，
+     下限 760px；
+   · .stage 左 padding = --side-w：内容盒被对称成 [side, vw−side]，
+     .stage-col / .log-earlier 照旧 margin:auto 即落在视口中心，
+     右缘与侧栏恒保间隙、永不相撞（滚动条仍在舞台右缘、可见）；
+   · 底栏收回单列，.actions-main 用同一 --main-w 居中；.actions-side
+     空槽撤掉、footer 整片 hull——侧栏下方不再是一块黑洞。 */
+@media (min-width: 1200px) {
+  .app {
+    --side-w: clamp(220px, calc(50vw - 380px), 300px);
+    --main-w: min(
+      1100px,
+      max(760px, calc(100vw - 2 * var(--side-w) - var(--sp-4)))
+    );
+    grid-template-columns: minmax(0, 1fr) var(--side-w);
+  }
+
+  .stage {
+    padding-left: var(--side-w);
+    background:
+      radial-gradient(
+        900px 380px at calc(50% + var(--side-w) / 2) 0%,
+        rgba(35, 80, 160, 0.12),
+        transparent 65%
+      ),
+      var(--abyss);
+  }
+
+  .stage-col,
+  .log-earlier {
+    max-width: var(--main-w);
+  }
+
+  .actions {
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--hull);
+  }
+
+  .actions-main {
+    max-width: var(--main-w);
+  }
+
+  .actions-side {
+    display: none;
+  }
 }

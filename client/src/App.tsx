@@ -1284,7 +1284,7 @@ export default function App() {
                       title="快捷键 1"
                     >
                       查看结算
-                      <kbd>{i + 1}</kbd>
+                      <kbd className="key-badge">{i + 1}</kbd>
                     </button>
                   );
                 }
@@ -1319,7 +1319,7 @@ export default function App() {
                       b.label
                     )}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
-                    <kbd>{i + 1}</kbd>
+                    <kbd className="key-badge">{i + 1}</kbd>
                   </button>
                 );
               })}
@@ -1362,7 +1362,7 @@ export default function App() {
                     }
                   >
                     {challengeable ? "叫阵 · 攻击" : b.label}
-                    {liveCombat && <kbd>{i + 1}</kbd>}
+                    {liveCombat && <kbd className="key-badge">{i + 1}</kbd>}
                   </button>
                 );
               })}
@@ -1405,7 +1405,7 @@ export default function App() {
                       在交战时是假提示（按下实为逃跑），交战期摘下；6–9
                       仍然有效，照常显示。 */}
                   {i + 5 < 10 && !(liveCombat && i + 5 <= COMBAT_BUTTONS.length) && (
-                    <kbd>{i + 5}</kbd>
+                    <kbd className="key-badge">{i + 5}</kbd>
                   )}
                 </button>
               ))}
