@@ -105,9 +105,16 @@ await run(
     const pool = [...(poolBlock.split("\n]")[0] || "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
     assert(pool.length >= 2, `FLEE_GUIDE_LINES must have >=2 variants, got ${pool.length}`);
     assert(new Set(pool).size === pool.length, "FLEE_GUIDE_LINES variants must be distinct");
-    const inPool = (line) => pool.some((p) => line.includes(p.replace(/^【提示】/, "")));
-    assert(inPool(line1), `guidance line #1 not from the variant pool: ${line1}`);
-    assert(inPool(line2), `guidance line #2 not from the variant pool: ${line2}`);
+    // 渲染值取自池子：遭遇当次舞台文本必须包含池中某条变体（去掉【提示】前缀比对）。
+    const bare = (p) => p.replace(/^【提示】/, "");
+    assert(
+      pool.some((p) => text1.includes(bare(p))),
+      `encounter #1 must render a FLEE_GUIDE_LINES variant, got:\n${text1.slice(-300)}`
+    );
+    assert(
+      pool.some((p) => text2.includes(bare(p))),
+      `encounter #2 must render a FLEE_GUIDE_LINES variant, got:\n${text2.slice(-300)}`
+    );
     const bare2 = bareOralOnly(text2);
     assert(
       bare2.length === 0,
