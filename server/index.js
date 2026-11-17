@@ -2682,8 +2682,15 @@ function unknownFallbackContent(save, input) {
     todo.push(`说「休息」恢复体力与魔力（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`);
   }
   todo.push("说「观察」环顾四周", "说「前进」推进剧情");
+  // F166：自然语言长句不再回「系统未识别该指令：「X」」——玩家写的是
+  // 一句行动描写，按解析报错打包退回会把「世界在回应我」打回「关键词
+  // 表没匹配上」。指令形态（短词/信号词/数字键位）回显原样保留，
+  // F076/F129 的客户端解析靠它开合战斗面板。
+  const echo = require("./ai/free-action").echoRequired(input)
+    ? `【系统】系统未识别该指令：「${input}」。`
+    : "【系统】";
   return (
-    `【系统】系统未识别该指令：「${input}」。` +
+    echo +
     `${unknownSceneLine(save, input)}\n` +
     (guide ? `${guide.tip}\n` : "") +
     `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`
@@ -2710,7 +2717,10 @@ function resolveAction(save, input) {
     patch: null,
     events: [],
     content: cbt
-      ? `【系统】系统未识别该指令：「${input}」。你正与${cbt.enemy.name}交战——` +
+      ? (require("./ai/free-action").echoRequired(input)
+          ? `【系统】系统未识别该指令：「${input}」。`
+          : "【系统】") +
+        `你正与${cbt.enemy.name}交战——` +
         `「攻击」「释放技能 X」「防御」「使用道具」或「使用/喝 <药名>」「逃跑」，或「前进」强行撤离。`
       : unknownFallbackContent(save, input),
   };
