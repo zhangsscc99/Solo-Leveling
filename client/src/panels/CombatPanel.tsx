@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { baseAttack, baseDefense, Equipment, LogEntry, Save } from "../api";
+import { CombatState, Equipment, LogEntry, Save } from "../api";
 
 /* ────────────────────────────────────────────────
    战斗面板：save.combat（服务端交战态）是唯一事实源；
@@ -197,7 +197,6 @@ export default function CombatPanel({
   save,
   log,
   logBase = 0,
-  equipment,
   onClose,
 }: {
   save: Save;
@@ -229,21 +228,30 @@ export default function CombatPanel({
   }, [save.combat, inferred]);
   const floaters = useMemo(() => inferFloaters(log, ctx.enemyName), [log, ctx.enemyName]);
 
-  // 单回合伤害预估（纯情报，不是操作）：双方攻防用服务端下发口径——
-  // 敌方 atk/def 来自 combatView，我方攻/防 = 属性折算 + 装备加成，
-  // 与 stats.js「攻=1.6×力、防=0.8×体」同一折算。只给裸量级（不折
-  // 暴击与 rank 压制），实战落点以战报为准；非 live 推断态无攻防
-  // 数据，整行不渲染。
+  // F191 口径修正：单回合预估区间完全由服务端 combatView 下发——
+  // 与 guardianWarning/resolveTurn 同一条 computeDamage（装备折算进
+  // 属性、rank 压制、体力减伤、暴击上下限），前端不再裸算攻防差。
+  // 四个字段缺一即不渲染，保持「非 live 推断态不渲染」的既有行为。
   const est = useMemo(() => {
-    const live = save.combat;
+    const live = save.combat as
+      | (CombatState & {
+          est_deal_lo?: number;
+          est_deal_hi?: number;
+          est_take_lo?: number;
+          est_take_hi?: number;
+        })
+      | null;
     if (!live) return null;
-    const atk = baseAttack(save.stats) + (equipment?.atk ?? 0);
-    const def = baseDefense(save.stats) + (equipment?.def ?? 0);
+    const { est_deal_lo, est_deal_hi, est_take_lo, est_take_hi } = live;
+    const nums = [est_deal_lo, est_deal_hi, est_take_lo, est_take_hi];
+    if (nums.some((n) => typeof n !== "number" || !Number.isFinite(n))) return null;
     return {
-      deal: Math.max(1, atk - live.enemy.def),
-      take: Math.max(1, live.enemy.atk - def),
+      dealLo: Math.trunc(est_deal_lo as number),
+      dealHi: Math.trunc(est_deal_hi as number),
+      takeLo: Math.trunc(est_take_lo as number),
+      takeHi: Math.trunc(est_take_hi as number),
     };
-  }, [save.combat, save.stats, equipment]);
+  }, [save.combat]);
 
   const floatsFor = (side: "player" | "enemy") =>
     floaters.filter((f) => f.side === side).slice(-MAX_FLOATERS);
@@ -310,14 +318,19 @@ export default function CombatPanel({
       </div>
 
       {est && (
-        <div className="combat-est" aria-label="单回合预计伤害">
+        <div
+          className="combat-est"
+          aria-label="单回合预计伤害"
+          title="区间为不暴击下限–暴击上限，未计入闪避"
+        >
           <span className="combat-est-label">每回合预估</span>
           <span className="combat-est-num">
-            攻击 <b>~{est.deal}</b>
+            攻击 <b>{est.dealLo === est.dealHi ? est.dealLo : `${est.dealLo}–${est.dealHi}`}</b>
           </span>
           <span className="combat-est-num">
-            承伤 <b>~{est.take}</b>
+            承伤 <b>{est.takeLo === est.takeHi ? est.takeLo : `${est.takeLo}–${est.takeHi}`}</b>
           </span>
+          <span className="combat-est-note">未计闪避</span>
         </div>
       )}
     </section>

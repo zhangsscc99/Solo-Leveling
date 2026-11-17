@@ -3531,3 +3531,10 @@ button {
   padding: 0 var(--sp-2);
   font-size: var(--fs-sm);
 }
+
+/* F191 预估口径修正：区间尾注（「未计闪避」一行小字），沿用
+   .combat-est 的 faint 口径，只追加不改既有规则。 */
+.combat-est-note {
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
