@@ -151,6 +151,11 @@ if (!saveCols.includes("skill_cd_json")) {
 if (!saveCols.includes("main_steps")) {
   db.exec("ALTER TABLE saves ADD COLUMN main_steps INTEGER NOT NULL DEFAULT 0");
 }
+// F161 连续推进计数：连按「前进」的疾行计数（encounter.js 的 streak 加成
+// 与 none 场景解锁都吃它）。老存档自动落 0，无回填、无感知。
+if (!saveCols.includes("advance_streak")) {
+  db.exec("ALTER TABLE saves ADD COLUMN advance_streak INTEGER NOT NULL DEFAULT 0");
+}
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
@@ -310,6 +315,7 @@ const MUTABLE_COLUMNS = [
   "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
   "encounter_seq", "encounter_cd", "rest_used", "main_steps",
+  "advance_streak",
 ];
 
 function updateSave(id, patch) {

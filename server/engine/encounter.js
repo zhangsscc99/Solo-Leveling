@@ -25,6 +25,19 @@ const BASE_CHANCE = 0.3;
 const PER_CHAPTER = 0.05;
 const MAX_CHANCE = 0.75;
 
+// F161 连续推进叠加：连按「前进」不是免费的——advance_streak 到
+// STREAK_THRESHOLD 起每多一幕 +STREAK_PER_ADVANCE 遭遇率，封顶
+// MAX_CHANCE；同一阈值也把 encounters:"none" 的现实世界/铺垫幕从
+// 「永不掷怪」解锁为「按叠加后概率掷点」——疾行会惊动本不该有怪的地方。
+const STREAK_PER_ADVANCE = 0.08;
+const STREAK_THRESHOLD = 3;
+
+// 连续推进加成：未达阈值 = 0；达阈值后每多一幕线性 +0.08。
+function streakBonus(streak) {
+  const s = Math.max(0, Math.trunc(S.num(streak)));
+  return s >= STREAK_THRESHOLD ? (s - STREAK_THRESHOLD + 1) * STREAK_PER_ADVANCE : 0;
+}
+
 // F095 章节期望等级：玩家抵达本章时按 XP 曲线应处的等级。取「本章小怪
 // + boss + 主线奖励 + 每日任务」全收后大致够到下一章期望的中位——
 // ch1 期望 Lv.2（新档 Lv.1 + 新手装备 + 3 瓶药水即可险胜守关者），
@@ -186,23 +199,30 @@ function spawnBoss(chapterIndex) {
 }
 
 // 遭遇判定（纯函数）：scene.encounters === "none" 的场景（现实世界）
-// 永不掷怪——判定放在 boss 之前，数据字段是权威事实；boss 场景误标
-// "none" 会被 chapters.js 校验在加载期拦下（守关战是主线硬门）。
+// 在连续推进计数未达 STREAK_THRESHOLD 前永不掷怪——判定放在 boss 之前，
+// 数据字段是权威事实；boss 场景误标 "none" 会被 chapters.js 校验在加载期
+// 拦下（守关战是主线硬门）。F161 起疾行解锁 none 场景：streak 达阈值后
+// 按叠加后概率掷点（streak 加成对普通场景同样线性叠加）。
 // boss 场景必中；否则 pity 计数到顶必中；再否则按本章遭遇率掷点。
 // 返回敌人实体或 null（caller 负责计数落库）。
-function roll({ chapterIndex, scene, clock, seed }) {
+function roll({ chapterIndex, scene, clock, seed, streak }) {
   if (!scene || typeof scene !== "object") return null;
-  if (scene.encounters === ENCOUNTERS_NONE) return null;
+  const bonus = streakBonus(streak);
+  if (scene.encounters === ENCOUNTERS_NONE && bonus <= 0) return null;
   if (scene.kind === "boss") return spawnBoss(chapterIndex);
   const c = Math.max(0, Math.trunc(S.num(clock)));
   if (c + 1 >= PITY_LIMIT) return spawn(chapterIndex, `${seed}:pity`);
   const rng = createRng(`encounter-roll:${chapterIndex}:${scene.id || "?"}:${seed}`);
-  return rng.chance(chanceFor(chapterIndex)) ? spawn(chapterIndex, `${seed}:hit`) : null;
+  const chance = Math.min(MAX_CHANCE, chanceFor(chapterIndex) + bonus);
+  return rng.chance(chance) ? spawn(chapterIndex, `${seed}:hit`) : null;
 }
 
 module.exports = {
   PITY_LIMIT,
   ENCOUNTERS_NONE,
+  STREAK_PER_ADVANCE,
+  STREAK_THRESHOLD,
+  streakBonus,
   chanceFor,
   spawn,
   spawnBoss,

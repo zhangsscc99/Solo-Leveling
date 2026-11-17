@@ -219,6 +219,29 @@ function advanceMode(save) {
   return "advance";
 }
 
+// F161 代价预告：「前进」按钮旁必须能预读下一幕要付什么——与
+// advanceOutcome 的免费分支（链首铺陈步/自愈落点/过门 scripted/门禁
+// 拒绝）同一判定顺序，数值直接引 ADVANCE_HP_COST/ADVANCE_MP_COST，
+// 预告与实扣同一组常量，不另编数字。交战中「前进」是掷逃不是探索，
+// 不吃这份探索费（代价在回合结算里，不在本字段口径内）。
+function advanceCostView(save, combat) {
+  const free = { hp: 0, mp: 0 };
+  if (!save || combat || endingEngine.hasCleared(save)) return free;
+  const mode = advanceMode(save);
+  if (mode === "retreat_to_boss") {
+    // 折返守关房是真结算步（advanceOutcome 的 retreatToBoss 带 vit 扣费）。
+    return { hp: ADVANCE_HP_COST, mp: ADVANCE_MP_COST };
+  }
+  if (mode !== "advance") return free;
+  const chapter = chaptersEngine.getChapter(save.chapter);
+  const path = chapter ? chaptersEngine.chapterPath(chapter) : [];
+  const idx = chapter ? chaptersEngine.pathIndexOf(chapter, save.scene) : -1;
+  // idx<=0：链首铺陈步或自愈落点，下一幕仍免费；idx===链尾：过门 scripted
+  // 或终章拒绝，均不扣费。
+  if (idx <= 0 || idx >= path.length - 1) return free;
+  return { hp: ADVANCE_HP_COST, mp: ADVANCE_MP_COST };
+}
+
 // at_epilogue 与 cleared 同值，是 F089 给前端的显式终章态信号——前端按
 // 字段渲染「查看结算」入口，不做任何文本匹配。
 function saveView(save) {
@@ -237,6 +260,9 @@ function saveView(save) {
     skills: skillViews(save, combat),
     rest: restStatus(save, combat),
     advance_mode: advanceMode(save),
+    // F161：下一次「前进」的实付代价随存档下发——与 advanceCostView
+    // 同一判定，前端按字段渲染预告，不猜场景。
+    advance_cost: advanceCostView(save, combat),
     cleared,
     at_epilogue: cleared,
     xp_to_next: progression.xpToNext(save.level),
@@ -494,9 +520,14 @@ function supplyUseTail(item, qtyLeft) {
 // 推进体力消耗（沿用原数值）：HP-3、MP-2，下限一律 0——F077 起不再夹
 // 在 1，耗尽可能触发死亡回溯。数值没动过的一律不进文案——HP 已 0 时
 // 不得输出「HP 0→0」这种虚构消耗，只写「体力已见底」。
+// F161：代价常量单源化——零消耗注脚的「下一幕要付什么」与 saveView 的
+// advance_cost 预告都引这两个常量，实扣与预告永远同一组数字。
+const ADVANCE_HP_COST = 3;
+const ADVANCE_MP_COST = 2;
+
 function vitalsCost(save) {
-  const hp = clamp(save.hp - 3, 0, save.max_hp);
-  const mp = clamp(save.mp - 2, 0, save.max_mp);
+  const hp = clamp(save.hp - ADVANCE_HP_COST, 0, save.max_hp);
+  const mp = clamp(save.mp - ADVANCE_MP_COST, 0, save.max_mp);
   const parts = [];
   if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
   if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
@@ -527,15 +558,15 @@ const BOSS_GATE_LINES = [
   (bossName, n) =>
     `【主线】「${bossName}」的威压仍封着出口——你无法越过守关者，唯有击败它才能前行。` +
     `说「攻击」或「叫阵」逼它现形再战（也可点「叫阵守关者」按钮）。\n` +
-    `（本次没有消耗体力 · 第 ${n} 次被威压逼退）`,
+    `（只是被威压逼退，未耗体力 · 第 ${n} 次——下一幕想过去，仍得先击败守关者）`,
   (bossName, n) =>
     `【主线】出口仍被「${bossName}」的威压钉死——这已经是第 ${n} 次被它逼退。` +
     `守关者还活着，此路不通：说「攻击」向它叫阵，或点「叫阵守关者」。\n` +
-    `（本次没有消耗体力）`,
+    `（只是被拦在门前，未耗体力——下一幕想前行，仍得先击败守关者）`,
   (bossName, n) =>
     `【主线】「${bossName}」没有让路的意思——威压第 ${n} 次将你拦在门前。` +
     `唯有击败它才能前行：输入「攻击」或「叫阵」开战（对应按钮「叫阵守关者」）。\n` +
-    `（本次没有消耗体力）`,
+    `（只是被推了回来，未耗体力 · 第 ${n} 次——下一幕想过去，仍得先击败守关者）`,
 ];
 const bossGatePushes = new Map();
 
@@ -676,7 +707,8 @@ function chapterBossName(chapter) {
 // 自动满足）。未击杀时 patch 不动 chapter/scene，正文给出可执行的
 // 下一步（击败守关者，附当前进度）。
 // F096 收尾补丁：两条拒绝分支一律零消耗——patch 为 null（HP/MP 原样），
-// 正文显性写「本次没有消耗体力」，并挂 refused 标记让路由短路：
+// 正文显性写明零消耗及其剧情内理由（F161：只是/未耗/下一幕），并挂
+// refused 标记让路由短路：
 // 用户输入与播报都不进日志、不产 advance 事件（账本不写没发生的事）。
 // 否则章尾连点「前进」会把玩家原地耗死——门锁了还扣血是死路。
 function chapterGate(save, chapter, nextChapter) {
@@ -689,7 +721,7 @@ function chapterGate(save, chapter, nextChapter) {
       refused: true,
       content:
         `【主线】通往第${nextChapter.index}章的门没有开启——${need} 才能进入第${nextChapter.index}章。\n` +
-        `（本次没有消耗体力）`,
+        `（门没有开，只是原地停驻，未耗体力——下一幕得先够到门槛）`,
     };
   }
   if (!bossRequirementMet(save, chapter)) {
@@ -701,7 +733,7 @@ function chapterGate(save, chapter, nextChapter) {
       content:
         `【主线】第${chapter.index}章的守关者仍守在那扇门前——` +
         `必须击败「${chapterBossName(chapter)}」才能通过（当前进度 ${steps}/${path.length}）。\n` +
-        `（本次没有消耗体力）`,
+        `（只是停在守关者门前，未耗体力——下一幕要么叫阵要么另寻出路）`,
     };
   }
   const first = chaptersEngine.firstSceneOf(nextChapter);
@@ -713,12 +745,15 @@ function chapterGate(save, chapter, nextChapter) {
   // F117：过门是章节切换不是一次「前进」——零消耗（patch 不写 HP/MP）、
   // scripted 标记让 advanceWithEncounter 跳过遭遇判定与 advance 事件，
   // 落点 = 下一章主线链首（下一幕才重新开始计步与掷怪）。
+  // F161：落点是链首——下一幕仍是零消耗铺陈步，再往后每幕推进才付代价；
+  // 注脚按这个真实次序写，不提前宣称「下一幕就要扣」。
   return {
     patch: { scene: first.id, chapter: nextChapter.index },
     scripted: true,
     content:
       `【主线】第${nextChapter.index}章「${nextChapter.title}」开启${softNote}。\n` +
-      `${first.text}\n（本次没有消耗体力）`,
+      `${first.text}\n` +
+      `（只是穿门而过，未耗体力——下一幕仍是铺垫，之后的推进每幕要耗 HP ${ADVANCE_HP_COST} · MP ${ADVANCE_MP_COST}）`,
   };
 }
 
@@ -745,7 +780,9 @@ function advanceOutcome(save) {
     return {
       patch: { scene: path[0].id },
       scripted: true,
-      content: `${path[0].text}\n（本次没有消耗体力）`,
+      content:
+        `${path[0].text}\n` +
+        `（只是重新落定脚步，未耗体力——下一幕仍是铺垫，之后的推进每幕要耗 HP ${ADVANCE_HP_COST} · MP ${ADVANCE_MP_COST}）`,
     };
   }
 
@@ -813,10 +850,14 @@ function advanceOutcome(save) {
   // 「开场白同一回包内掉血开战、每日任务空结算」的旧毛病。
   if (idx === 0) {
     const nextScene = path[1];
+    // F161：这是唯一一处「下一幕真的开始扣费」的免费步——注脚如实点名
+    // 下一幕的代价数字（取自 ADVANCE_HP_COST/ADVANCE_MP_COST，与实扣同源）。
     return {
       patch: { scene: nextScene.id },
       scripted: true,
-      content: `${nextScene.text}\n（本次没有消耗体力）`,
+      content:
+        `${nextScene.text}\n` +
+        `（这一幕只是凝视前路，未耗体力——下一幕开始要付代价：HP ${ADVANCE_HP_COST} · MP ${ADVANCE_MP_COST}）`,
     };
   }
 
@@ -928,6 +969,8 @@ function settleDeath(saveId) {
     deaths: (Number(save.deaths) || 0) + 1,
     encounter_clock: 0,
     encounter_cd: 0,
+    // F161：回溯是重新来过——疾行计数随进度一并抹去。
+    advance_streak: 0,
     // F134 回溯 = 重开本章：休息配额与跨章重置同一语义归零——
     // 死亡不返还配额会把惩罚副本压成永久死局（血回不来、怪照刷）。
     rest_used: 0,
@@ -1076,7 +1119,15 @@ function tryEncounter(save, sceneId, opts) {
   const clock = Math.max(0, rawClock);
   const seq = nextEncounterSeq(save);
   const seed = `${save.id}:${scene.id}:${clock}:${seq}`;
-  const enemy = encounterEngine.roll({ chapterIndex: chapter.index, scene: effective, clock, seed });
+  const enemy = encounterEngine.roll({
+    chapterIndex: chapter.index,
+    scene: effective,
+    clock,
+    seed,
+    // F161：疾行计数参与掷点——连续「前进」会线性抬高遭遇率，并在
+    // streak 达阈值后把 encounters:"none" 的场景也解锁为可掷点。
+    streak: save.advance_streak,
+  });
   if (enemy) enemy.seq = seq;
   return enemy;
 }
@@ -1093,6 +1144,11 @@ function tryEncounter(save, sceneId, opts) {
 function advanceWithEncounter(save) {
   const cbt = store.getCombat(save.id);
   const enemyName = cbt && cbt.enemy ? cbt.enemy.name : "敌人";
+  // F161 连续推进计数：每一次未被拒的「前进」（含交战中的撤离掷逃）
+  // 都让疾行计数 +1——计数喂 encounter.js 的 streak 加成与 none 场景
+  // 解锁，任何非「前进」的已结算动作在 executeIntent 里把它归零。
+  const streakNext =
+    Math.max(0, Math.trunc(Number(save.advance_streak) || 0)) + 1;
 
   // 落到主线链尾时的奖励门槛：守关 boss 未击杀则只提示不结算；
   // 本次落点本身开战（boss/小怪）时提示被遭遇播报盖过，不重复啰嗦。
@@ -1113,6 +1169,8 @@ function advanceWithEncounter(save) {
     // boss 房再入冷却（F095 逃生阀），普通遭遇原地脱离，链首场景则原地
     // 脱离。绝不调用 advanceOutcome——同一次点击不得白嫖一次落点/穿章。
     const fleeRes = combatTurn(save, cbt, "flee", "前进", null, { retreatOnFlee: true });
+    // F161：撤离掷逃也是一次「前进」——疾行计数照涨（被敌人拦下不算断档）。
+    if (fleeRes.patch) fleeRes.patch.advance_streak = streakNext;
     // F103 死亡即收束：撤离掷逃把人打倒时，回合战报已被 combatTurn 清空，
     // settleDeath 的「倒下/回溯」播报是唯一收尾——绝不能再拼「撤离失败」。
     if (fleeRes.patch && fleeRes.patch.hp <= 0) {
@@ -1175,9 +1233,9 @@ function advanceWithEncounter(save) {
   };
   // F114 无位移零消耗：结算出参没把玩家挪到新场景（patch.scene 缺省或
   // 与原地相同）时，体力扣点必须剥掉、并把「（体力消耗…）」注脚改写为
-  // 「（本次没有消耗体力）」——「原地看旧文还掉血」不得在回溯态下复活。
-  // （F106 负责的门禁拒绝分支走 refused 短路，不在本车道动；这里只罩
-  // 「无位移⇒不扣费」这一层不变量。）
+  // 带剧情内理由的零消耗注脚（F161）——「原地看旧文还掉血」不得在回溯
+  // 态下复活。（F106 负责的门禁拒绝分支走 refused 短路，不在本车道动；
+  // 这里只罩「无位移⇒不扣费」这一层不变量。）
   if (patch && !moved) {
     let stripped = false;
     if (patch.hp !== undefined && patch.hp !== save.hp) {
@@ -1189,9 +1247,15 @@ function advanceWithEncounter(save) {
       stripped = true;
     }
     if (stripped) {
-      res.content = res.content.replace(/（体力消耗 [^）]*）/g, "（本次没有消耗体力）");
+      res.content = res.content.replace(
+        /（体力消耗 [^）]*）/g,
+        `（只是原地停驻，未耗体力——下一幕若真推进仍要付代价：HP ${ADVANCE_HP_COST} · MP ${ADVANCE_MP_COST}）`
+      );
     }
   }
+  // F161：被拒的「前进」不算推进（ refused 分支 patch 恒 null，不走到
+  // 这里），其余前进一律把疾行计数 +1 落库——刷新后仍在，连按才有代价。
+  if (!out.refused && patch) patch.advance_streak = streakNext;
   if (!moved) return res;
 
   // 跨章换地图：遭遇保底计数随地图归零；击杀冷却每次真实移动递减一格。
@@ -1209,9 +1273,17 @@ function advanceWithEncounter(save) {
   const nextChapter = chaptersEngine.getChapter(patch.chapter || save.chapter);
   const landedScene = chaptersEngine.getScene(patch.scene);
   let enemy = null;
+  let rolled = false;
   if (!encounterBlockedByCooldown({ ...save, encounter_cd: cdNext }, landedScene)) {
+    rolled = true;
     enemy = tryEncounter(
-      { ...save, chapter: patch.chapter || save.chapter, encounter_cd: cdNext },
+      {
+        ...save,
+        chapter: patch.chapter || save.chapter,
+        encounter_cd: cdNext,
+        // 本步落地掷点吃的是「按完这一下之后」的疾行计数。
+        advance_streak: patch.advance_streak,
+      },
       patch.scene,
       // 折返落地的是本章守关房：这场再战是折返的目的——负冷却
       // （F095 逃生阀）不得把它挡掉，forceBoss 显式压过再入冷却。
@@ -1246,6 +1318,24 @@ function advanceWithEncounter(save) {
     }
   }
 
+  // F161 疾行风险提示：连续推进计数达到阈值后，遭遇率已开始线性叠加
+  // （none 场景也从此刻起被解锁掷点）——风险上升必须在回包里看得见，
+  // 不许静默涨价。boss 场景是必中守关战，不挂这条（它不是概率事件）。
+  const streakAfter = Math.max(
+    0,
+    Math.trunc(Number(patch.advance_streak !== undefined ? patch.advance_streak : save.advance_streak) || 0)
+  );
+  if (
+    rolled &&
+    streakAfter >= encounterEngine.STREAK_THRESHOLD &&
+    landedScene &&
+    landedScene.kind !== "boss"
+  ) {
+    res.content +=
+      `\n【警觉】你已连续疾行 ${streakAfter} 幕，四周的回声乱了——` +
+      `有什么被惊动了（遇敌率随疾行上升）。`;
+  }
+
   // F125 守关房再入：守关者未击杀、落地没有开战（再入冷却压住了强制
   // 遭遇）时，场景正文是开打时的开场战叙述、探索扣费也是错账——换成
   // 中性的「回到守关房」播报并剥掉这一步的 HP/MP 代价。房内的真仗只能
@@ -1267,7 +1357,7 @@ function advanceWithEncounter(save) {
     // F158：重入守关房同样追加状态预警——脱战态的恢复路径（休息/补给/
     // 叫阵）与进房开战版分开给。
     res.content =
-      `${line}\n（本次没有消耗体力）\n` +
+      `${line}\n（只是重返守关者门前，未耗体力——下一幕要么叫阵要么退开）\n` +
       guardianWarning(
         save,
         chaptersEngine.getChapterOfScene(landedScene.id) || nextChapter,
@@ -2340,10 +2430,17 @@ function executeIntent(save, intentId, input) {
     }
   }
   const built = intent.build(save, input);
+  // F161 疾行计数只记「连续前进」：任何未被拒绝的非前进动作（观察/休息/
+  // 战斗/道具……）都把它归零——streak 是「连着按前进」的账，断档即清。
+  // advance 自己经 advanceWithEncounter 落新值；refused 不写档不动计数。
+  const patch =
+    intentId === "advance" || built.refused
+      ? built.patch
+      : { ...(built.patch || {}), advance_streak: 0 };
   return {
     intent: intent.id,
     role: intent.role,
-    patch: built.patch,
+    patch,
     content: built.content,
     shadows: built.shadows,
     events: built.events || [],
