@@ -3420,3 +3420,26 @@ button {
   margin-right: var(--sp-2);
   color: var(--line-strong);
 }
+
+/* ── F185 交战态「为什么不能前进」的就地小字 ──
+   与 .rest-hint 同一视觉语言：弱一级对比度、▪ 前缀、role=note；
+   块级一行落在 .actions-main 内、按钮组之上（.rest-hint 是 flex 子项
+   需 flex:0 0 100%，这里是普通块，天然整行）；单行不换行、窄屏
+   省略号收尾，不产生横向溢出；仅 liveCombat 渲染，脱战不占位。 */
+.combat-lock-hint {
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--sp-2) var(--sp-1);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combat-lock-hint::before {
+  content: "▪";
+  margin-right: var(--sp-2);
+  color: var(--line-strong);
+}

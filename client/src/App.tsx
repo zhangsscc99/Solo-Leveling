@@ -1244,6 +1244,14 @@ export default function App() {
           </div>
         )}
         <div className={`actions-main${liveCombat ? " actions-combat" : ""}`}>
+          {/* F185：交战态探索组整组换五键，页面上没有一行字解释主线
+              为何暂停——在行动栏按钮上方常驻一行与 .rest-hint 同语言的
+              弱对比小字，脱战（liveCombat=false）即不渲染不占位。 */}
+          {liveCombat && (
+            <div className="combat-lock-hint" role="note">
+              交战中无法推进剧情——先打完这一场，或点「逃跑」脱身
+            </div>
+          )}
           <div className="action-groups">
             <div className="btn-group">
               <span className="group-label">行动</span>

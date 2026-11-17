@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+// F185 交战态行动栏上方的「为什么不能前进」提示：
+//   a) 390×844 新档非交战态：页面不存在任何含「无法推进剧情」的元素；
+//   b) 连点「前进」（被逼退/换标就继续点同一颗主按钮，最多 8 次）直到
+//      行动栏出现战斗五键（footer.actions button:has-text("攻击")）；
+//   c) .combat-lock-hint 可见、role="note"、文本同时含「无法推进剧情」
+//      与「逃跑」，且几何上在战斗按钮之上；
+//   d) 点「逃跑」脱战（最多 4 次）后提示消失（count === 0）；
+//   e) documentElement 无横向溢出（scrollWidth - clientWidth === 0），
+//      全程 console error / pageerror 为 0。
+// 变异敏感性：旧码无该行 → a) 绿但 c) 必红（提示不存在）。
+const BASE = (process.env.E2E_BASE_URL || "https://openfolio.uk/game").replace(/\/+$/, "");
+process.env.E2E_BASE_URL = BASE;
+process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
+
+const { run, createSave, assert } = await import("../e2e/lib.mjs");
+
+const NAME = `f185-${Date.now().toString(36)}`;
+const settle = (page, ms = 450) => page.waitForTimeout(ms);
+
+const HINT = ".combat-lock-hint";
+// 交战五键只在 liveCombat（.actions-main.actions-combat）下渲染；
+// 守关房叫阵态按钮文案是「叫阵 · 攻击」，裸 has-text 会误判交战。
+const atkBtn = (page) =>
+  page.locator('footer.actions .actions-combat button:has-text("攻击")');
+// 行动组（第一组）主按钮：非交战态是「前进」及其换标形态（折返/叫阵/
+// 进入下章），都是探索推进那颗 primary 键。
+const advanceBtn = (page) =>
+  page.locator(".btn-group:not(.btn-group-sys) .btn.primary").first();
+
+async function actionButtonTexts(page) {
+  return page.locator("footer.actions .btn").allInnerTexts();
+}
+
+run(
+  "combat-lock-hint",
+  async ({ page }) => {
+    const consoleErrors = [];
+    page.on("console", (m) => {
+      if (m.type() === "error") consoleErrors.push(m.text());
+    });
+    page.on("pageerror", (e) => consoleErrors.push(String(e)));
+
+    await createSave(page, NAME);
+    await settle(page, 700);
+
+    const hint = page.locator(HINT);
+
+    // ── a) 非交战态：不存在含「无法推进剧情」的元素 ──
+    const stray = page.locator("text=无法推进剧情");
+    assert(
+      (await stray.count()) === 0 && (await hint.count()) === 0,
+      `非交战态出现提示：stray=${await stray.count()} hint=${await hint.count()}`
+    );
+
+    // ── b) 连点「前进」直到战斗五键出现（最多 8 次）──
+    let engaged = (await atkBtn(page).count()) > 0;
+    for (let i = 0; i < 8 && !engaged; i++) {
+      const adv = advanceBtn(page);
+      if ((await adv.count()) === 0) break;
+      if (await adv.isDisabled().catch(() => true)) {
+        await settle(page, 700);
+        continue;
+      }
+      await adv.click();
+      await settle(page, 800);
+      engaged = (await atkBtn(page).count()) > 0;
+    }
+    assert(
+      engaged,
+      `8 次推进仍未交战，行动栏按钮=[${(await actionButtonTexts(page)).join(" | ")}]`
+    );
+
+    // ── c) 提示可见、role=note、双关键词、在按钮之上 ──
+    await settle(page, 500);
+    assert(
+      (await hint.count()) === 1 && (await hint.first().isVisible()),
+      `交战中提示不存在或不可见，按钮=[${(await actionButtonTexts(page)).join(" | ")}]`
+    );
+    const text = (await hint.first().innerText()).trim();
+    assert(
+      text.includes("无法推进剧情") && text.includes("逃跑"),
+      `提示文案缺关键词："${text}"`
+    );
+    assert(
+      (await hint.first().getAttribute("role")) === "note",
+      `提示缺 role="note"，实际 role=${await hint.first().getAttribute("role")}`
+    );
+    const hintBox = await hint.first().boundingBox();
+    const atkBox = await atkBtn(page).first().boundingBox();
+    assert(
+      hintBox && atkBox && hintBox.y + hintBox.height <= atkBox.y + 1,
+      `提示不在行动按钮之上：hint=${JSON.stringify(hintBox)} atk=${JSON.stringify(atkBox)}`
+    );
+
+    // ── d) 点「逃跑」脱战（最多 4 次），提示消失 ──
+    const fleeBtn = page
+      .locator('footer.actions .actions-combat button:has-text("逃跑")')
+      .first();
+    for (let i = 0; i < 4 && (await atkBtn(page).count()) > 0; i++) {
+      await fleeBtn.click();
+      await settle(page, 800);
+    }
+    assert(
+      (await atkBtn(page).count()) === 0,
+      `4 次逃跑仍未脱战，按钮=[${(await actionButtonTexts(page)).join(" | ")}]`
+    );
+    await settle(page, 500);
+    const post = (await hint.count()) ? (await hint.first().innerText()).trim() : "";
+    assert(
+      (await hint.count()) === 0,
+      `脱战后提示仍残留：count=${await hint.count()} text="${post}"`
+    );
+
+    // ── e) 无横向溢出 + console error 为 0 ──
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    );
+    assert(overflow === 0, `横向溢出 scrollWidth-clientWidth=${overflow}`);
+    assert(
+      consoleErrors.length === 0,
+      `console error ${consoleErrors.length} 条：${consoleErrors.join(" ; ").slice(0, 400)}`
+    );
+  },
+  { viewport: { width: 390, height: 844 }, context: { hasTouch: true, isMobile: true } }
+);
