@@ -219,6 +219,7 @@ function StatusBar({
   save,
   equipment,
   degraded,
+  saveHint,
   onDismissDegraded,
   onOpenDrawer,
   onFreePoints,
@@ -226,6 +227,7 @@ function StatusBar({
   save: Save;
   equipment: Equipment | null;
   degraded: boolean;
+  saveHint: { id: number; text: string } | null;
   onDismissDegraded: () => void;
   onOpenDrawer: () => void;
   onFreePoints: () => void;
@@ -308,6 +310,13 @@ function StatusBar({
       <button className="drawer-toggle" onClick={onOpenDrawer} aria-label="打开档案面板">
         档案
       </button>
+      {/* F201「已记录」微提示：绝对定位锚在顶栏下缘右侧，不进文档流、
+          不遮数值、不拦点击；1.8s 淡出后由 App 计时移除。 */}
+      {saveHint && (
+        <span key={saveHint.id} className="save-hint" role="status">
+          {saveHint.text}
+        </span>
+      )}
       {/* F118 叙事降级一次性细条：会话内首次 /ai-action 降级后浮现，
           在文档流内不遮输入框与行动按钮；× 收起后本会话不再出现，
           刷新后随会话态重置可再提示一次。 */}
@@ -534,6 +543,13 @@ export default function App() {
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches
   );
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // F201「已记录」微提示：每个 /action 成功回包都意味着服务端已落库
+  // （刷新后 Lv./HP/战报逐项保留），但此前只有手动「存档」有完成播报，
+  // 玩家在刷新前会怀疑进度白打。顶栏下缘挂一条 1.8s 淡出的细字——
+  // 不进日志、不占行高、不动布局。交战态存档禁用是设计，文案换为
+  // 「交战结束后可写入」，绝不谎报「已写入存档」。
+  const [saveHint, setSaveHint] = useState<{ id: number; text: string } | null>(null);
+  const saveHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
   // F141 日志基线：整页回灌/接入存档时已有的行是「旧行」——历史战报
@@ -639,6 +655,14 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }, []);
 
+  // 连续动作只重置计时与文案——同一 .save-hint 槽位不换元素；key 翻
+  // 新让淡出动画从头播，避免「闪一下看不清」。
+  const showSaveHint = useCallback((inCombat: boolean) => {
+    setSaveHint({ id: Date.now(), text: inCombat ? "交战结束后可写入" : "已记录" });
+    if (saveHintTimer.current) clearTimeout(saveHintTimer.current);
+    saveHintTimer.current = setTimeout(() => setSaveHint(null), 2000);
+  }, []);
+
   // F164 状态栏属性点徽标：复用 openTab 直达「属性」面板，不另起面板
   // 路由。交战中不静默——面板照开（面板内同口径禁用 +1），另浮一条
   // 就地提示，文案与面板/服务端拒绝口径一致。
@@ -667,6 +691,7 @@ export default function App() {
           : await sendAction(save.id, trimmed, choiceId);
         const { reply, save: updated, degraded: replyDegraded } = r;
         if (updated) setSave(updated);
+        showSaveHint(Boolean((updated ?? save).combat));
         // F200 连击：一次动作可能带回多条战报（replies），逐条入日志；
         // 单条动作仍只有 reply 一条。回包 reply.id 缺失时补本地 id
         // （/ai-action 兜底回包无 DB 行）——React key 与日志行都需要稳定 id。
@@ -707,7 +732,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [save, busy, openTab]
+    [save, busy, openTab, showSaveHint]
   );
 
   // 真通关（save.cleared）后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
@@ -1056,7 +1081,9 @@ export default function App() {
   const onRebind = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     if (toastTimer.current) clearTimeout(toastTimer.current);
+    if (saveHintTimer.current) clearTimeout(saveHintTimer.current);
     setToast(null);
+    setSaveHint(null);
     setSave(null);
     setLog([]);
     setInventory([]);
@@ -1156,6 +1183,7 @@ export default function App() {
         save={save}
         equipment={equipment}
         degraded={degraded && !degradedDismissed}
+        saveHint={saveHint}
         onDismissDegraded={() => setDegradedDismissed(true)}
         onOpenDrawer={() => setDrawer(true)}
         onFreePoints={onFreePointsBadge}
