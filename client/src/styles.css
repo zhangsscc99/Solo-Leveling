@@ -1995,6 +1995,24 @@ button {
   .actions-combat .btn-group-sys .btn {
     min-height: 36px;
   }
+
+  /* F185b 窄屏呈现：≤880px 组标签 display:none、行动组改 6 列按钮
+     栅格（3+2 两行排满）——行内后缀无处可挂、栅格新行必破 60% 视口
+     契约，改锚在 .actions 上缘（与 .save-blocked-hint 同一位点，再往
+     上一行叠放）：绝对定位不占行高、hull 实底遮住日志行、不拦点击。 */
+  .actions-combat .combat-lock-hint {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 26px);
+    transform: translateX(-50%);
+    z-index: 14;
+    width: max-content;
+    max-width: calc(100vw - 2 * var(--sp-5));
+    padding: 2px var(--sp-3);
+    background: var(--hull);
+    text-align: center;
+    pointer-events: none;
+  }
 }
 
 /* ── 手机档 ≤640px：抽屉近乎全宽，脚注改点按提示 ── */
@@ -3422,14 +3440,13 @@ button {
 }
 
 /* ── F185 交战态「为什么不能前进」的就地小字 ──
-   与 .rest-hint 同一视觉语言：弱一级对比度、▪ 前缀、role=note；
-   块级一行落在 .actions-main 内、按钮组之上（.rest-hint 是 flex 子项
-   需 flex:0 0 100%，这里是普通块，天然整行）；单行不换行、窄屏
-   省略号收尾，不产生横向溢出；仅 liveCombat 渲染，脱战不占位。 */
+   F185b：整行块级版把 footer 抬高 ~21.6px、把 .stage 压破 60% 视口
+   （combat-actions-ui 契约红线）——改作「行动」组标签的行内后缀：
+   桌面 .btn-group 是 align-items:center 的 flex 行、40px 键帽决定
+   行高，小字嵌入零增量；单行不换行、min-width:0 + 省略号先缩文案，
+   不产生横向溢出；仅 liveCombat 渲染，脱战不占位。 */
 .combat-lock-hint {
   min-width: 0;
-  margin: 0;
-  padding: 0 var(--sp-2) var(--sp-1);
   font-size: var(--fs-xs);
   line-height: 1.6;
   color: var(--faint);

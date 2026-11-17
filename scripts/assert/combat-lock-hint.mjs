@@ -8,6 +8,10 @@
 //   d) 点「逃跑」脱战（最多 4 次）后提示消失（count === 0）；
 //   e) documentElement 无横向溢出（scrollWidth - clientWidth === 0），
 //      全程 console error / pageerror 为 0。
+//   f) 交战态 .stage 高度 ≥ innerHeight×0.6（F094/F113/F119 版式契约
+//      回归锁：提示不得以任何方式抬高底栏）；
+//   g) 交战态 footer.actions 高度 ≤205px（390×844 基线 197 + 8px 容差）
+//      ——防止再往行动栏里塞整行。
 // 变异敏感性：旧码无该行 → a) 绿但 c) 必红（提示不存在）。
 const BASE = (process.env.E2E_BASE_URL || "https://openfolio.uk/game").replace(/\/+$/, "");
 process.env.E2E_BASE_URL = BASE;
@@ -92,6 +96,27 @@ run(
       hintBox && atkBox && hintBox.y + hintBox.height <= atkBox.y + 1,
       `提示不在行动按钮之上：hint=${JSON.stringify(hintBox)} atk=${JSON.stringify(atkBox)}`
     );
+
+    // ── f/g) 版式回归锁：.stage ≥60% 视口、footer.actions ≤205px ──
+    {
+      const m = await page.evaluate(() => ({
+        stage: document.querySelector(".stage").getBoundingClientRect().height,
+        foot: document.querySelector("footer.actions").getBoundingClientRect().height,
+        ih: window.innerHeight,
+      }));
+      console.log(
+        `    (f/g) .stage=${m.stage.toFixed(1)}px (need≥${(m.ih * 0.6).toFixed(1)}),` +
+          ` footer.actions=${m.foot.toFixed(1)}px (need≤205, 基线~197)`
+      );
+      assert(
+        m.stage >= m.ih * 0.6,
+        `.stage height ${m.stage}px < 60% viewport (need ≥${m.ih * 0.6}px)`
+      );
+      assert(
+        m.foot <= 205,
+        `footer.actions height ${m.foot}px > 205px（390×844 基线 ~197，留 8px 容差）`
+      );
+    }
 
     // ── d) 点「逃跑」脱战（最多 4 次），提示消失 ──
     const fleeBtn = page

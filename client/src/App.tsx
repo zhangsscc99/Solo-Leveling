@@ -1244,17 +1244,21 @@ export default function App() {
           </div>
         )}
         <div className={`actions-main${liveCombat ? " actions-combat" : ""}`}>
-          {/* F185：交战态探索组整组换五键，页面上没有一行字解释主线
-              为何暂停——在行动栏按钮上方常驻一行与 .rest-hint 同语言的
-              弱对比小字，脱战（liveCombat=false）即不渲染不占位。 */}
-          {liveCombat && (
-            <div className="combat-lock-hint" role="note">
-              交战中无法推进剧情——先打完这一场，或点「逃跑」脱身
-            </div>
-          )}
           <div className="action-groups">
             <div className="btn-group">
               <span className="group-label">行动</span>
+              {/* F185/F185b：交战态探索组整组换五键，页面上没有一行字解释
+                  主线为何暂停——说明小字收为「行动」组标签的行内后缀：桌面
+                  .btn-group 是 flex 行、标签与按钮同行（零新增高度）；≤880px
+                  组标签隐藏、行动组改按钮栅格没有可挂靠的行，改作锚在底栏
+                  上缘的浮层小字（.save-blocked-hint 同一位点再往上一行），
+                  不占行高——F094/F113/F119 的 .stage ≥60% 视口是硬契约。
+                  脱战（liveCombat=false）即不渲染不占位。 */}
+              {liveCombat && (
+                <span className="combat-lock-hint" role="note">
+                  交战中无法推进剧情 · 先打完或「逃跑」脱身
+                </span>
+              )}
               {/* F094：探索组只在非交战渲染；交战中整组换为下方战斗五键，
                   服务端对和平意图的门禁（改判提示、零收益）与前台隐藏一致。 */}
               {!liveCombat &&
