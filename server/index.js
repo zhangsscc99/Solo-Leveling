@@ -1388,7 +1388,7 @@ function advanceWithEncounter(save) {
   ) {
     res.content +=
       `\n【警觉】你已连续疾行 ${streakAfter} 幕，四周的回声乱了——` +
-      `有什么被惊动了（遇敌率随疾行上升）。`;
+      `有什么被惊动了——你的脚步越快，惊动的东西就越多。`;
   }
 
   // F125 守关房再入：守关者未击杀、落地没有开战（再入冷却压住了强制
@@ -2677,6 +2677,11 @@ const UNKNOWN_GENERIC_LINES = [
 ];
 
 const unknownAckSeq = new Map();
+// F176：自由输入兜底回包的「眼下可以做…输入「帮助」」指令表尾巴按存档
+// 只给一次（与 bossGatePushes 同口径的进程内计数）——自然语言长句每句
+// 都复读操作说明会把叙事打断。指令形态输入走的也是这条兜底，首次命中
+// 照常带表；「帮助」指令本身在另一分支返回完整指令表，不受影响。
+const unknownTailShown = new Map();
 
 function unknownSceneLine(save, input) {
   const scene = chaptersEngine.currentScene(save);
@@ -2747,11 +2752,17 @@ function unknownFallbackContent(save, input) {
   const echo = require("./ai/free-action").echoRequired(input)
     ? `【系统】系统未识别该指令：「${input}」。`
     : "【系统】";
+  const tailN = unknownTailShown.get(save.id) || 0;
+  const tail =
+    tailN >= 1
+      ? ""
+      : `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`;
+  if (tailN < 1) unknownTailShown.set(save.id, tailN + 1);
   return (
     echo +
     `${unknownSceneLine(save, input)}\n` +
     (guide ? `${guide.tip}\n` : "") +
-    `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`
+    tail
   );
 }
 
