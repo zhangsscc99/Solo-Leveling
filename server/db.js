@@ -163,6 +163,11 @@ if (!saveCols.includes("main_steps")) {
 if (!saveCols.includes("advance_streak")) {
   db.exec("ALTER TABLE saves ADD COLUMN advance_streak INTEGER NOT NULL DEFAULT 0");
 }
+// F184 潜行收益：潜行攒下的「未被察觉」额度，advanceWithEncounter 掷
+// 遭遇前吃掉一格换这一幕不开战。老存档自动落 0，无回填、无感知。
+if (!saveCols.includes("stealth_charges")) {
+  db.exec("ALTER TABLE saves ADD COLUMN stealth_charges INTEGER NOT NULL DEFAULT 0");
+}
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
@@ -334,7 +339,7 @@ const MUTABLE_COLUMNS = [
   "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
   "encounter_seq", "encounter_cd", "rest_used", "main_steps",
-  "advance_streak",
+  "advance_streak", "stealth_charges",
 ];
 
 function updateSave(id, patch) {
