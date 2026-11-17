@@ -3450,16 +3450,17 @@ api.post("/ai-action", async (req, res) => {
       degraded = true;
     }
 
-    if (!intentId) {
-      const rule = aiFallback.parse(input, bagSupplyNames(save));
-      intentId = rule && aiValidate.INTENT_IDS.has(rule.intent) ? rule.intent : "observe";
-      degraded = true;
-    }
+    if (!intentId) degraded = true;
 
     // F025：await AI 期间存档可能已被其它写入改动——先重读最新存档再结算，
     // outcome.patch 基于新快照产出，不再做旧快照增量回算。
     const fresh = store.getSave(save.id) || save;
-    const outcome = executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
+    // F170：AI 不可用（degraded）时结算改走与 /action 完全相同的规则入口
+    // ——关键词表/交锋分支/自由行动否认兜底都在 resolveAction 里；降级
+    // 不再退回 observe 模板把自由输入答成通用观察话术。
+    const outcome = degraded
+      ? resolveAction(fresh, input)
+      : executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
     // F096 章节门拒绝：与 /action 同口径——零消耗、零事件、零位移；
     // F142：拒绝往来照旧落库两条日志（user 原文 + system 拒绝文案），
     // 数值结算口径不变。
