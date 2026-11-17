@@ -642,7 +642,7 @@ export default function App() {
   // 返回本次指令是否真的发到服务端并收回回包（调用方据此决定是否
   // 播报完成态——如「存档已写入」）；busy/空输入/异常都算没落成。
   const dispatch = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (text: string, choiceId?: string): Promise<boolean> => {
       const trimmed = text.trim();
       if (!trimmed || !save || busy) return false;
       setBusy(true);
@@ -650,11 +650,13 @@ export default function App() {
       try {
         // F118 分流：自然语言长句交给 /ai-action 叙事引擎（降级时回包带
         // degraded:true），指令形态仍走 /action——两条端点回包同构，
-        // 下文统一按 reply/save 处理。
-        const useAi = isNarrationInput(trimmed);
+        // 下文统一按 reply/save 处理。F198：选项按钮是显式分支指令，
+        // label 原文足够长会被误判成叙述句——带 choice_id 一律钉在
+        // /action，服务端按当前场景数据结算，不归 AI 网关。
+        const useAi = !choiceId && isNarrationInput(trimmed);
         const r: ActionResponse = useAi
           ? await postAiAction(save.id, trimmed)
-          : await sendAction(save.id, trimmed);
+          : await sendAction(save.id, trimmed, choiceId);
         const { reply, save: updated, degraded: replyDegraded } = r;
         if (updated) setSave(updated);
         // 回包 reply.id 缺失时补本地 id（/ai-action 兜底回包无 DB 行）——
@@ -1458,10 +1460,11 @@ export default function App() {
                 <span className="bar-combat-hint">守关者封着出口——叫阵即开战</span>
               )}
             </div>
-            {/* F196 分支选项：当前场景有 ≥2 个真实选项时铺一排选项键，
-                点击发「选择 <id>」文本指令（服务端按 choice_id 归属判定，
-                与口述同一结算路径）。选项带 effects 时代价小字随 save
-                下发的 cost 字段渲染（「体力 −5」），前端不自算。 */}
+            {/* F196 分支选项：当前场景有 ≥2 个真实选项时铺一排选项键。
+                F198：回显行与请求 input 都用 label 原文——内部 id 只走
+                choice_id 字段归属（服务端按当前场景数据判定，与口述同一
+                结算路径），不暴露给玩家。选项带 effects 时代价小字随
+                save 下发的 cost 字段渲染（「体力 −5」），前端不自算。 */}
             {!liveCombat && save.next_choices && save.next_choices.length >= 2 && (
               <div className="btn-group btn-group-choice">
                 <span className="group-label">选择</span>
@@ -1471,7 +1474,7 @@ export default function App() {
                     className="btn"
                     disabled={busy}
                     title={c.cost ? `代价：${c.cost}` : c.label}
-                    onClick={() => dispatch(`选择 ${c.id}`)}
+                    onClick={() => dispatch(c.label, c.id)}
                   >
                     {c.label}
                     {c.cost ? <span className="rest-count">{c.cost}</span> : null}

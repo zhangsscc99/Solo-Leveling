@@ -348,10 +348,10 @@ export const spendStat = (save_id: number, stat: StatKey) =>
     { method: "POST", body: JSON.stringify({ stat }) }
   );
 
-export const sendAction = (save_id: number, input: string) =>
+export const sendAction = (save_id: number, input: string, choice_id?: string) =>
   req<{ reply: LogEntry; save: Save; shadows?: ShadowFormation; ending_ready?: boolean }>("/action", {
     method: "POST",
-    body: JSON.stringify({ save_id, input }),
+    body: JSON.stringify({ save_id, input, choice_id }),
   });
 
 // ── 影子编队（F051）──
