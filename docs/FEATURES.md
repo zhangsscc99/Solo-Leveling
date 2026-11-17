@@ -142,7 +142,7 @@
 - [x] F083 属性面板/状态栏显示含装备加成的「攻击 / 防御」，与背包合计一致 ✅ (2026-11-15 cron; 顶栏+属性面板「战斗数值」基础/装备/合计三列，360–414px 数字不换行 header 133px；审查两轮 REJECT(390px 换行)→修复后通过)
   verify: node scripts/assert/atk-def-visible.mjs
   risk: low
-- [ ] F084 日志可回溯：前端不再固定只取最近 50 条，提供「加载更早」分页（服务端 limit 已支持 200）
+- [x] F084 日志可回溯：前端不再固定只取最近 50 条，提供「加载更早」分页（服务端 limit 已支持 200） ✅ (2026-11-17 cron devin swe-2-high; 日志窗口 50→100→150→200 逐级翻页（`getLog(limit+1)` 探测更早），`.log-earlier-btn` 在 `.stage-col` 外不污染行数口径，到底「已到最初」disabled 不再请求、保留滚动位置)
   verify: node scripts/assert/log-paging.mjs
   risk: low
 - [x] F085 移动端系统按钮 2 行网格：390px 下「战斗 / 存档」不得默认落在视口外，或保留横滚但给可见渐隐/箭头提示 ✅ (2026-11-15 cron; ≤880px 系统按钮改 2 行网格，390/360px 下「战斗/存档」等全在视口内可点；E2E mobile-actions 断言视口内或可滚动)
@@ -202,7 +202,7 @@
   risk: low
 
 ## 第 6 轮试玩新增（2026-11-15 22:1x，独立审查；F096 已修）
-- [ ] F101 断言口径反向锁定缺陷：`chapter-gate.mjs` 的 `observeFree()` 断言「观察回复必须包含场景正文前 12 字」——等于把 F092 的「整幕复读」写成绿线；同理原「第 8 推过门进第 2 章」把软门+可绕过写成期望值（本轮已随 F096 改口径）。要求：观察断言改为「两次观察文本互不相同且 < 120 字、标题取 scene_title 而非敌人名」，并补一条负向断言（复读整幕时 FAIL）
+- [x] F101 断言口径反向锁定缺陷：`chapter-gate.mjs` 的 `observeFree()` 断言「观察回复必须包含场景正文前 12 字」——等于把 F092 的「整幕复读」写成绿线；同理原「第 8 推过门进第 2 章」把软门+可绕过写成期望值（本轮已随 F096 改口径）。要求：观察断言改为「两次观察文本互不相同且 < 120 字、标题取 scene_title 而非敌人名」，并补一条负向断言（复读整幕时 FAIL） ✅ (2026-11-17 cron devin swe-2-high; `observeFree()` 补两条观察互不相同、各 <120 字、标题念 scene_title 且不得念敌人名、负向三连（含正文前 12 字 / 是正文逐字前缀 / ≥正文 50%）；新建 observe-short.mjs（3 次观察两两不同 + 非正文前缀，期望值从 chapters.json 独立推导），pre-F092 旧码红证成立，连跑 3 次全绿)
   verify: node scripts/assert/observe-short.mjs
   risk: med
 - [ ] F102 章节解锁口径三处不一致：地图 Ch.8 写死「需 Lv.70」、`chapter_unlock.level` 回包是 40、`chapters.json` 的 `unlock.level` 又是第三个值；玩家看到「锁定 · 需 Lv.70」却能直接走进去（F093 软门）。要求：地图/回包/数据单一事实源（`/api/chapters` 下发 `unlock.level` 与 `unlocked/blocked_reason`），前端不再写死数字；软门期间锁定态与「已开启」播报不得并存
@@ -282,11 +282,11 @@
 - [x] F125 逃跑后重入守关房文案自相矛盾：逃跑成功撤回 3/7 → 再点前进进 4/7，回包是整段守关战开场白「巨像的拳落下来。你听见自己腿骨断裂的声音…」（还扣 `HP 88→85`），但 `combat=null`、`advance_mode=challenge_boss`；再叫阵写「你主动逼近满地残骸」而 `boss_cleared=[]`（守关者从未被击杀）。要求：再入 boss 房时零消耗、不复读开场战叙述，未击杀时不得出现「残骸」字样 ✅ (2026-11-16 cron devin; 再入 boss 房（守关者未倒下、冷却压住落地遭遇）剥掉该步 HP/MP 代价并换 2 句轮转的中性「重新回到守关房」播报；逃跑/叫阵文案去掉「残骸」（改动前 red 证指向「守关者的残骸在身后缓缓凝聚」）；新断言 `boss-room-reentry-prose.mjs` 覆盖零消耗/无开场战句/无残骸/可继续叫阵，隔离实例 2 连跑全绿)
   verify: node scripts/assert/boss-room-reentry-prose.mjs
   risk: low
-- [ ] F126 部署/验收脚本继承泄漏的环境变量导致假红与**误回滚**：本轮 `ci-deploy.sh` 第 8 步 E2E 因 shell 里残留的 `E2E_BASE_URL=http://127.0.0.1:3082/game` / `API_BASE=…:3082` 打到不存在的端口，5/5 全红 → 触发 `rollback.sh` 把 `client/src` 检出回旧 ref（服务端仍是新代码），线上变成「新后端 + 旧前端」的混合态，且工作区出现 staged 反向改动。要求：`ci-deploy.sh` 与 `rollback.sh` 开头 `unset E2E_BASE_URL API_BASE E2E_NO_CLEANUP SL_VERIFY_API_BASE`（或用 `env -u` 包住 node 调用）；`rollback.sh` 只回滚构建产物/重启，不得改写 `client/src` 工作区（改 `git checkout $REF -- client/src` 为备份+构建，或回滚后 `git reset --hard` 前先拒绝在有未提交改动时执行）；`map-interactive` 类断言若连不上端口应报「环境错」而不是「业务回归」
+- [x] F126 部署/验收脚本继承泄漏的环境变量导致假红与**误回滚**：本轮 `ci-deploy.sh` 第 8 步 E2E 因 shell 里残留的 `E2E_BASE_URL=http://127.0.0.1:3082/game` / `API_BASE=…:3082` 打到不存在的端口，5/5 全红 → 触发 `rollback.sh` 把 `client/src` 检出回旧 ref（服务端仍是新代码），线上变成「新后端 + 旧前端」的混合态，且工作区出现 staged 反向改动。要求：`ci-deploy.sh` 与 `rollback.sh` 开头 `unset E2E_BASE_URL API_BASE E2E_NO_CLEANUP SL_VERIFY_API_BASE`（或用 `env -u` 包住 node 调用）；`rollback.sh` 只回滚构建产物/重启，不得改写 `client/src` 工作区（改 `git checkout $REF -- client/src` 为备份+构建，或回滚后 `git reset --hard` 前先拒绝在有未提交改动时执行）；`map-interactive` 类断言若连不上端口应报「环境错」而不是「业务回归」 ✅ (2026-11-17 cron devin swe-2-high; ci-deploy.sh 与 rollback.sh 开头 unset E2E_BASE_URL/API_BASE/E2E_NO_CLEANUP/SL_VERIFY_API_BASE/DB_PATH，node 调用统一 `env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE`；rollback.sh 删除 `git checkout -- client/src`（改为拒绝在有未提交改动时执行 + 只回滚 dist 产物 + pm2 restart）；E2E 端口不通输出 ENV_ERROR 退 2 不触发回滚；`node --test scripts/e2e/ci-deploy-env.test.mjs` 6/6)
   verify: node --test scripts/e2e/ci-deploy-env.test.mjs
   risk: med
   - 2026-11-16 03:35 追加（升级为生产事故）：线上 pm2 进程带着 `DB_PATH=/tmp/mut.db` 跑了 1h45m，真实玩家存档全部写进 /tmp（已合并回 `data/game.db`，旧库留档 `.bak-20261116-033300`）。除 `unset` 外还要求：`ci-deploy.sh` 显式固定 `DB_PATH=/www/Solo-Leveling/data/game.db`（不依赖缺省值）；`/api/health` 回包带上 `db_path`，部署第 6 步断言其等于预期；`rollback.sh` 重启时同样固定 DB_PATH。
-- [ ] F127 `scripts/report.sh` 全表汇总存在系统性假红：2026-11-16 02:35 / 02:42 两份报告都报 31 项 FAIL（PASS 38/39），但把同样的 FID 逐条单跑与按报告顺序串行复跑（F110→F117）**全部 PASS**（F112 24.06s、F113 26.37s、F116 10.74s、F117 16.40s）。现象集中在 UI/Playwright 类断言的超时型失败，怀疑 report.sh 的 `vout="$(./scripts/verify.sh "$fid" | tail -1)"; rc=$?` 取到的是 tail 的状态、或串行跑时未给每个断言独立 settle 预算（前一条断言的浏览器/DB 残留未清）。要求：`rc` 改为 `set -o pipefail` 下的显式 `if ! out=$(...)` 判定并保留完整输出到报告；每条断言跑前清 `e2e-*/verify-*` 存档；对超时型失败重跑一次再判；报告里 FAIL 行必须附断言原始错误行（现在只有 `[VERIFY] X FAIL`，无从定位）
+- [x] F127 `scripts/report.sh` 全表汇总存在系统性假红：2026-11-16 02:35 / 02:42 两份报告都报 31 项 FAIL（PASS 38/39），但把同样的 FID 逐条单跑与按报告顺序串行复跑（F110→F117）**全部 PASS**（F112 24.06s、F113 26.37s、F116 10.74s、F117 16.40s）。现象集中在 UI/Playwright 类断言的超时型失败，怀疑 report.sh 的 `vout="$(./scripts/verify.sh "$fid" | tail -1)"; rc=$?` 取到的是 tail 的状态、或串行跑时未给每个断言独立 settle 预算（前一条断言的浏览器/DB 残留未清）。要求：`rc` 改为 `set -o pipefail` 下的显式 `if ! out=$(...)` 判定并保留完整输出到报告；每条断言跑前清 `e2e-*/verify-*` 存档；对超时型失败重跑一次再判；报告里 FAIL 行必须附断言原始错误行（现在只有 `[VERIFY] X FAIL`，无从定位） ✅ (2026-11-17 cron devin swe-2-high; report.sh 改 `set -o pipefail` + `if ! out=$(...)` 取真 rc，每条断言前清 e2e-%/verify-% 六表残留，Timeout/ECONNREFUSED/ERR_DLOPEN 重跑一次再判，FAIL 行附 ≤300 字原始错误行，新增 REPORT_VERIFY_BIN/REPORT_SKIP_E2E/REPORT_RUNS_DIR 注入点；report-gate.mjs 桩 verify 全表 PASS 且旧码静态红证成立)
   verify: node scripts/assert/report-gate.mjs
   risk: med
   - 2026-11-16 03:50 追加：本条原先的 verify 写成 `bash scripts/report.sh && …`，而 report.sh 会遍历执行每条 verify → **无限递归**（本轮实测 fork 出 6 层 report.sh，单条断言卡死整轮报告）。要求：verify 一律不得调用 `report.sh`（改为独立断言脚本）；`report.sh` 自身加递归护栏（`REPORT_DEPTH` 或 `exec 9>` 互斥锁，重入直接退出）；跑 report 时把自身 FID 排除。
@@ -302,7 +302,7 @@
 - [x] F130 所有面板页脚写死「面板 5–0」（`client/src/App.tsx:774`），移动端同样出现，疑似开发期调试串。要求：删除或改为有语义的面板位置提示（如「第 3 / 6 面板」），断言：打开每个面板后页脚文本不得匹配 `/面板\s*\d+\s*[–-]\s*\d+/` ✅ (2026-11-16 cron devin swe-2-high; `.side-foot` 改「第 {tabs.findIndex(tab)+1} / {tabs.length} 面板」，随当前页签联动，桌面/移动同一 DOM；新断言 `panel-footer-strings.mjs` 遍历 6 个页签逐个开面板读 `.side-foot`，正则与旧代码变异双红证（旧构建命中「面板 5–0」FAIL）；F109 `panel-affordance` 的「点 × 关闭 / 无 ESC」断言不受影响、线上 PASS)
   verify: node scripts/assert/panel-footer-strings.mjs
   risk: low
-- [ ] F131 撤离文案把「守关者残骸」模板套在普通精英怪上：从毒牙蛇（非守关者、且从未被击杀）撤离时播报「你且战且退，撤回了「惩罚副本」——守关者的残骸在身后缓缓凝聚」。要求：撤离文案按敌型与 boss_cleared 分支（普通怪=「它没有追出来」、已击杀 boss=残骸、未击杀 boss=仍守在门后），断言：普通遭遇撤离回包不得含「守关者」「残骸」
+- [x] F131 撤离文案把「守关者残骸」模板套在普通精英怪上：从毒牙蛇（非守关者、且从未被击杀）撤离时播报「你且战且退，撤回了「惩罚副本」——守关者的残骸在身后缓缓凝聚」。要求：撤离文案按敌型与 boss_cleared 分支（普通怪=「它没有追出来」、已击杀 boss=残骸、未击杀 boss=仍守在门后），断言：普通遭遇撤离回包不得含「守关者」「残骸」 ✅ (2026-11-17 cron devin swe-2-high; `combatTurn` 撤离收尾按 (enemy.boss, bossCleared) 三分支：普通怪「它没有追出来」/ 已清 boss「残骸」/ 未清 boss「仍守在门后」；断言普通遭遇回包不得含「守关者」「残骸」)
   verify: node scripts/assert/flee-prose-by-enemy-kind.mjs
   risk: low
 - [x] F132 脱战后底部系统组「战斗」「存档」点击无任何可见反馈（无 tab 切换、无空态提示），而相邻战斗四键有「当前没有可攻击的目标」。要求：脱战时给出空态提示或禁用并说明原因；断言：非交战态点「战斗」后 300ms 内页面出现空态文案（含「没有交战」或「当前无战斗」）或按钮 aria-disabled ✅ (2026-11-16 cron devin swe-2-high; 根因是空战斗面板挂在 stage 列顶、长日志滚到底后不在视口内 ⇒ 看起来零反馈。新增 `.sys-toast` 就地提示条（底栏上缘、`pointer-events:none`、2.6s 自动消散）：脱战点「战斗」立即 `当前没有交战目标` 且面板照常开合（F076 `combat-gate` 依赖该键开面板，故不能隐藏/禁用）；点「存档」先 `正在写入存档…`，`dispatch` 改返回 `Promise<boolean>`，回包落地换 `存档已写入 · 存档 #N`；新断言 `idle-combat-tab-feedback.mjs`（300ms 内文案 + 存档完成态，旧构建 `waitForSelector` 3s 超时红证）；线上实测两条提示均出现)
@@ -341,7 +341,7 @@
 - [x] F141 帮助文本被当成敌人名导致「幽灵战斗面板」：打一场仗 → 输「帮助」→ 刷新页面 → 战斗面板自动顶开显示「交战 第5回合 / 战中： Lv.- HP -/-」，玩家以为卡在一场看不见敌人的战斗里（`CombatPanel` 的 `ENEMY_RE` 把指令表里的「遭遇战中：」抓成敌人名，`TURN_RE` 抓到旧回合数）。要求：`ENEMY_RE`/推断逻辑排除系统指令表行（或以服务端结构化的 `combat` 字段为准，不再从日志正则反推）；断言：Playwright 打一场仗 → 输「帮助」→ 刷新 → 战斗面板不得显示「交战」；同场景真交战时面板仍正常显示。 ✅ (2026-11-16 cron devin swe-2-high; `gateIndexes`/`detectCombatGate`/`inferContext` 改收 `{live, freshFrom}`：`save.combat` 非空直接判 engage（F088 单一事实源），脱战口径下只信本会话新写入且非指令表（`SYS_TABLE_RE`=可用指令|遭遇战中）的行，刷新回灌的旧战报与帮助指令表不再点亮面板；App 新增 `logBaseRef`（整页回灌 + enterSave 两处）并把基线透传给 `CombatPanel`；新断言 `ghost-combat-panel.mjs`（(a) 打仗→帮助→刷新不得出现「交战」面板，(b) 真交战刷新仍自动展开且敌名/回合正确）；隔离实例 3 连跑全绿，旧码红证显示「交战 第4回合 / 战中： Lv.2 HP —/—」；线上 3020 连跑 3 次 PASS、部署内置 E2E 5/5、F076/F132/F135/F109/F121 回归 PASS)
   verify: node scripts/assert/ghost-combat-panel.mjs
   risk: med
-- [ ] F142 拒绝往来不落库（minor）：refused 的输入与警告零日志，刷新后「离开这里」连同「你无法撤离」一并消失，玩家回查无据；F137 把更多日常输入变成 refused 后「被抹掉的对话」变多。要求：refused 输入仍写一条 user 日志 + 一条 system 拒绝文案（不产生任何数值结算/位移），或明确在回包标注 `logged:false` 并让前端保留本地气泡。断言：封门拒绝后 `GET /api/saves/:id` 的日志含该输入与拒绝文案，且 hp/mp/xp/scene 零变化。
+- [x] F142 拒绝往来不落库（minor）：refused 的输入与警告零日志，刷新后「离开这里」连同「你无法撤离」一并消失，玩家回查无据；F137 把更多日常输入变成 refused 后「被抹掉的对话」变多。要求：refused 输入仍写一条 user 日志 + 一条 system 拒绝文案（不产生任何数值结算/位移），或明确在回包标注 `logged:false` 并让前端保留本地气泡。断言：封门拒绝后 `GET /api/saves/:id` 的日志含该输入与拒绝文案，且 hp/mp/xp/scene 零变化。 ✅ (2026-11-17 cron devin swe-2-high; `/action` 与 `/ai-action` 的 refused 分支改写成两条日志（user 原文 + system 拒绝），结算 patch 仍为 null（零数值/位移）；终章入口保留 F089 零日志短路。契约同步：gate-refusal-free / escape-locked-boss-cleared / free-input-intent 的「零日志」口径改为「每次拒绝恰 2 行、数值零变化」（强度不降，另加内容断言）)
   verify: node scripts/assert/refused-log-visibility.mjs
   risk: low
 - [x] F143 面板直开只认裸名（minor）：「背包」能开面板，但「打开背包」→ unknown 吃兜底、「看看背包」被裸「看」抢成 observe。要求：`打开/查看/看看/打开我的/给我看` + 面板名 一律路由到对应面板（F129 的整句锚定原则不变，长句叙述不得被吞）。断言：「打开背包」「看看背包」「打开我的属性」均回 `panel`；「我打开背包发现里面空了」不得回 panel。 ✅ (2026-11-16 cron devin swe-2-high; `server/index.js` 的 `PANEL_ROUTES` 抽出 `PANEL_VERB = "(?:打开我的|给我看|打开|查看|看看|瞧一瞧|看一下|调出|显示)?\\s*"` 并前置到六条路由（整句锚定不变，长句首尾对不上锚点照走意图解析）；新断言 `panel-open-verbs.mjs`（14 组动词+名/裸名 → 正确 panel 且 hp/mp/scene/xp 零副作用；「我打开背包发现里面空了」「他打开地图看了一眼就合上」回包无 panel；/ai-action 同口径）；隔离实例 2 连跑全绿，旧码红证「打开背包 → intent=unknown，panel=undefined」；**契约冲突已处理**：F129 的 `no-placeholder-prose.mjs` 原把「查看背包」当反面用例，现改成长句叙述「我查看背包，里面只剩一把断剑」（整句锚定强度不变，「打开地图看看」反例保留），F129 线上复跑 PASS)
@@ -364,7 +364,7 @@
 - [x] F148 （minor）背包「N 件」计数与 API 物品栈不符、关键道具不可见：击杀后背包面板显示「7 件」，`GET /api/saves/:id` 返回 8 个物品栈（含 `gate_shard`×2）——传送门碎片既不计入「件」也不在任何分类页，玩家看不到自己持有的关键道具。要求：计数口径与列表一致（不可见就不计数、或给出「关键道具」页签并显示），分类页不得静默吞物品。断言：构造含 `gate_shard` 的存档，背包面板「N 件」数值 = API 可见物品栈数，且每个栈都能在某个页签里看到
   verify: node scripts/assert/bag-count-consistency.mjs
   risk: low
-- [ ] F149 （待验证；2026-11-17 第 21 轮实测评测进展）HP 归零死亡/回溯流程本轮未实测（Lv.1 却打赢了 Lv.3 守关者，没能送死；升级后 168 HP 更难死）：下一轮用连续作战/惩罚副本专项送死，验证 HP→0 是否有可读死亡播报 + 回溯落点 + rest 回满，而不是静默回血。断言脚本在演练后补，不要用现有 `death.mjs` 代替（它只覆盖 ch1 固定路径）
+- [x] F149 （待验证；2026-11-17 第 21 轮实测评测进展）HP 归零死亡/回溯流程本轮未实测（Lv.1 却打赢了 Lv.3 守关者，没能送死；升级后 168 HP 更难死）：下一轮用连续作战/惩罚副本专项送死，验证 HP→0 是否有可读死亡播报 + 回溯落点 + rest 回满，而不是静默回血。断言脚本在演练后补，不要用现有 `death.mjs` 代替（它只覆盖 ch1 固定路径） ✅ (2026-11-17 cron devin swe-2-high; 新建 death-probe-live.mjs（DB 压 HP=1 + 撤离掷逃确定性送死，60 回合上限），断言死亡播报可读 / deaths 精确 +1 / 落点=本章链首 / 0<hp≤max_hp；实测 deaths 0→1、ch1_statues→ch1_double_gate、复活 hp=84/168（半血，**非满血**，口径待人工确认：本轮按「不得为 0、不得超上限」断言，不锁满血）)
   verify: node scripts/assert/death-probe-live.mjs
   risk: low
 
@@ -375,7 +375,7 @@
 - [x] F151 （minor）疑问句/引号内文本含「攻击」被判成攻击指令：交战中输系统自己的兜底句「你是想攻击还是想离开？」→ `intent:attack`，白吃一记 13 点反击。要求：问句形态（以「？」结尾、或含「还是」「吗」「要不要」）不命中战斗意图，落未识别提示；「攻击」仍需在正常陈述句（「我攻击它」「攻击」）中生效。断言：交战态输「你是想攻击还是想离开？」→ intent 不为 attack、回合数不变、HP 不变；输「攻击」→ 仍走 attack 正常结算
   verify: node scripts/assert/attack-question-guard.mjs
   risk: low
-- [ ] F152 （minor）软门文案与放行自相矛盾：Lv3 过 ch1→ch2 回「第2章开启（等级未达 Lv.5，系统压制了传送门——继续任务/战斗提升等级）」，读起来像「进不去」，但同一回包 `save.chapter` 已是 2、人已站在 ch2 场景；`/api/chapters` 的 `hint` 写的是「可强行进入（受压制）」，正文与数据两套说法，且「受压制」没有任何数值/面板解释。要求：正文改为「推荐 Lv.5 · 已强行进入（本章战斗难度高于你的等级）」或给出可见 debuff 说明，与 `/api/chapters` 的 state/hint 同一事实源。断言：Lv<门限时越过软门，回包正文不得含「压制了传送门」，且须含「强行进入」或「推荐 Lv.N」
+- [x] F152 （minor）软门文案与放行自相矛盾：Lv3 过 ch1→ch2 回「第2章开启（等级未达 Lv.5，系统压制了传送门——继续任务/战斗提升等级）」，读起来像「进不去」，但同一回包 `save.chapter` 已是 2、人已站在 ch2 场景；`/api/chapters` 的 `hint` 写的是「可强行进入（受压制）」，正文与数据两套说法，且「受压制」没有任何数值/面板解释。要求：正文改为「推荐 Lv.5 · 已强行进入（本章战斗难度高于你的等级）」或给出可见 debuff 说明，与 `/api/chapters` 的 state/hint 同一事实源。断言：Lv<门限时越过软门，回包正文不得含「压制了传送门」，且须含「强行进入」或「推荐 Lv.N」 ✅ (2026-11-17 cron devin swe-2-high; 新增 `chapterUnlockView` 单一事实源（门槛只读 chapters.json 的 unlockView），`sceneView.chapter_unlock` / `GET /chapters` / 过门播报同源；删「压制了传送门」，改「已强行进入 · 推荐 Lv.N——本章战斗难度高于你的当前等级…建议先刷级再来」；契约同步：chapter-gate（F096）与 gate-refusal-free（F093）改锁新口径 + 负向断言旧话术不得出现)
   verify: node scripts/assert/soft-gate-wording.mjs
   risk: low
 - [x] F153 （minor）用掉最后一瓶补给播报「剩余 ×0」：`/saves/:id/item op=use` 与「使用道具」路径在 qty=1 时回「已使用「低级治疗药水」。HP 126→166。（HP +40，剩余 ×0）」，物品其实已从背包移除；与丢弃路径「背包中已无此物」口径不一致。要求：qty-1 === 0 时改写「这是最后一瓶，已用完」或不显示剩余数。断言：qty=1 的存档用掉后，回包不得含「剩余 ×0」，且须含「用完」或「最后一瓶」；inventory 中该栈消失
@@ -400,13 +400,13 @@
 - [x] F158 （P0）守关者房前无状态预警，Lv.1 残血进门必死且死前无人告知：API 探针实测 Lv.1（HP 39/100）进 ch1 石像守卫房，我方每回合 11、对方 13–21，第 5 回合倒地（需要 7 回合才打完 75 HP）——玩家没有任何「你现在打不过」的信号，房间里只有一句「唯有击败它才能前行」。要求：进入守关者房（`challenge_boss`/boss 场景）时补一条系统行，含 ① 当前 HP 绝对值与百分比、② 守关者 HP 与估算的单回合伤害、③ ≥2 条**真实可达**的恢复/变强路径（「休息（本章还剩 N/3 次）」「使用道具/喝治疗药水」「说『前进』折返上一景休整」），且文案按 HP 分段（≥60% 只提示风险，<60% 明确建议先恢复）；不得与 F150 的「可输入动词」口径冲突（点名「攻击」「叫阵」「前进」）。断言：构造 HP<60% 存档进入 boss 房 → 回包含「HP」数值与「休息」或「补给/药水」字样，且含具体的下一步动作词；HP≥60% 时不出现「先恢复」 ✅ (2026-11-17 cron devin swe-2-high; `guardianWarning()` 用 combatEngine.computeDamage 真实算承伤区间（暴击上下限，含装备折算），三条接线：进房开战 / F150 门前拒绝 / 守关房重入；恢复路径按背包实况——没有回血补给就不指「喝药水」这条死路；≥2 变体按 `bossWarnSeq` 轮换。线上实测 HP 94% 进房：「状态提示——你的 HP 94/100 · 94%。「石像守卫」HP 75，估算每回合能对你造成约 10–16 点伤害。说「攻击」开打或「防御」先顶住；说「使用道具」或「喝低级治疗药水」当场回血；说「前进」尝试撤离…」)
   verify: node scripts/assert/boss-room-readiness.mjs
   risk: med
-- [ ] F159 （minor）主界面没有「重开新档 / 换猎人代号」入口：走查第 10 步「存档/重开」时只能找到「存档」与面板按钮，`重开|重新开始|新档` 在可见按钮里一处都没有——玩家想换个号玩只能靠清 localStorage 或重新登记同名（还要过 F136 的 409 冲突对话框）。要求：档案面板给一个「重新登记（换猎人代号）」入口，点击后回到觉醒页并保留原存档（不删档），或明确说明「同名登记会开新档」；文案点名后果。断言：新档进主界面后，档案面板存在「重新登记」或「换号」按钮，点击回到 `.gate-form`，且原存档 `GET /api/saves/:id` 仍可访问
+- [x] F159 （minor）主界面没有「重开新档 / 换猎人代号」入口：走查第 10 步「存档/重开」时只能找到「存档」与面板按钮，`重开|重新开始|新档` 在可见按钮里一处都没有——玩家想换个号玩只能靠清 localStorage 或重新登记同名（还要过 F136 的 409 冲突对话框）。要求：档案面板给一个「重新登记（换猎人代号）」入口，点击后回到觉醒页并保留原存档（不删档），或明确说明「同名登记会开新档」；文案点名后果。断言：新档进主界面后，档案面板存在「重新登记」或「换号」按钮，点击回到 `.gate-form`，且原存档 `GET /api/saves/:id` 仍可访问 ✅ (2026-11-17 cron devin swe-2-high; 档案面板 `.side-foot` 新增「重新登记（换猎人代号）」+「原存档仍在服务器，用原代号可找回」；点击只清本地绑定回 `.gate-form`，不发删除，`GET /api/saves/:id` 仍 200)
   verify: node scripts/assert/rebind-entry.mjs
   risk: low
 
 
 ## 第 22 轮真机试玩新增（2026-11-17 01:40，cron；线上双视口 390×844 / 1440×900 实玩 10 步）
-- [ ] F160 （P1 体验硬伤）交战中「存档」是静默死键：`disabled={busy || Boolean(save.combat)}` 只给了 `title="交战中无法存档"`——移动端没有 hover，玩家第 10 步「存档/重开」时按钮灰着、点不动、也不知道为什么，唯一提示是等 30 秒后 Playwright 超时。要求：交战态在「存档」按钮旁给一条**常驻可见**的就地提示（不是 title）：`交战中无法写入存档 · 先「逃跑」或打赢这一场`，390px 下不换行折成两行也不得横向溢出；按钮仍保持 disabled（`combat-actions-ui.mjs` 的断言不动）；脱战后提示消失。断言：交战态 footer 可见文本含「交战中无法写入存档」且含「逃跑」或「打赢」，`document.documentElement.scrollWidth == clientWidth`；脱战态该文本不存在；存档按钮仍 `disabled`
+- [x] F160 （P1 体验硬伤）交战中「存档」是静默死键：`disabled={busy || Boolean(save.combat)}` 只给了 `title="交战中无法存档"`——移动端没有 hover，玩家第 10 步「存档/重开」时按钮灰着、点不动、也不知道为什么，唯一提示是等 30 秒后 Playwright 超时。要求：交战态在「存档」按钮旁给一条**常驻可见**的就地提示（不是 title）：`交战中无法写入存档 · 先「逃跑」或打赢这一场`，390px 下不换行折成两行也不得横向溢出；按钮仍保持 disabled（`combat-actions-ui.mjs` 的断言不动）；脱战后提示消失。断言：交战态 footer 可见文本含「交战中无法写入存档」且含「逃跑」或「打赢」，`document.documentElement.scrollWidth == clientWidth`；脱战态该文本不存在；存档按钮仍 `disabled` ✅ (2026-11-17 cron devin swe-2-high; 交战态在行动栏给常驻小字「交战中无法写入存档 · 先「逃跑」或打赢这一场」（`.actions` 绝对定位，不占行高、390px 不溢出），按钮仍 disabled（combat-actions-ui 断言不动）；脱战不渲染。断言 save-blocked-hint 双视口 + 旧码红证)
   verify: node scripts/assert/save-blocked-hint.mjs
   risk: low
 - [ ] F161 （P1 选择感/行动经济学）「前进」在剧情幕零消耗且不解释：本轮 390×844 实测前进#1 回包末尾写「（本次没有消耗体力）」，而 #2/#3 各扣 HP 3 / MP 2 —— 同一个按钮同一屏内三种代价，玩家无法预期；且连续零消耗前进不提高遇敌率（`encounters:"none"` 幕直接跳过掷点），导致「一直按前进」在最需要紧张感的开场是免费的。要求：① 零消耗幕必须有**剧情内理由**（如「这一景只是观察，不耗体力」→ 换成「（这一幕只是凝视，未耗体力）」并说明下一幕会耗），② 连续「前进」计数 ≥3 时遇敌概率线性上升（复用 `encounter.js` 的 `PITY_LIMIT` 或新增 `STREAK_PER_ADVANCE`），③ 正文里「本次没有消耗体力」这类系统口吻不得单独出现而无解释。断言：连按「前进」10 次，`hp+mp` 净变化 > 0 且至少触发 1 次遭遇（或给出可见的遇敌率上升提示）；零消耗幕的回包必须含解释词（「只是／未耗／下一幕」）

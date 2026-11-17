@@ -1367,3 +1367,16 @@
 - 本轮车道 C（scripts）：F126 部署/回滚环境变量与 rollback 不得改工作区 / F127 report.sh 假红与原始错误行。
 - 本轮车道 D（scripts/assert）：F101 观察断言口径反向锁定 / F149 死亡流程专项探针。
 - 跳过（risk high，留人工确认）：F078 AI 降级路由、F093 等级硬门、F097 遭遇等级带宽、F128 惩罚副本死亡循环、F138 惩罚副本休息遭遇池。
+
+### 本轮契约变更记账（F152/F142 打红 4 条已勾选断言，改口径不改强度）
+1. **F096 `chapter-gate.mjs`**：原断言把「播报含『等级未达 Lv.5』+『系统压制了传送门』」写成期望值——正是 F152 要拆掉的自相矛盾话术（人已进门却说进不去）。改为正向锁「已强行进入 + 推荐 Lv.N」**并加负向断言**「不得出现『压制了传送门』」；ch3 段同改。强度不降（旧话术现在会直接红）。
+2. **F093 `gate-refusal-free.mjs`（b1）**：同上，`等级未达` → `/推荐 Lv\.|已强行进入/`。
+3. **F106 `gate-refusal-free.mjs`（a1/a2）/ F137 `escape-locked-boss-cleared.mjs` (a) / `free-input-intent.mjs` (c)(d) / `gate-refusal-free.mjs` (b2/b3)**：原断言「封门拒绝日志零增长」——与 F142「拒绝也要可回查」直接冲突。改为「每次拒绝**恰写 2 行**（user 原文 + system 拒绝）」，同时保留逐推的 hp/mp/scene/chapter_progress/encounter_clock/combat 零变化断言（这部分才是原断言的真正意图）。强度不降：现在既查零结算又查留痕行数，多写或漏写都红。
+4. **F089 终章入口**保留零日志短路：`assertFreeRefusal` 新增 `logsPerRefusal` 参数，(c) 段传 0——只有真正该零日志的短路路径保持零。
+5. 以上 5 个文件在合并后于主线隔离实例（:3095）全部重跑绿：chapter-gate / gate-refusal-free / escape-locked-boss-cleared / free-input-intent / no-placeholder-prose / boss-refusal-affordance / combat-actions-ui + 全量 E2E 6/6。
+
+### 部署与线上
+- `ci-deploy.sh` **DEPLOY OK**（构建 → pm2 restart → health 200 → E2E 6/6）；本地 3020 /game 200，公网 https://openfolio.uk/game 200。
+- 本轮 ci-deploy 自带的新 ENV_ERROR 分支也自测通过（6/6 单测含「端口不通 → ENV_ERROR 退 2、不触发回滚」）。
+- 冒烟/断言存档清理：按 `assert- / e2e- / verify- / r22- / r22smoke / cron-smoke / reviewer- / merge-smoke` 前缀删除 130 条，库内剩 78 条（均为疑似真实玩家档，未动）。
+- 未做：`report.sh` 全表（18–20 分钟）本轮改为「本批 8 条 + 7 条高耦合已勾选条目 + 全量 E2E」定点回归，全表留待下一轮收尾。
