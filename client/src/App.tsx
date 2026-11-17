@@ -45,6 +45,75 @@ const STORAGE_KEY = "solo_leveling_save_id";
 const LOG_PAGE = 50;
 const LOG_CAP = 200;
 
+// F167 遭遇播报拆条：服务端把「剧情正文 + 代价行 + 【遭遇】 + 【系统】
+// 状态提示教学段」拼成一条日志下发，这里只在渲染层按段落拆成多个
+// .stage-col 子节点——请求/响应字段、日志落库与数值结算一概不动，
+// 刷新回灌的旧日志行走同一规则拆分（渲染期拆分天然覆盖全部行）。
+//   · 行首【遭遇】→ 独立条目（代价行留在前条，绝不混入）；
+//   · 行首【系统】且是战斗教学/状态提示 → 独立条目；
+//   · 其余行按原顺序并入所在条目——【战斗】【主线】【升级】【任务】
+//     等行不单独拆，保持现状。
+const SEG_ENCOUNTER_RE = /^【遭遇】/;
+const SEG_SYS_TEACH_RE =
+  /^【系统】[^\n]*(状态提示|状态预警|估算每回合|每回合约能|说「攻击」)/;
+
+// F118：/ai-action 降级回包（degraded:true）给该条气泡挂的渲染期标记——
+// 不落库不改字段，仅指示气泡尾部追加降级小字。
+type UiEntry = LogEntry & { degradedNote?: boolean };
+
+function splitStageEntry(entry: UiEntry): UiEntry[] {
+  if (entry.role === "user") return [entry];
+  const paras = entry.content.split("\n").filter((p) => p.trim() !== "");
+  if (paras.length <= 1) return [entry];
+  const groups: string[][] = [[]];
+  for (const p of paras) {
+    if (SEG_ENCOUNTER_RE.test(p) || SEG_SYS_TEACH_RE.test(p)) groups.push([p]);
+    else groups[groups.length - 1].push(p);
+  }
+  const segs = groups.filter((g) => g.length > 0);
+  if (segs.length <= 1) return [entry];
+  return segs.map((g) => ({ ...entry, content: g.join("\n") }));
+}
+
+// F118 自由输入分流：指令形态照旧走 /action（战斗回显、面板路由等既有
+// 口径不变），自然语言长句才走 /ai-action 的叙事引擎——是否「指令形态」
+// 镜像 server/ai/free-action.js 的 echoRequired 判定（单一事实源：
+// 去空白 <8 字 → 指令形态；含指令信号词/数字键位 → 指令形态）。
+const COMMAND_SIGNAL_RE =
+  /攻击|前进|休息|潜行|观察|逃跑|防御|技能|道具|使用|存档|帮助|状态|属性|背包|地图|任务|影子|叫阵|遭遇|回合|撤离|药水|[0-9０-９]/;
+const isNarrationInput = (text: string) => {
+  const s = text.replace(/\s+/g, "");
+  return s.length >= 8 && !COMMAND_SIGNAL_RE.test(s);
+};
+
+interface ActionResponse {
+  reply: LogEntry;
+  save?: Save;
+  shadows?: ShadowFormation;
+  degraded?: boolean;
+}
+
+// /action 走 api.ts 的 sendAction；/ai-action 是同构回包（reply/save/
+// shadows + 顶层 degraded 标记），api.ts 冻结故在此直连同一 API 前缀。
+async function postAiAction(save_id: number, input: string): Promise<ActionResponse> {
+  const res = await fetch("/game/api/ai-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ save_id, input }),
+  });
+  if (!res.ok) {
+    let message = `API ${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body && typeof body.error === "string" && body.error) message = body.error;
+    } catch {
+      /* 非 JSON 响应，保留状态码文案 */
+    }
+    throw new Error(message);
+  }
+  return res.json() as Promise<ActionResponse>;
+}
+
 const CHAPTERS = [
   "双重地下城",
   "每日任务",
@@ -141,11 +210,15 @@ function Gauge({ label, value, max, kind }: { label: string; value: number; max:
 function StatusBar({
   save,
   equipment,
+  degraded,
+  onDismissDegraded,
   onOpenDrawer,
   onFreePoints,
 }: {
   save: Save;
   equipment: Equipment | null;
+  degraded: boolean;
+  onDismissDegraded: () => void;
   onOpenDrawer: () => void;
   onFreePoints: () => void;
 }) {
@@ -227,11 +300,29 @@ function StatusBar({
       <button className="drawer-toggle" onClick={onOpenDrawer} aria-label="打开档案面板">
         档案
       </button>
+      {/* F118 叙事降级一次性细条：会话内首次 /ai-action 降级后浮现，
+          在文档流内不遮输入框与行动按钮；× 收起后本会话不再出现，
+          刷新后随会话态重置可再提示一次。 */}
+      {degraded && (
+        <div className="degraded-banner" role="status">
+          <span className="degraded-banner-text">
+            叙事引擎：规则模式（AI 暂不可用）· 点 × 收起
+          </span>
+          <button
+            type="button"
+            className="degraded-banner-close"
+            aria-label="收起降级提示"
+            onClick={onDismissDegraded}
+          >
+            ×
+          </button>
+        </div>
+      )}
     </header>
   );
 }
 
-function HoloWindow({ entry }: { entry: LogEntry }) {
+function HoloWindow({ entry }: { entry: UiEntry }) {
   const m = entry.content.match(/^【([^】]+)】\s*([\s\S]*)$/);
   const title = m ? m[1] : "系统";
   const body = m ? m[2].trim() : entry.content;
@@ -240,13 +331,18 @@ function HoloWindow({ entry }: { entry: LogEntry }) {
     <div className={`holo${danger ? " holo-danger" : ""}`}>
       <div className="holo-inner">
         <div className="holo-title">{title}</div>
-        <div className="holo-body">{body}</div>
+        <div className="holo-body">
+          {body}
+          {entry.degradedNote && (
+            <div className="degraded-note">（系统叙事降级：按规则解析）</div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function StageEntry({ entry }: { entry: LogEntry }) {
+function StageEntry({ entry }: { entry: UiEntry }) {
   if (entry.role === "system") return <HoloWindow entry={entry} />;
   if (entry.role === "user") {
     return (
@@ -255,7 +351,14 @@ function StageEntry({ entry }: { entry: LogEntry }) {
       </div>
     );
   }
-  return <p className="narration">{entry.content}</p>;
+  return (
+    <p className="narration">
+      {entry.content}
+      {entry.degradedNote && (
+        <span className="degraded-note">（系统叙事降级：按规则解析）</span>
+      )}
+    </p>
+  );
 }
 
 function SidePanel({
@@ -363,7 +466,7 @@ function SidePanel({
 
 export default function App() {
   const [save, setSave] = useState<Save | null>(null);
-  const [log, setLog] = useState<LogEntry[]>([]);
+  const [log, setLog] = useState<UiEntry[]>([]);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [equipment, setEquipment] = useState<Equipment | null>(null);
@@ -408,6 +511,12 @@ export default function App() {
   // F132 系统键就地反馈：脱战「战斗」空态 /「存档」进度与确认共用的
   // 短提示条（底栏上缘浮现，计时自动消散）。
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+  // F118 降级一次性提示：本会话见过 degraded:true 回包即点亮细条，
+  // × 收起后本会话不再出现（刷新后随会话态重置可再提示一次）；
+  // degradedNoteRef 保证尾注只盖在第一条降级气泡上，不逐条盖章。
+  const [degraded, setDegraded] = useState(false);
+  const [degradedDismissed, setDegradedDismissed] = useState(false);
+  const degradedNoteRef = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const gateRef = useRef<ReturnType<typeof detectCombatGate>>(null);
@@ -517,9 +626,32 @@ export default function App() {
       setBusy(true);
       setLog((l) => [...l, { id: Date.now(), role: "user", content: trimmed }]);
       try {
-        const { reply, save: updated } = await sendAction(save.id, trimmed);
-        setSave(updated);
-        setLog((l) => [...l, reply]);
+        // F118 分流：自然语言长句交给 /ai-action 叙事引擎（降级时回包带
+        // degraded:true），指令形态仍走 /action——两条端点回包同构，
+        // 下文统一按 reply/save 处理。
+        const useAi = isNarrationInput(trimmed);
+        const r: ActionResponse = useAi
+          ? await postAiAction(save.id, trimmed)
+          : await sendAction(save.id, trimmed);
+        const { reply, save: updated, degraded: replyDegraded } = r;
+        if (updated) setSave(updated);
+        // 回包 reply.id 缺失时补本地 id（/ai-action 兜底回包无 DB 行）——
+        // React key 与日志行都需要稳定 id。
+        const row: UiEntry =
+          typeof reply.id === "number"
+            ? reply
+            : { ...reply, id: Date.now() + 1 };
+        if (replyDegraded === true) {
+          const firstDegraded = !degradedNoteRef.current;
+          degradedNoteRef.current = true;
+          setLog((l) => [
+            ...l,
+            firstDegraded ? { ...row, degradedNote: true } : row,
+          ]);
+          setDegraded(true);
+        } else {
+          setLog((l) => [...l, row]);
+        }
         // F129：服务端把「裸面板名」路由成 reply.panel——口述「地图」
         // 等价于点对应面板按钮，复用 openTab，不另起状态机。panel 是
         // 回包附加字段（不落库），LogEntry 未声明，本地窄化取值。
@@ -983,6 +1115,8 @@ export default function App() {
       <StatusBar
         save={save}
         equipment={equipment}
+        degraded={degraded && !degradedDismissed}
+        onDismissDegraded={() => setDegradedDismissed(true)}
         onOpenDrawer={() => setDrawer(true)}
         onFreePoints={onFreePointsBadge}
       />
@@ -1013,9 +1147,13 @@ export default function App() {
               onClose={() => setCombatOpen(false)}
             />
           )}
-          {log.map((entry) => (
-            <StageEntry key={entry.id} entry={entry} />
-          ))}
+          {/* F167：一条日志可拆成多个 .stage-col 子节点（遭遇/教学段独立
+              成条），splitStageEntry 对回灌旧行与新行同规则生效。 */}
+          {log.flatMap((entry) =>
+            splitStageEntry(entry).map((seg, i) => (
+              <StageEntry key={`${entry.id}:${i}`} entry={seg} />
+            ))
+          )}
           {save.at_epilogue && (
             // F089 一次性终章文案：按 save.at_epilogue 常驻一块横幅，不落
             // 日志、不随动作刷屏；附结算入口，与「查看结算」按钮同向。
