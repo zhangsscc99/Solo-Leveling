@@ -146,6 +146,14 @@ let epilogueReplySeq = 0;
 // 硬编码口径）。reason 为 null 表示可休息。
 const REST_LIMIT = 3;
 
+// F120 休息代价尾注：只讲「安歇要付出什么」，不复述池句的恢复语义。
+// 按 rest_used 轮换（见 rest 意图的 build），≥3 变体。
+const REST_TRAIL_LINES = [
+  "可安歇从来不是白给的——时间在流逝，黑暗里有什么东西正循声靠近。",
+  "歇脚也要记账——你闭眼的这一会儿，四周的寂静松动了一分。",
+  "喘息刚平，阴影里便传来极轻的挪动声——这地方从不让人睡踏实。",
+];
+
 function restStatus(save, combat) {
   const used = Math.max(0, Math.trunc(Number(save && save.rest_used) || 0));
   const remaining = Math.max(0, REST_LIMIT - used);
@@ -475,6 +483,121 @@ const BOSS_GATE_LINES = [
 ];
 const bossGatePushes = new Map();
 
+// F158 守关者状态预警：「进入守关者房」（落地掷出守关战）与「门前被拒」
+// （F150 威压拒绝）两条路径共用的系统行。硬约束：
+//   ① 玩家 HP 绝对值 + 百分比（HP 39/100 · 39%）；
+//   ② 守关者 HP 与估算单回合承伤——与 resolveTurn 敌方 strike 同一条
+//      computeDamage（boss 力量基数、rank 压制、玩家体力减伤含装备折算、
+//      暴击上下限），不允许拍脑袋写死区间；
+//   ③ ≥2 条真实可达的恢复/变强路径，全部点名可输入动词：「休息」带
+//      剩余次数、「使用道具」/「喝<真实补给名>」（背包没有回血补给就
+//      不指这条死路）、「前进」撤离；拒绝态不写「前进折返」——拒绝它的
+//      正是「前进」本身；
+//   ④ HP<60% 明确建议先恢复，≥60% 只陈述风险（不出现「先恢复」「建议
+//      休息」字样）；
+//   ⑤ ≥2 变体按进程内计数轮换（与 BOSS_GATE_LINES 同口径），连点
+//      「前进」不逐字复读；
+//   ⑥ 预警行进日志——不得含客户端交战信号词（「遭遇」「第 N 回合」
+//      「倒下了」……），用「每回合」而非「第 N 回合」。
+const BOSS_WARN_LINES = [
+  ({ hp, maxHp, pct, bossName, bossHp, dmgLo, dmgHi, low, paths }) =>
+    `【系统】${low ? "状态预警" : "状态提示"}——你的 HP ${hp}/${maxHp} · ${pct}%。` +
+    `「${bossName}」HP ${bossHp}，估算每回合能对你造成约 ${dmgLo}–${dmgHi} 点伤害。` +
+    `${low ? "建议先恢复再战：" : ""}${paths.join("；")}。`,
+  ({ hp, maxHp, pct, bossName, bossHp, dmgLo, dmgHi, low, paths }) =>
+    `【系统】预警——HP ${hp}/${maxHp} · ${pct}%` +
+    `${low ? " 已不足六成" : ""}，而「${bossName}」HP ${bossHp}、` +
+    `每回合约能压掉你 ${dmgLo}–${dmgHi} 点。` +
+    `${low ? "最好先恢复再动手：" : "下一步可以：" }${paths.join("；")}。`,
+];
+const bossWarnSeq = new Map();
+
+function guardianWarning(save, chapter, boss, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const bossTpl =
+    boss && typeof boss === "object"
+      ? boss
+      : encounterEngine.spawnBoss(chapter ? chapter.index : save.chapter);
+  const bossName =
+    (bossTpl && bossTpl.name) ||
+    chapterBossName(chapter || chaptersEngine.getChapter(save.chapter));
+  const bossHp = Math.max(
+    1,
+    Math.trunc(Number(bossTpl && (bossTpl.maxHp !== undefined ? bossTpl.maxHp : bossTpl.max_hp)) || 1)
+  );
+  const hp = Math.max(
+    0,
+    Math.trunc(Number(o.hp !== undefined ? o.hp : save.hp) || 0)
+  );
+  const maxHp = Math.max(1, Math.trunc(Number(save.max_hp) || 1));
+  const pct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
+  // 承伤估算：与 combatTurn 注入引擎的玩家实体同一口径——装备攻防折算进
+  // 五项属性，敌方打击看玩家体力减伤与双方 rank 压制，区间 = 不暴击下限
+  // 到暴击上限。
+  const equip = equipView(save.id);
+  const stats = statsEngine.sanitizeStats({ stats: save.stats });
+  stats.vitality += (equip.def || 0) / 0.8;
+  const playerDef = statsEngine.defenseOf({ stats });
+  const attacker = { rank: bossTpl.rank, stats: bossTpl.stats };
+  const dmgLo = combatEngine.computeDamage(attacker, playerDef, {
+    mult: 1,
+    crit: false,
+    defenderRank: save.rank,
+  });
+  const dmgHi = Math.max(
+    dmgLo,
+    combatEngine.computeDamage(attacker, playerDef, {
+      mult: 1,
+      crit: true,
+      defenderRank: save.rank,
+    })
+  );
+  const rest = restStatus(save, null);
+  const healRow = store
+    .getInventory(save.id)
+    .map((row) => ({ row, item: ITEMS.get(row.item_id) }))
+    .find(
+      (x) =>
+        x.item &&
+        x.item.category === "consumable" &&
+        (x.item.heal || 0) > 0 &&
+        x.row.qty > 0
+    );
+  const paths = [];
+  if (o.inCombat) {
+    paths.push("说「攻击」开打或「防御」先顶住");
+    paths.push(
+      healRow
+        ? `说「使用道具」或「喝${healRow.item.name}」当场回血`
+        : "背包里已没有回血补给，只能靠回合硬撑"
+    );
+    paths.push(
+      `说「前进」尝试撤离，脱战后再说「休息」（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`
+    );
+  } else {
+    paths.push(
+      rest.remaining > 0
+        ? `说「休息」先恢复体力（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`
+        : `本章休息已用尽（0/${REST_LIMIT} 次）——恢复只能靠补给`
+    );
+    if (healRow) paths.push(`说「使用道具」或「喝${healRow.item.name}」补给`);
+    paths.push("说「攻击」或「叫阵」逼守关者现形再战");
+  }
+  const n = (bossWarnSeq.get(save.id) || 0) + 1;
+  bossWarnSeq.set(save.id, n);
+  return BOSS_WARN_LINES[(n - 1) % BOSS_WARN_LINES.length]({
+    hp,
+    maxHp,
+    pct,
+    bossName,
+    bossHp,
+    dmgLo,
+    dmgHi,
+    low: pct < 60,
+    paths: paths.slice(0, 3),
+  });
+}
+
 // 本章守关者真名：遭遇表 boss 模板为准（玩家实际交手的实体），兜底主线
 // 链上 kind="boss" 场景的标题；都拿不到才回退到通用称谓——数据上 8 章
 // 的守关者都有真名，占位串永远不写出。
@@ -590,10 +713,13 @@ function advanceOutcome(save) {
     return {
       patch: null,
       refused: true,
-      content: BOSS_GATE_LINES[(pushN - 1) % BOSS_GATE_LINES.length](
-        chapterBossName(chapter),
-        pushN
-      ),
+      // F158：门前拒绝同挂状态预警——玩家被拒在门口那一刻最需要知道
+      // 自己还剩多少血、守关者大致多疼、下一步去哪恢复。
+      content:
+        BOSS_GATE_LINES[(pushN - 1) % BOSS_GATE_LINES.length](
+          chapterBossName(chapter),
+          pushN
+        ) + `\n${guardianWarning(save, chapter, null, { inCombat: false })}`,
     };
   }
   if (bossAlive && idx > idxBoss) {
@@ -1042,6 +1168,16 @@ function advanceWithEncounter(save) {
     patch.encounter_clock = enemy.boss ? 0 : rawClock < 0 ? Math.min(0, rawClock + 1) : 0;
     patch.encounter_seq = enemy.seq;
     res.content += `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——它的 HP ${enemy.maxHp}/${enemy.maxHp}。`;
+    // F158：踏进守关者房开战的同一回包追加状态预警——残血玩家被强拉进
+    // 守关战之前没人告知他状态，Lv.1 残血进门几回合就倒。预警用结算后
+    // 的 HP（本步体力扣费已入账）与真实承伤区间，并点名交战态下真实
+    // 可达的动词（攻击/防御/使用道具/前进撤离）。
+    if (enemy.boss) {
+      res.content += `\n${guardianWarning(save, nextChapter, enemy, {
+        hp: patch.hp !== undefined ? patch.hp : save.hp,
+        inCombat: true,
+      })}`;
+    }
   } else if (!out.retreatToBoss) {
     // 折返落点是守关房、开战有兜底——上面没掷出敌人时也不得把
     // advanceOutcome 已清零的再入冷却改回倒数。
@@ -1070,7 +1206,16 @@ function advanceWithEncounter(save) {
       sceneNarrName(landedScene),
       chapterBossName(chaptersEngine.getChapterOfScene(landedScene.id))
     );
-    res.content = `${line}\n（本次没有消耗体力）`;
+    // F158：重入守关房同样追加状态预警——脱战态的恢复路径（休息/补给/
+    // 叫阵）与进房开战版分开给。
+    res.content =
+      `${line}\n（本次没有消耗体力）\n` +
+      guardianWarning(
+        save,
+        chaptersEngine.getChapterOfScene(landedScene.id) || nextChapter,
+        null,
+        { inCombat: false }
+      );
   }
 
   applyTailGate(res, nextChapter, Boolean(enemy && enemy.boss));
@@ -1989,9 +2134,14 @@ const INTENTS = [
         mp,
         rest_used: Math.max(0, Math.trunc(Number(save.rest_used) || 0)) + 1,
       };
+      // F120 代价提示行：旧拼句「体力与魔力一点点回流」与池句结尾
+      // 「体力一点点回到四肢。」是同义复读——改成只讲代价不讲恢复，并
+      // 按 rest_used 轮换 ≥3 变体。该句放在池句之前：即使某章 rest 池
+      // 只有一条池句，连续两次休息的正文前 12 字也必然不同。
+      const restIdx = Math.max(0, Math.trunc(Number(save.rest_used) || 0));
       let content =
-        `${proseEngine.pick(proseEngine.poolFor(save.chapter).rest, save.rest_used)}` +
-        `体力与魔力一点点回流，但休憩并非免费——时间在流逝，黑暗里有什么东西正循声靠近。\n` +
+        `${REST_TRAIL_LINES[restIdx % REST_TRAIL_LINES.length]}\n` +
+        `${proseEngine.pick(proseEngine.poolFor(save.chapter).rest, save.rest_used)}\n` +
         `（恢复 ${deltas.join(" · ")} · 本章剩余休息 ${status.remaining - 1}/${REST_LIMIT} 次）`;
 
       // 休息推进时间：击杀冷却随之衰减一格，保底计数照常推进，并按当前
@@ -2202,6 +2352,126 @@ const UNKNOWN_GUIDES = [
   },
 ];
 
+// F157 兜底场景化回应：回显与可做之事之间插一句「这句话落在场景里
+// 发生了什么」的具象回应——玩家第一句自由输入就被干巴巴打回，选择感
+// 归零。构造规则：
+//   ① 从输入抽关键词分词族（刻痕/石像/门/血迹/听/闻/行囊/检视 8 族），
+//      每族 ≥3 条句式；族内轮换计数挂进程内 Map（与 bossGatePushes
+//      同口径），同一存档同一句连发必然换文；
+//   ② 模板里的实体优先取当前场景正文真实出现的物（石碑/石像/石门…），
+//      场景没写就落「四周」兜底——不凭空捏造殿里没有的东西；
+//   ③ 未命中任何词族时用通用池，句子必须带场景叙述名（「命令之律」），
+//      不许退回与场景无关的空话；
+//   ④ 硬约束：不复读「眼下可以做」、不出现「你是想攻击还是想离开」、
+//      不含客户端交战信号词（遭遇/第N回合/倒下了……）——这条日志会
+//      进战斗面板的 gate 扫描。
+const UNKNOWN_SCENE_ENTITIES = [
+  "石像", "石碑", "石阶", "台阶", "祭坛", "石柱", "石门", "长明灯",
+  "壁画", "石座", "光幕", "沙地", "兽骨", "火盆", "画像", "冰面",
+  "刻痕", "血迹",
+];
+
+const UNKNOWN_SCENE_LINES = [
+  {
+    key: "carve",
+    match: /刻痕|划痕|碑文|石碑|铭文|符纹|壁刻|文字|记号/,
+    lines: [
+      ({ entity }) => `你蹲下去，指尖划过${entity}上的刻痕：太浅，看不出是字还是磨损。`,
+      ({ entity }) => `你凑近${entity}，就着微光辨认那些纹路——像字，又像谁随手划下的道子。`,
+      ({ entity }) => `${entity}上的痕迹你来回看了两遍，深浅不一，辨不出究竟记了什么。`,
+    ],
+  },
+  {
+    key: "statue",
+    match: /石像|雕像|塑像|神像|巨像/,
+    lines: [
+      ({ entity }) => `你屏息盯着${entity}看了片刻——纹丝不动，可那份安静本身就让人不敢挪眼。`,
+      ({ entity }) => `你绕着${entity}慢慢走了半圈：表面冰冷，看不出哪里藏着机关。`,
+      ({ entity }) => `${entity}的影子压在你脚边。你伸出手又缩回来——还是先别碰它。`,
+    ],
+  },
+  {
+    key: "door",
+    match: /门|出口|入口|通道|锁|缝/,
+    lines: [
+      ({ entity }) => `你贴近${entity}摸索了一遍，缝里没有风——这边暂时走不通。`,
+      ({ entity }) => `${entity}纹丝不动。你推了推，又侧耳听了听，里面什么回音都没有。`,
+      ({ entity }) => `你检查了${entity}的边缘：没有把手，也没有能借力的地方。`,
+    ],
+  },
+  {
+    key: "blood",
+    match: /血|尸体|尸|骨|残骸|遗体|伤痕|伤口|哀嚎/,
+    lines: [
+      () => `你顺着那点暗色看过去——痕迹已经干透，辨不出是什么时候留下的。`,
+      () => `你蹲低看了看：颜色深得发黑，边缘早被尘土糊住，有些年头了。`,
+      () => `你伸手在那处痕迹上方虚按了按，又缩回来——心里大致有了数，但说不上是什么。`,
+    ],
+  },
+  {
+    key: "listen",
+    match: /听|倾听|聆听|声音|动静|响动/,
+    lines: [
+      () => `你屏住呼吸听了一会儿——只听见灯芯轻微的噼啪。`,
+      ({ title }) => `你侧耳细听，「${title}」里安静得只剩下自己的心跳。`,
+      () => `你闭眼凝神去听：远处隐约有极轻的摩擦声，又好像只是耳鸣。`,
+    ],
+  },
+  {
+    key: "smell",
+    match: /闻|嗅|气味|味道|腥|臭/,
+    lines: [
+      () => `你轻轻嗅了嗅——空气里是陈年的潮气和土腥味，没有新的东西。`,
+      () => `你分辨了一下周遭的气味：尘土、冷风，以及一丝说不清的铁锈味。`,
+      () => `鼻腔里只有这里特有的滞涩空气，闻不出活物靠近的迹象。`,
+    ],
+  },
+  {
+    key: "bag",
+    match: /背包|行囊|口袋|袋子|地图|包袱|身上/,
+    lines: [
+      () => `你低头翻了翻随身的东西——就这些家当，没有多出什么来。`,
+      () => `你把行囊重新理了一遍：每件东西都还在原处，位置没变。`,
+      () => `你确认了一遍随身的物件，该有的都在，不该有的一样没有。`,
+    ],
+  },
+  {
+    key: "inspect",
+    match: /检查|端详|打量|摸|碰|敲|翻|拾|捡|蹲|试探|按/,
+    lines: [
+      ({ entity }) => `你仔细检查了${entity}——没有松动的机关，也没有藏东西的暗格。`,
+      ({ entity }) => `你伸手在${entity}上敲了敲，声音实沉——里面大概是实的。`,
+      ({ entity }) => `你把${entity}附近摸了个遍，除了冷硬的触感什么也没发现。`,
+    ],
+  },
+];
+
+const UNKNOWN_GENERIC_LINES = [
+  ({ title }) => `在「${title}」里，这句话没能改变什么。`,
+  ({ title }) => `「${title}」安静地应着——你做的这件事，没有惊动任何东西。`,
+  ({ title }) => `你试着这么做了。「${title}」的一切照旧，没有回应，也没有阻拦。`,
+];
+
+const unknownAckSeq = new Map();
+
+function unknownSceneLine(save, input) {
+  const scene = chaptersEngine.currentScene(save);
+  const title = scene ? sceneNarrName(scene) : "此地";
+  const blob = scene ? `${scene.title || ""}\n${scene.text || ""}` : "";
+  // 玩家点名的实体优先（「石阶上的刻痕」就答石阶），其次取场景正文里
+  // 真实出现的物——回应永远落在双方共指的东西上。
+  const entity =
+    UNKNOWN_SCENE_ENTITIES.find((e) => input.includes(e)) ||
+    UNKNOWN_SCENE_ENTITIES.find((e) => blob.includes(e)) ||
+    "四周";
+  const fam = UNKNOWN_SCENE_LINES.find((f) => f.match.test(input));
+  const pool = fam ? fam.lines : UNKNOWN_GENERIC_LINES;
+  const key = `${save.id}|${fam ? fam.key : "generic"}`;
+  const n = (unknownAckSeq.get(key) || 0) + 1;
+  unknownAckSeq.set(key, n);
+  return pool[(n - 1) % pool.length]({ title, entity });
+}
+
 function unknownFallbackContent(save, input) {
   const guide = UNKNOWN_GUIDES.find((g) => g.match.test(input));
   const scene = chaptersEngine.currentScene(save);
@@ -2221,6 +2491,7 @@ function unknownFallbackContent(save, input) {
   todo.push("说「观察」环顾四周", "说「前进」推进剧情");
   return (
     `【系统】系统未识别该指令：「${input}」。` +
+    `${unknownSceneLine(save, input)}\n` +
     (guide ? `${guide.tip}\n` : "") +
     `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`
   );
