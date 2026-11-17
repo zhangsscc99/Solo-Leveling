@@ -1892,3 +1892,12 @@
 ### 本轮新增 2 条（F194 / F195），F193 口径按实况修正；三条本轮全做
 - 车道 1：F193（`server/index.js` 观察分支 + `server/data/chapters.json` ch1 实体 + `scripts/assert/observe-discovery.mjs`，swe-2-high）
 - 车道 2：F194 + F195（`server/index.js` 升级播报 / 逼退文案 + 两条新断言，swe-2-medium）。两条与车道 1 同文件不同函数，brief 里逐条限定区域，合并按 1→2 串行。
+
+### 第 33 轮验收与上线记录（2026-11-17 18:20–18:35 UTC）
+- **车道 1（F193，swe-2-high，`server/index.js` 观察分支 + `server/data/chapters.json` + `scripts/assert/observe-discovery.mjs`）**：`ch1_double_gate` 挂 3 个一次性发现物（石像底座刻痕 → 低级治疗药水 / 门脚下的行囊 → 魔力药剂 / 壁画上的警告 → 低级治疗药水），命中实体第一眼回发现正文 + 物品走既有 `grantRewards` 入账，日志尾注 `【发现·名字】` 做幂等标记，同实体第二眼改口「这里你已经查过了」。旧码红证：`[ASSERT] 3 个不同实体的首次观察应有 ≥2 次【发现】，实际 0 次`。
+- **车道 2（F194 + F195，swe-2-medium，同一个 `server/index.js` 两处）**：升级播报改为真实前后值（`HP 48/100 → 168/168（上限提升并回满） · MP 16/20 → 64/64（已回满）`，数字取当次结算）；门前被拒短指引从单句「它每回合仍在耗你的血」换成 3 条如实文案池按 `hintN` 轮换，每条带真实 HP 并保留「攻击/叫阵/守关者/第 N 次」。旧码红证两条：`(b) push#2 HP 未减（100→100）却出现扣血表述` / `(b) 升级回包应含真实升级后数值 hp=168 max_hp=168`。
+- **调度器独立复验**（自起隔离实例，不经 devin）：worktree 3111/3112 上 `verify.sh F193/F194/F195` 全 PASS；合入 main 后再在 3113 新库上复跑 F193/F194/F195/F074/F129 全 PASS；高耦合旧断言 `gate-refusal-hint-spam` / `boss-refusal-affordance` / `action-prose-by-chapter` / `entity-grounding` / `observe-short` 全 OK；`node --test` **236 pass / 0 fail**。
+- **部署**：`ci-deploy.sh` 一次 `DEPLOY OK`，内置 E2E 7/7；本地 3020 / 公网 `https://openfolio.uk/game` 200；pm2 进程无 `DB_PATH/API_BASE` 泄漏。
+- **线上实拉**（新档，`R33chk*`）：「环顾四周」首眼回「你抹开石像底座的积灰——一圈刃尖划出的刻痕：「别数它们的眼睛」… 【发现·石像底座刻痕】获得「低级治疗药水」×1」；第 3 眼换实体回「门脚下的行囊」→「魔力药剂」×1。`verify.sh F193/F194/F195` 在 live 上三条全 PASS。
+- 本轮 **2 条 devin 车道、零回退**（F193 与 F194+F195 均一次跑完，未触 25 分钟线）。
+- **顺带确认已不成立的旧抱怨**：交战中「存档」禁用已有 title「交战中无法存档」+ 底栏「交战中无法写入存档 · 先『逃跑』或打赢这一场」，不立项。
