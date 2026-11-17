@@ -9,14 +9,15 @@
 //      （footer 内可见 [role=note] === 2），两条提示各自原文案不变；
 //   c) 版式硬契约：.stage ≥ innerHeight×0.6、footer.actions ≤205px、
 //      scrollWidth-clientWidth === 0；
-//   d) 脱战态两种视口 combat 提示计数均为 0（提示不常驻）；
+//   d) 脱战态两种视口 combat 提示计数均为 0（提示不常驻）——脱战态
+//      用「另开全新未交战档接进同一页面」取得，不依赖概率性逃跑；
 //   e) 全程 console error / pageerror 为 0。
 const BASE = (process.env.E2E_BASE_URL || "http://127.0.0.1:3020/game").replace(/\/+$/, "");
 process.env.E2E_BASE_URL = BASE;
 process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
 
 const { run, createSave, assert } = await import("../e2e/lib.mjs");
-const { act, fetchSaveView } = await import("./_http.mjs");
+const { act, fetchSaveView, post } = await import("./_http.mjs");
 
 const NAME = `f186-${Date.now().toString(36)}`;
 const settle = (page, ms = 450) => page.waitForTimeout(ms);
@@ -146,25 +147,27 @@ run(
     );
     await metrics(page, "1440x900");
 
-    // ── d) 脱战：点「逃跑」（最多 4 次）后两视口 combat 提示计数 0 ──
-    await page.setViewportSize({ width: 390, height: 844 });
-    await settle(page, 400);
-    const fleeBtn = page
-      .locator('footer.actions .actions-combat button:has-text("逃跑")')
-      .first();
-    for (let i = 0; i < 4; i++) {
-      if ((await page.locator('footer.actions .actions-combat button:has-text("攻击")').count()) === 0)
-        break;
-      await fleeBtn.click();
-      await settle(page, 800);
-    }
+    // ── d) 脱战态：另开全新未交战档接进同一页面（不点「逃跑」）──
+    // 旧口径靠连点「逃跑」掷概率脱战——负载/运气差时连挂即假红。脱战
+    // 的真实定义就是 save.combat 为空：API 建一个从未交战的新档，写
+    // localStorage 后 reload，走与建档/接档同一条 boot 路径。
+    const { status: stB, body: bodyB } = await post("/saves", {
+      player_name: `${NAME}-b`,
+    });
     assert(
-      (await page.locator('footer.actions .actions-combat button:has-text("攻击")').count()) === 0,
-      "4 次逃跑仍未脱战"
+      stB === 201 && bodyB && bodyB.save && bodyB.save.id,
+      `脱战对照档建档失败 (HTTP ${stB})`
     );
-    // 脱战后两条 combat 浮层都不渲染（.rest-hint 是独立的常驻小字，
+    await page.evaluate(
+      (id) => localStorage.setItem("solo_leveling_save_id", String(id)),
+      bodyB.save.id
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".status");
+    await settle(page, 700);
+    // 脱战态下两条 combat 浮层都不渲染（.rest-hint 是独立的常驻小字，
     // 不属于本特性计数口径）。
-    await settle(page, 500);
     const combatHints = async () => {
       const els = page.locator(".combat-lock-hint, .save-blocked-hint");
       let v = 0;
