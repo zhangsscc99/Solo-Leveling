@@ -1170,7 +1170,7 @@ export default function App() {
           {busy && (
             <div className="pending">
               <span className="pending-dot" />
-              系统处理中
+              正在书写……
             </div>
           )}
         </div>
