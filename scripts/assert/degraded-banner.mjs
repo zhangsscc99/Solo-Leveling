@@ -1,22 +1,171 @@
 #!/usr/bin/env node
-// F118 AI 降级提示契约（UI，第二版——降级提示不做长期噪音）：
-//   /ai-action 回包 degraded:true 时——
-//   (a) 尾注只盖在本会话第一条降级气泡尾部，第二条起不再追加；
-//   (b) 状态栏浮现一次性细条「叙事引擎：规则模式（AI 暂不可用）· 点 ×
-//       收起」，× 收起后本会话不再出现（再降级也不复发）；
-//   (c) 从未访问 /ai-action 的新档不得出现横幅/尾注；
-//   (d) 390px 下横幅单行不换行、不遮输入框与行动按钮、页面无横向
-//       溢出（scrollWidth === clientWidth），全程无 console error。
+// F118 AI 降级提示契约（UI，第三版——F175 修订：AI 网关线上已启用，
+// 「本环境恰好没 key」的假降级前提不再成立）：
 //
-//   自由输入框发自然语言长句 → 客户端分流 /ai-action；本环境无 AI key，
-//   网关恒降级，回包必带 degraded:true。
+//   F174 散文快路径后，自然语言长句不打 AI 网关——无论是否配 key，
+//   叙事回包都不再带 degraded:true；且客户端只把叙事长句分流到
+//   /ai-action，唯一能降级的指令形态走 /action。「经真实 UI 触发降级」
+//   在 F174 之后已不存在，本断言因此拆成两段：
 //
-//   E2E_BASE_URL 指向隔离实例（默认 https://openfolio.uk/game）。
-import { run, createSave, assert } from "../e2e/lib.mjs";
+//   Part A · 隔离无 key 实例（本脚本内 spawn 自起自停）：空闲端口 +
+//     DB_PATH=<tmp>/game.db + OPENCODE_GO_*/AI_ALIYUN_* 置空（置空串而
+//     非 delete——load-env 不覆盖已定义键，空串同时挡住根 .env 注回）。
+//     POST /ai-action 指令形态「遭遇哥布林」→ 回包必须 degraded:true
+//     且正文回显原句（降级链路的 API 级正向证据）；同实例上散文长句
+//     /ai-action 正文必须是具象否认（含「碎片」+ 否认词、无「重新审视」），
+//     确认快路径在降级可发生的环境下仍不走 observe 模板。
+//
+//   Part B · UI 契约（E2E_BASE_URL，默认 https://openfolio.uk/game）：
+//     page.route 拦截 /api/ai-action，把真实回包 degraded 置 true——
+//     这正是网关降级时客户端会收到的回包形态，(a)–(d) UI 断言原强度：
+//     (a) 尾注只盖在本会话第一条降级气泡尾部，第二条起不再追加；
+//     (b) 状态栏一次性细条「叙事引擎：规则模式（AI 暂不可用）· 点 ×
+//         收起」，× 收起后本会话不再出现（再降级也不复发）；
+//     (c) 从未访问 /ai-action 的新档不得出现横幅/尾注；
+//     (d) 390px 下横幅单行不换行、不遮输入框与行动按钮、页面无横向
+//         溢出，全程无 console error。
+import net from "node:net";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const COMMAND_INPUT = "遭遇哥布林"; // 指令形态：echoRequired→true，打 AI 网关
+const PROSE_INPUT = "我蹲下身，捡起地上一枚发烫的碎片";
+
+const { run, createSave, assert, BASE_URL } = await import("../e2e/lib.mjs");
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.once("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const p = s.address().port;
+      s.close(() => resolve(p));
+    });
+  });
+}
+
+async function postTo(base, pathname, body, ms = 25000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const res = await fetch(`${base}${pathname}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctl.signal,
+    });
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {}
+    return { status: res.status, body: json };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Part A：隔离无 key 实例 —— degraded:true 的 API 级证据 ────────────
+const gamePort = await freePort();
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "f118-"));
+const env = {
+  ...process.env,
+  PORT: String(gamePort),
+  DB_PATH: path.join(tmpDir, "game.db"),
+  OPENCODE_GO_API_KEY: "",
+  OPENCODE_GO_BASE_URL: "",
+  AI_ALIYUN_API_KEY: "",
+  AI_ALIYUN_BASE_URL: "",
+  AI_ALIYUN_MODEL: "",
+};
+delete env.NODE_CHANNEL_FD;
+delete env.NODE_CHANNEL_SERIALIZATION_MODE;
+const child = spawn(process.execPath, [path.join(ROOT, "server", "index.js")], {
+  cwd: ROOT,
+  env,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let childLog = "";
+child.stdout.on("data", (d) => (childLog += d));
+child.stderr.on("data", (d) => (childLog += d));
+process.on("exit", () => {
+  try {
+    child.kill("SIGKILL");
+  } catch {}
+});
+
+const ISO = `http://127.0.0.1:${gamePort}/game/api`;
+{
+  const deadline = Date.now() + 15000;
+  let up = false;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(`${ISO}/health`, { signal: AbortSignal.timeout(1000) });
+      if (r.ok) {
+        up = true;
+        break;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  if (!up) {
+    console.error(`[F118] 隔离实例 15s 未就绪，子进程输出：\n${childLog.slice(-2000)}`);
+    process.exit(1);
+  }
+}
+
+try {
+  const { status: ss, body: sv } = await postTo(ISO, "/saves", {
+    player_name: `f118-${Date.now().toString(36)}`.slice(0, 20),
+  });
+  assert(ss === 201 && sv && sv.save && sv.save.id, `隔离实例建存档失败 HTTP ${ss}`);
+  const sid = sv.save.id;
+
+  const { status: ds, body: d } = await postTo(ISO, "/ai-action", {
+    save_id: sid,
+    input: COMMAND_INPUT,
+  });
+  const textD = d && d.reply && d.reply.content;
+  assert(
+    ds === 200 && d && d.degraded === true,
+    `隔离无 key 实例 /ai-action 未 degraded:true：${JSON.stringify(d).slice(0, 200)}`
+  );
+  assert(
+    typeof textD === "string" && textD.includes(COMMAND_INPUT),
+    `隔离实例降级回包未回显原句「${COMMAND_INPUT}」：${String(textD).slice(0, 160)}`
+  );
+  console.log(`    [iso] /ai-action degraded:true：${textD.split("\n")[0].slice(0, 90)}`);
+
+  const { status: ps, body: p } = await postTo(ISO, "/ai-action", {
+    save_id: sid,
+    input: PROSE_INPUT,
+  });
+  const textP = p && p.reply && p.reply.content;
+  assert(
+    ps === 200 &&
+      typeof textP === "string" &&
+      textP.includes("碎片") &&
+      /没有|不存在/.test(textP) &&
+      !textP.includes("重新审视"),
+    `隔离实例散文回包不是具象否认：${String(textP).slice(0, 160)}`
+  );
+  console.log(`    [iso] 散文回包（快路径，非降级）：${textP.split("\n")[0].slice(0, 90)}`);
+} catch (e) {
+  console.error(`[F118] Part A FAIL: ${e.message}`);
+  process.exit(1);
+} finally {
+  try {
+    child.kill("SIGKILL");
+  } catch {}
+}
+
+// ── Part B：UI 契约 —— 拦截 /api/ai-action 注入 degraded:true ─────────
 const NAME = `F118-${Date.now().toString(36)}`;
 const NAME2 = `F118b-${Date.now().toString(36)}`;
-// 必须避开指令信号词（攻击/前进/观察/数字等），否则会分流去 /action。
+// 必须避开指令信号词（攻击/前进/观察/数字等），否则客户端分流去 /action。
 const SENTENCES = [
   "我蹲下身，捡起地上一枚发烫的碎片",
   "我抬头望向通道尽头，仔细听远处的动静",
@@ -51,6 +200,22 @@ run(
       if (m.type() === "error") consoleErrs.push(m.text());
     });
     page.on("pageerror", (e) => consoleErrs.push(String(e)));
+
+    // 显式制造降级：透传真实回包、仅把 degraded 置 true——与「网关
+    // 降级」时客户端收到的回包形态逐字段一致。
+    await page.route("**/api/ai-action", async (route) => {
+      const resp = await route.fetch();
+      let body = null;
+      try {
+        body = await resp.json();
+      } catch {}
+      if (body && typeof body === "object") {
+        body.degraded = true;
+        await route.fulfill({ response: resp, json: body });
+      } else {
+        await route.fulfill({ response: resp });
+      }
+    });
 
     await createSave(page, NAME);
     await page.waitForSelector(".input-row input");
@@ -143,7 +308,7 @@ run(
     assert(await noOverflow(page), "(d) 新档出现横向溢出");
 
     assert(consoleErrs.length === 0, `console error: ${consoleErrs.join(" | ")}`);
-    console.log(`    降级提示：首条尾注+一次性细条，× 收起不复发，新档干净`);
+    console.log(`    降级提示：首条尾注+一次性细条，× 收起不复发，新档干净（目标 ${BASE_URL}）`);
   },
   { viewport: { width: 390, height: 844 } }
 );
