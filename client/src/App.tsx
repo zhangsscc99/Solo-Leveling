@@ -245,6 +245,11 @@ function StatusBar({
   const chapterName = CHAPTERS[save.chapter - 1] ?? `第${save.chapter}章`;
   const freePoints = Math.max(0, Number(save.free_points) || 0);
   const inCombat = Boolean(save.combat);
+  // P208：顶栏 XP 极细进度条。真值只读 save.xp / save.xp_to_next，
+  // 前端不推算等级曲线；xp_to_next 缺失/异常时退化为空轨道。
+  const xpNeed = Number(save.xp_to_next) || 0;
+  const xpPct = xpNeed <= 0 ? 0 : Math.min(100, Math.max(0, (save.xp / xpNeed) * 100));
+  const xpTip = `经验 ${save.xp}/${save.xp_to_next} · 距 Lv.${save.level + 1} 还需 ${Math.max(0, xpNeed - save.xp)}`;
   return (
     <header className="status">
       <div className="status-id">
@@ -309,8 +314,15 @@ function StatusBar({
         <span className="stat stat-gold">
           金币<b>{save.gold}</b>
         </span>
-        <span className="stat">
+        <span
+          className="stat stat-xp"
+          title={xpTip}
+          aria-label={xpTip}
+        >
           XP<b>{save.xp}</b>
+          <i className="xp-bar" aria-hidden="true">
+            <i className="xp-bar-fill" style={{ width: `${xpPct}%` }} />
+          </i>
         </span>
       </div>
       <button className="drawer-toggle" onClick={onOpenDrawer} aria-label="打开档案面板">
