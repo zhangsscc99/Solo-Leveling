@@ -809,9 +809,16 @@
   随后「探索前进」仍 refused + HP/MP 零变化。红证：旧码第 1 次观察即 FAIL（「或说「前进」」）。
   验收：verify F240 PASS、dwell-guidance 连跑 3 次 PASS、boot/action PASS（本地实例）、
   `cd server && node --test` 242 pass 0 fail。
-- [ ] F241 观察 4–6 次的括号提示逐字复读（P1 文本质量）｜第49轮实测：连续 6 次观察，第 4/5/6 次新增 125/116/115 字，除 `动静 1/4 → 2/4 → 3/4` 的数字外，`这一带已经看熟——你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——说「前进」动身，或说「潜行」绕开。` 三处完全相同。`game-detail-bar` §5「Content that never repeats」｜verify: 新增 `scripts/e2e/observe-dedupe.mjs`——同一场景连点 6 次「环顾四周」，把每步新增正文按句号切分，断言任意单句出现次数 ≤2，且去重后不同句子数 ≥6｜risk: low
+- [x] F241 观察 4–6 次的括号提示逐字复读（P1 文本质量）｜第49轮实测：连续 6 次观察，第 4/5/6 次新增 125/116/115 字，除 `动静 1/4 → 2/4 → 3/4` 的数字外，`这一带已经看熟——你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——说「前进」动身，或说「潜行」绕开。` 三处完全相同。`game-detail-bar` §5「Content that never repeats」｜verify: 新增 `scripts/e2e/observe-dedupe.mjs`——同一场景连点 6 次「环顾四周」，把每步新增正文按句号切分，断言任意单句出现次数 ≤2，且去重后不同句子数 ≥6｜risk: low
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/observe-dedupe.mjs
   risk: low
+  done(第64轮): devin swe-2-medium 定位到根因在 `observeOverRiskTail`——正文池按 clock 轮换，唯独风险尾注只有「未过/已过保底线」两个固定变体，
+  故 4–6 次观察除「动静 N/4」外逐字复读。改法：四组措辞池（普通/必选 × 未过/已过）各 3 条，种子取推进后的 `clockNext`（每轮观察稳定 +1，确定性可复现，无随机数）；
+  「动静 N/4」计数串、`clockNext >= PITY_LIMIT-1` 写「已被惊动」、`encounters:"none"`/终章/must_choose 分支与指路（不含「前进」）口径全部未动。
+  新断言 `scripts/e2e/observe-dedupe.mjs`（168 行，照 observe-cost 的隔离实例 + fetch 打法）：6 次观察正文先剔场景名前缀，再按 `。！？` **与 `——`** 切句、数字归一后统计；
+  断言单句 ≤2 次、去重 ≥6 句、复核区仍带「动静 N/4」。红证（实测）：只按句号切旧码会因计数串进句而假绿，加 `——` 切法后旧码 FAIL「说「前进」动身，或说「潜行」绕开」出现 3 次。
+  验收：verify F241 PASS(1.74s)、observe-dedupe 连跑 2 次 PASS、observe-cost/dwell-guidance PASS、server `node --test` 242 pass 0 fail；
+  ci-deploy 内置 E2E 16/16、health 200 + 公网 https://openfolio.uk/game/api/health 200。
 - [ ] F242 桌面 1440×900 首屏正文末行被底部操作区截断（P2 排版硬伤）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-d2-main.png` 明确报「正文最底部一行被底部固定操作区遮挡/截断，首屏阅读不完整」；同屏底部并列 行动四键 / 选择两键 / 系统八键 / 自由输入 四层，主 CTA 被四个平行行动键稀释。`game-detail-bar` §9b Layout that never spills out of its frame｜verify: 新增 `scripts/e2e/stage-bottom-clearance.mjs`——390 与 1440 下量 `.stage-col` 最后一行 `getBoundingClientRect().bottom` 与 `.actions` 顶部 `top`，断言间距 ≥8px；并在日志滚到底后断言最后一行完整可见（未被 fixed 层覆盖，`elementFromPoint` 命中正文而非 `.actions`）｜risk: low
 - [x] F243 属性面板「剩余属性点 0」时 `+1` 按钮无明确禁用态（P2 死选项视觉）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-m7-属性.png` 报「剩余属性点为 0 时 +1 按钮虽较暗，但没有明确禁用态，容易让人误以为仍可点击」，且 `+1` 按钮距右侧面板边缘安全边距偏小。`intuitive-game-design` Q2 的 signifier 缺口｜verify: 点数=0 时断言每个 `+1` 控件 `disabled===true` 或有 `aria-disabled="true"` 且 `opacity ≤ 0.45`；390 下 `+1` 右缘距面板内边 ≥8px（脚本 `scripts/e2e/attr-plus-disabled.mjs`）｜risk: low
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/attr-plus-disabled.mjs
