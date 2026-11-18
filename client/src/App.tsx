@@ -75,6 +75,36 @@ function splitStageEntry(entry: UiEntry): UiEntry[] {
   return segs.map((g) => ({ ...entry, content: g.join("\n") }));
 }
 
+// F213 开场正文拆段（纯渲染层）：服务端下发的长正文把多个自然段
+// 用换行塞进同一条日志，旧渲染把整条塞进一个 <p.narration> 成了一堵
+// 字墙。这里只改渲染——entry.content / 日志条数 / splitStageEntry 的
+// 条目语义一概不动：
+//   · 段边界 = 换行（上游 splitStageEntry 已把空行折成单换行，语料里
+//     不存在段内单换行，故每个 \n 都是自然段边界）；
+//   · 单段仍 >200 字时，只在句末标点（。！？…」）后继续切，逐字不改；
+//   · 拆出的每段各渲染一个 <p.narration>，间距沿用既有 --sp-4 口径。
+const NARR_PARA_MAX = 200;
+const SENT_END_RE = /[。！？…」]/;
+function splitNarrationParas(content: string): string[] {
+  const raw = content.split(/\n+/).filter((p) => p.trim() !== "");
+  const out: string[] = [];
+  for (const para of raw) {
+    let rest = para;
+    while ([...rest].length > NARR_PARA_MAX) {
+      const chars = [...rest];
+      let cut = -1;
+      for (let i = 0; i < NARR_PARA_MAX; i++) {
+        if (SENT_END_RE.test(chars[i])) cut = i + 1;
+      }
+      if (cut <= 0) break; // 前 200 字无句末标点——不造新字也不硬切，原样保留
+      out.push(chars.slice(0, cut).join(""));
+      rest = chars.slice(cut).join("");
+    }
+    if (rest.trim() !== "") out.push(rest);
+  }
+  return out.length > 0 ? out : [content];
+}
+
 // F118 自由输入分流：指令形态照旧走 /action（战斗回显、面板路由等既有
 // 口径不变），自然语言长句才走 /ai-action 的叙事引擎——是否「指令形态」
 // 镜像 server/ai/free-action.js 的 echoRequired 判定（单一事实源：
@@ -386,13 +416,18 @@ function StageEntry({ entry }: { entry: UiEntry }) {
       </div>
     );
   }
+  const paras = splitNarrationParas(entry.content);
   return (
-    <p className="narration">
-      {entry.content}
-      {entry.degradedNote && (
-        <span className="degraded-note">（系统叙事降级：按规则解析）</span>
-      )}
-    </p>
+    <>
+      {paras.map((p, i) => (
+        <p className="narration" key={i}>
+          {p}
+          {i === paras.length - 1 && entry.degradedNote && (
+            <span className="degraded-note">（系统叙事降级：按规则解析）</span>
+          )}
+        </p>
+      ))}
+    </>
   );
 }
 
