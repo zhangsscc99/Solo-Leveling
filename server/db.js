@@ -168,6 +168,12 @@ if (!saveCols.includes("advance_streak")) {
 if (!saveCols.includes("stealth_charges")) {
   db.exec("ALTER TABLE saves ADD COLUMN stealth_charges INTEGER NOT NULL DEFAULT 0");
 }
+// P206 must_choose 拒绝去重键：场景 id + 选项集合指纹（见 index.js
+// advanceOutcome 的必选门分支）。同档同场景同选项集合的拒绝正文只落
+// 一次日志；换场景/选项集合变化后键对不上，重新允许落一条。
+if (!saveCols.includes("choice_refusal_key")) {
+  db.exec("ALTER TABLE saves ADD COLUMN choice_refusal_key TEXT");
+}
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
@@ -339,7 +345,7 @@ const MUTABLE_COLUMNS = [
   "hp", "mp", "max_hp", "max_mp", "xp", "gold", "kills", "level",
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
   "encounter_seq", "encounter_cd", "rest_used", "main_steps",
-  "advance_streak", "stealth_charges",
+  "advance_streak", "stealth_charges", "choice_refusal_key",
 ];
 
 function updateSave(id, patch) {
