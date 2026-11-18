@@ -2003,6 +2003,10 @@ button {
     overflow-x: auto;
     flex-wrap: nowrap;
     scrollbar-width: none;
+    /* F229：右内边距与 28px 渐隐等宽——内容装得下时末项整格落在渐隐
+       区之外（不被淡化、不贴硬边）；装不下时滚动尾端仍有同样留白。
+       旧码无此垫，390 下「攻20」右缘正好压进渐隐区被读成「攻2」。 */
+    padding-right: 28px;
     /* 右缘渐隐：内容溢出时暗示可横滑；未溢出时渐隐区是空白，无视觉影响 */
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
     mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
@@ -3972,5 +3976,25 @@ button {
        数字基线 3px 偏移（其它 .stat 为 2px），与同排单元格同口径。 */
     display: inline-flex;
     align-items: center;
+  }
+
+  /* F229：390 宽整行须不横滚装下（scrollWidth 460 vs 槽宽 366，旧码
+     「防」「金币」整格落出视口、「攻」尾字压进右缘渐隐）。标签降到
+     11px 下限、数值 12px、间距收至 sp-2、XP 轨道 48→24：合计约
+     350px < 槽宽 366-28 右垫，末项右缘留 ≥8px 安全距。桌面档不动。 */
+  .status-nums {
+    gap: var(--sp-1) var(--sp-2);
+  }
+
+  .status-nums .stat {
+    font-size: var(--fs-xs);
+  }
+
+  .status-nums .stat b {
+    font-size: 12px;
+  }
+
+  .status-nums .xp-bar {
+    width: 24px;
   }
 }
