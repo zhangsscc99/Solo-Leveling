@@ -853,8 +853,9 @@
   verify: 待实现 scripts/e2e/rest-full-feedback.mjs（落地后补命令）
   risk: low
 - [ ] F246 做完抉择后章节进度 2/7 掉回 0/7（刷新后仍是 0/7）（P1 进度显示回退）｜第51轮：选「退到石柱后，观察石像与石碑的对应」前状态栏为 `第1章 双重地下城 2/7`，抉择落地、拿到线索 `read_the_law`、进入遭遇后变 `0/7`，`goto` 重载后依旧 `0/7`（HP 97/100、MP 18/20、XP 10、金币 10 均正确续档，故非渲染抖动）。`game-detail-bar` §6「Never take away earned progress」显示层违约｜verify: 新增 `scripts/e2e/chapter-progress-monotonic.mjs`——记录抉择前 `status` 里 `\d/7` 的分子，抉择并等遭遇出现后再读，断言后者 ≥ 前者；再 reload 断言等于抉择后的值｜risk: med
-  verify: 待实现 scripts/e2e/chapter-progress-monotonic.mjs（落地后补命令）
+  verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/chapter-progress-monotonic.mjs
   risk: med
+  done(第66轮): devin swe-2-high 新增 `chaptersEngine.progressStepsOf`——支线站位按「出边（next_scene 优先、choices[].next 其次，只跟本章内）BFS 第一个可达主线链节点的下标」反推步数（链上照旧 = 位置+1），sceneView 与 /api/chapters 同用此口径，纯数据无随机；ch1_watch 据此显示 2/7 而非 0/7、也不虚增到 3/7。新断言 `scripts/e2e/chapter-progress-monotonic.mjs`（API 隔离实例）：抉择 2/7 → 支线守住 2/7（刷新/地图同分子）→ 回主线 3/7 → 死亡回溯落链首 1/7；旧码红证 `steps=0`（写在脚本头注）。
 - [ ] F247 must_choose 状态下「探索前进」仍实色全亮可点，只靠 1.5s toast 告知必被拒（P1 死选项 / 可负担性缺口）｜第51轮：状态栏已写「【系统】这里必须做出选择」，正文流里仍有「前进」入口、底栏「探索前进 1」仍与「环顾四周 / 潜行 / 休息」同尺寸同色；点它 → 正文 +0 字，80ms 后 toast「抉择未定——先选一个…」约 1.5s 消失。vision 对 m3 结论：「系统已写明必须做出选择，界面却仍保留正文右侧『前进』和底部『探索前进』入口，看不出被禁用或置灰」。`intuitive-game-design` Q2：优先改 Real，而不是靠提示补救｜verify: 新增 `scripts/e2e/forward-locked-in-choice.mjs`——落到 must_choose 后断言「探索前进」`disabled===true` 或 `aria-disabled="true"` 且 opacity ≤0.5，正文流「前进」同款；反向：非 must_choose 回合该按钮 `disabled===false`（防写死禁用洗绿）｜risk: low
   verify: 待实现 scripts/e2e/forward-locked-in-choice.mjs（落地后补命令）
   risk: low

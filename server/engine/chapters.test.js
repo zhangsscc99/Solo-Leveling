@@ -174,6 +174,42 @@ test("chapterPath：主线链只沿 next_scene/主线 choice 走，支线不入�
   );
 });
 
+// F246：支线站位按「下一个可达主线链节点」反推——不丢已走过的里程碑
+// （旧口径不在链上恒 0/N），也不虚增到链尾；断线支线兜底 0。
+test("progressStepsOf：链上 = 位置+1，支线 = 下一个主线节点下标", () => {
+  const ch1 = chapters.getChapter(1);
+  // 链上站位照旧
+  assert.equal(chapters.progressStepsOf(ch1, "ch1_double_gate"), 1);
+  assert.equal(chapters.progressStepsOf(ch1, "ch1_law"), 2);
+  assert.equal(chapters.progressStepsOf(ch1, "ch1_surface"), 7);
+  // 支线站位反推：ch1_watch 的 next_scene=ch1_worship（链上第 3 景）→ 2
+  assert.equal(chapters.progressStepsOf(ch1, "ch1_watch"), 2);
+  // ch1_death 无 next_scene，靠 choice crawl_back -> ch1_worship 收进链 → 2
+  assert.equal(chapters.progressStepsOf(ch1, "ch1_death"), 2);
+  // 悬空/错章 id 兜底 0
+  assert.equal(chapters.progressStepsOf(ch1, "nope"), 0);
+  assert.equal(chapters.progressStepsOf(ch1, null), 0);
+
+  // 合成章节覆盖三种边角：
+  //   a) 支线直通链尾 → 只记到链尾下标（虚增到 N/N 是洗绿口径）；
+  //   b) 支线绕两跳回主线 → 取最近命中；
+  //   c) 彻底断线的收束支线 → 安全兜底 0。
+  const fake = {
+    scenes: [
+      { id: "m0", next_scene: "m1" },
+      { id: "m1", next_scene: "m2" },
+      { id: "m2", next_scene: null },
+      { id: "s_tail", choices: [{ id: "go", next: "m2" }] },
+      { id: "s_mid", next_scene: "s_hop" },
+      { id: "s_hop", next_scene: "m1" },
+      { id: "s_dead", next_scene: null, choices: [{ id: "x", next: null }] },
+    ],
+  };
+  assert.equal(chapters.progressStepsOf(fake, "s_tail"), 2);
+  assert.equal(chapters.progressStepsOf(fake, "s_mid"), 1);
+  assert.equal(chapters.progressStepsOf(fake, "s_dead"), 0);
+});
+
 test("unlockedFor：软门放行但 level_ok 单独暴露", () => {
   const ch2 = chapters.getChapter(2); // unlock { level: 5, chapter: 1 }
   const low = chapters.unlockedFor({ level: 1, chapter: 1 }, ch2);

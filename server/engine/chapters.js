@@ -473,6 +473,44 @@ function pathIndexOf(chapter, sceneId) {
   return chapterPath(chapter).findIndex((s) => s && s.id === sceneId);
 }
 
+// F246 支线站位进度：站位在主线链上时返回「位置 + 1」；不在链上（支线
+// 场景只能由 choice 进入、不占主线步序）时按「继续前进会踩到的第一个
+// 主线链节点」反推——分子 = 该节点的链上下标（节点本身尚未踩到，完成
+// 的步数只算到它之前，如 ch1_watch 的下个主线节点是链上第 3 景 → 2）。
+// 出边按 next_scene 优先、choices[].next 其次的次序 BFS 逐级展开，只跟
+// 本章内目标，取最近命中：选「下一个」而不是「能摸到的最远」节点，是
+// 因为支线还没走到的主线步不许记进分子（不得虚增到链尾、不得越过未
+// 完成节点），与 F114「进度只由位置推导」同一本账。纯数据推导——无
+// 随机、不读存档状态、不写死场景 id 或数字。
+// 全部出边都收不回主线链（彻底断线的收束支线）时退回 0：该场景本就
+// 无法汇回主线，按未起步如实展示——与旧口径一致的安全兜底。
+function progressStepsOf(chapter, sceneId) {
+  const path = chapterPath(chapter);
+  const idx = path.findIndex((s) => s && s.id === sceneId);
+  if (idx >= 0) return idx + 1;
+  const scenes = chapter && Array.isArray(chapter.scenes) ? chapter.scenes : [];
+  const byId = new Map(scenes.map((s) => [s && s.id, s]));
+  const onChain = new Map(path.map((s, i) => [s && s.id, i]));
+  const seen = new Set([sceneId]);
+  const queue = [sceneId];
+  while (queue.length) {
+    const cur = byId.get(queue.shift());
+    if (!cur) continue;
+    const outs = [];
+    if (typeof cur.next_scene === "string" && cur.next_scene) outs.push(cur.next_scene);
+    (Array.isArray(cur.choices) ? cur.choices : []).forEach((c) => {
+      if (c && typeof c.next === "string" && c.next) outs.push(c.next);
+    });
+    for (const t of outs) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+      if (onChain.has(t)) return onChain.get(t);
+      if (byId.has(t)) queue.push(t);
+    }
+  }
+  return 0;
+}
+
 // 下一章准入（章节门）：当前是软门——unlock.chapter（已抵达前置章节）与
 // unlock.level（推荐等级）满足其一即可进入。返回 { ok, level, chapter,
 // level_ok, chapter_ok }：ok 是放行结论，level_ok / chapter_ok 分别暴露
@@ -549,6 +587,7 @@ module.exports = {
   nextSceneOf,
   chapterPath,
   pathIndexOf,
+  progressStepsOf,
   unlockedFor,
   unlockView,
 };
