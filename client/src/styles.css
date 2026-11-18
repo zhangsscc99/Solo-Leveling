@@ -1555,6 +1555,49 @@ button {
   border-color: var(--system-dim);
 }
 
+/* F228 唯一主行动：全屏同一时刻只有一颗 .cta-primary（App.tsx
+   pickPrimaryCta 唯一事实源，剧情分支/攻击/叫阵/终章/下章/探索按
+   优先级接管主位）。沿用 F156 觉醒键的实心系统青 + 微光语言，
+   与哑光 .btn 拉开一整档层级；.primary 淡渐变仅作兼容保留、必与
+   .cta-primary 同节点出现，不再是主位标记。不改 padding/描边宽度，
+   分支键接管主位时行高与栅格零位移；不用 ::before/叠加渐变，
+   kbd.key-badge 与 .rest-count 角标不被遮。 */
+.btn.cta-primary {
+  background: linear-gradient(180deg, #6fd3ff 0%, #2b9cd6 100%);
+  border-color: var(--system);
+  color: #061521;
+  font-weight: 700;
+  box-shadow:
+    0 0 16px rgba(79, 200, 255, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.btn.cta-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #7fdaff 0%, #34a9e4 100%);
+  border-color: #8fdcff;
+  color: #020b13;
+  box-shadow:
+    0 0 22px rgba(79, 200, 255, 0.48),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+/* 不可点仍是全场唯一主位——高亮保留、靠 .btn:disabled 的透明度与
+   收窄的辉光表达死键，不回到哑光（回到哑光就丢了「唯一主行动」）。 */
+.btn.cta-primary:disabled {
+  box-shadow: 0 0 10px rgba(79, 200, 255, 0.18);
+}
+
+/* 实心亮底上的两处角标换深色字，保证可读（rest-count 仍是 hull 底小牌）。 */
+.btn.cta-primary .key-badge {
+  color: #061521;
+  opacity: 0.72;
+}
+
+.btn.cta-primary .rest-count {
+  color: var(--system);
+  border-color: var(--system-dim);
+}
+
 /* 次级（系统组）：更小的字号、更灰的字色、更窄的内距 */
 .btn-group-sys .btn {
   padding: 0 var(--sp-3);

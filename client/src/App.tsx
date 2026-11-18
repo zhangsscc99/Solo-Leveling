@@ -161,8 +161,8 @@ const CHAPTERS = [
   "济州岛",
 ];
 
-const ACTION_BUTTONS: { label: string; input: string; primary?: boolean; combatBlock?: boolean }[] = [
-  { label: "探索前进", input: "前进", primary: true },
+const ACTION_BUTTONS: { label: string; input: string; combatBlock?: boolean }[] = [
+  { label: "探索前进", input: "前进" },
   { label: "环顾四周", input: "观察", combatBlock: true },
   { label: "潜行", input: "潜行", combatBlock: true },
   { label: "休息", input: "休息", combatBlock: true },
@@ -198,6 +198,29 @@ const COMBAT_BUTTONS: {
   { label: "道具", input: null, expand: "items" },
   { label: "逃跑", input: "逃跑" },
 ];
+
+// F228 唯一主行动：首屏同一时刻只允许一颗主 CTA——390/1440 下四个
+// 探索键与剧情分支键视觉权重接近，vision 走查两次判「不知道点哪」。
+// 纯函数是主位的单一事实源：各按钮只比对返回值挂 primary/cta-primary，
+// 不在 JSX 各处散落判定。优先级（高→低）：
+//   a. 剧情分支接管——save.next_choices ≥2 且存在未锁定项 → 第一条未
+//      锁定分支键（通用四键降为次级）；
+//   b. liveCombat → 战斗组第一键「攻击」（交战期 next_choices 本就不
+//      渲染，分支判定位列交战之前也天然取不到）；
+//   c–f. 其余一律落在行动组「前进」槽：challenge_boss→叫阵守关者、
+//      at_epilogue→查看结算、next_chapter→进入第N章、其余（含
+//      retreat_to_boss 与常规探索）→探索前进——四种换标形态是同一个
+//      DOM 槽位，主位解析结果相同。
+type PrimaryCta = { kind: "choice"; id: string } | { kind: "attack" } | { kind: "advance" };
+
+function pickPrimaryCta(save: Save, liveCombat: boolean): PrimaryCta {
+  if (!liveCombat && (save.next_choices?.length ?? 0) >= 2) {
+    const first = save.next_choices.find((c) => c.locked !== true);
+    if (first) return { kind: "choice", id: first.id };
+  }
+  if (liveCombat) return { kind: "attack" };
+  return { kind: "advance" };
+}
 
 type TabKey = "inventory" | "skills" | "stats" | "map" | "quests" | "shadows" | "ending";
 const TABS: { key: TabKey; label: string }[] = [
@@ -798,6 +821,9 @@ export default function App() {
   // 服务端 advance_mode 下发 "challenge_boss"，主按钮换标「叫阵守关者」
   // （点击发起「攻击」开战），行动栏「攻击」同步解禁。
   const challengeBoss = Boolean(save && save.advance_mode === "challenge_boss");
+  // F228：当前屏唯一主行动——分支/交战/叫阵/终章/下章/探索按优先级
+  // 解析成一颗，JSX 只按结果挂 primary cta-primary + data-primary-cta。
+  const primaryCta = save ? pickPrimaryCta(save, liveCombat) : null;
   const liveRef = useRef(false);
   useEffect(() => {
     if (liveCombat && !liveRef.current) setCombatOpen(true);
@@ -1453,7 +1479,9 @@ export default function App() {
               <p className="epilogue-text">
                 船已进港，账已结清。所有战斗与抉择都凝固成了战绩——前路已尽，剩下的只有回看。
               </p>
-              <button className="btn primary" onClick={() => openTab("ending")}>
+              {/* F228：全屏唯一主 CTA 在行动栏「查看结算」键上——横幅入口
+                  降为普通 .btn，不再与主位同级高亮。 */}
+              <button className="btn" onClick={() => openTab("ending")}>
                 查看结算
               </button>
             </div>
@@ -1643,10 +1671,12 @@ export default function App() {
                     ? save.next_chapter
                     : null;
                 if (b.input === "前进" && save.at_epilogue) {
+                  const isCta = primaryCta?.kind === "advance";
                   return (
                     <button
                       key={b.label}
-                      className="btn primary"
+                      className={`btn${isCta ? " primary cta-primary" : ""}`}
+                      data-primary-cta={isCta ? "1" : undefined}
                       onClick={() => openTab("ending")}
                       title="快捷键 1"
                     >
@@ -1655,10 +1685,14 @@ export default function App() {
                     </button>
                   );
                 }
+                // F228：主位由 pickPrimaryCta 裁定——分支/交战态接管时
+                // 「前进」槽（含叫阵/下章/折返换标）降为普通 .btn。
+                const isCta = b.input === "前进" && primaryCta?.kind === "advance";
                 return (
                   <button
                     key={b.label}
-                    className={`btn${b.primary ? " primary" : ""}${nextChapter ? " cta-next" : ""}`}
+                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}`}
+                    data-primary-cta={isCta ? "1" : undefined}
                     disabled={busy || restBlocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
@@ -1707,12 +1741,16 @@ export default function App() {
                 const comboShort =
                   b.input === "连击" && liveCombat && save.mp < COMBO_MP_COST;
                 const disabled = busy || (!liveCombat && !challengeable) || comboShort;
+                // F228：交战主位只落在第一键「攻击」；叫阵态主位在行动组
+                // 「叫阵守关者」上，这里的「叫阵 · 攻击」降为普通键。
+                const isCta = primaryCta?.kind === "attack" && i === 0;
                 return (
                   <button
                     key={b.label}
-                    className={`btn${(liveCombat && i === 0) || challengeable ? " primary" : ""}${
+                    className={`btn${isCta ? " primary cta-primary" : ""}${
                       b.expand && barList === b.expand ? " on" : ""
                     }${b.cls ? ` ${b.cls}` : ""}`}
+                    data-primary-cta={isCta ? "1" : undefined}
                     disabled={disabled}
                     aria-disabled={disabled}
                     aria-expanded={b.expand ? barList === b.expand : undefined}
@@ -1768,10 +1806,14 @@ export default function App() {
                   // （锁键不再把 label 复读一遍）；服务端 choice 拒绝
                   // 分支仍是兜底。
                   const locked = c.locked === true;
+                  // F228：分支接管主位——第一条未锁定选项是唯一主 CTA，
+                  // 其余分支键保持普通 .btn。
+                  const isCta = primaryCta?.kind === "choice" && primaryCta.id === c.id;
                   return (
                     <button
                       key={c.id}
-                      className="btn"
+                      className={`btn${isCta ? " primary cta-primary" : ""}`}
+                      data-primary-cta={isCta ? "1" : undefined}
                       disabled={busy || locked}
                       aria-disabled={busy || locked}
                       title={
