@@ -40,8 +40,10 @@ import StatsPanel from "./panels/StatsPanel";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
-// F084 日志回溯窗口：首屏 50 条，「加载更早」每次 +50，服务端硬上限 200。
+// F084 日志回溯窗口：「加载更早」每次 +50，服务端硬上限 200。
 // 探测多取 1 条判断是否还有更早记录——fetched.length > limit 即还有历史。
+// F227：续档/切档回灌放宽为整窗 LOG_CAP——旧码只灌末 50 条，内存态
+// 累积超窗的战斗/叙述行在刷新后凭空少行。
 const LOG_PAGE = 50;
 const LOG_CAP = 200;
 
@@ -743,6 +745,17 @@ export default function App() {
     return () => clearTimeout(t);
   }, [sysSwipeHint]);
 
+  // F227 续档回灌整窗：直接取到服务端硬上限 LOG_CAP——旧码只灌末 50
+  // 条，刷新前内存里累积超窗的战斗/叙述行回灌后凭空少行。回灌行数
+  // 顶到上限说明可能仍有更早历史，「加载更早」入口保留翻页。
+  const resumeLog = useCallback(async (saveId: number) => {
+    const rows = await getLog(saveId, LOG_CAP);
+    logBaseRef.current = rows.length;
+    setLog(rows);
+    setLogLimit(LOG_CAP);
+    setLogTail(rows.length >= LOG_CAP ? "more" : "hidden");
+  }, []);
+
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
@@ -754,17 +767,11 @@ export default function App() {
         setSave(save);
         setInventory(inventory);
         setEquipment(equipment);
-        const fetched = await getLog(save.id, LOG_PAGE + 1);
-        const more = fetched.length > LOG_PAGE;
-        const rows = more ? fetched.slice(fetched.length - LOG_PAGE) : fetched;
-        logBaseRef.current = rows.length;
-        setLog(rows);
-        setLogLimit(LOG_PAGE);
-        setLogTail(more ? "more" : "hidden");
+        await resumeLog(save.id);
       })
       .catch(() => localStorage.removeItem(STORAGE_KEY))
       .finally(() => setLoading(false));
-  }, []);
+  }, [resumeLog]);
 
   useEffect(() => {
     const el = logRef.current;
@@ -1183,16 +1190,10 @@ export default function App() {
     setSave(full.save);
     setInventory(full.inventory);
     setEquipment(full.equipment);
-    const fetched = await getLog(saveId, LOG_PAGE + 1);
-    const more = fetched.length > LOG_PAGE;
-    const rows = more ? fetched.slice(fetched.length - LOG_PAGE) : fetched;
-    logBaseRef.current = rows.length;
-    setLog(rows);
-    setLogLimit(LOG_PAGE);
-    setLogTail(more ? "more" : "hidden");
+    await resumeLog(saveId);
     setConflict(null);
     setConfirmNew(false);
-  }, []);
+  }, [resumeLog]);
 
   // F084「加载更早」：窗口 50→100→150→200 逐级放宽，整窗回灌替换。
   // 指令间隙才允许翻页（busy 期回灌可能吞掉未落地的本地回显行）。
