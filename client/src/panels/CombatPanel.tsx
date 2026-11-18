@@ -317,6 +317,16 @@ export default function CombatPanel({
         </div>
       </div>
 
+      {/* F218 回合结算行：服务端随交战态下发的本回合真实结算
+          （命中/未命中/暴击 + 伤害 + 敌方 HP 变化），原样渲染不反推；
+          结算过至少一回合才有 last，开战首回合前不渲染。 */}
+      {save.combat?.last && (
+        <div className="combat-report" data-kind={save.combat.last.kind} data-turn={save.combat.last.turn}>
+          <span className="combat-report-label">第 {save.combat.last.turn} 回合结算</span>
+          <span className="combat-report-line">{save.combat.last.line}</span>
+        </div>
+      )}
+
       {est && (
         <div
           className="combat-est"
