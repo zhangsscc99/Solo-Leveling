@@ -820,6 +820,8 @@
   验收：verify F241 PASS(1.74s)、observe-dedupe 连跑 2 次 PASS、observe-cost/dwell-guidance PASS、server `node --test` 242 pass 0 fail；
   ci-deploy 内置 E2E 16/16、health 200 + 公网 https://openfolio.uk/game/api/health 200。
 - [ ] F242 桌面 1440×900 首屏正文末行被底部操作区截断（P2 排版硬伤）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-d2-main.png` 明确报「正文最底部一行被底部固定操作区遮挡/截断，首屏阅读不完整」；同屏底部并列 行动四键 / 选择两键 / 系统八键 / 自由输入 四层，主 CTA 被四个平行行动键稀释。`game-detail-bar` §9b Layout that never spills out of its frame｜verify: 新增 `scripts/e2e/stage-bottom-clearance.mjs`——390 与 1440 下量 `.stage-col` 最后一行 `getBoundingClientRect().bottom` 与 `.actions` 顶部 `top`，断言间距 ≥8px；并在日志滚到底后断言最后一行完整可见（未被 fixed 层覆盖，`elementFromPoint` 命中正文而非 `.actions`）｜risk: low
+  verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/stage-bottom-clearance.mjs
+  risk: low
 - [x] F243 属性面板「剩余属性点 0」时 `+1` 按钮无明确禁用态（P2 死选项视觉）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-m7-属性.png` 报「剩余属性点为 0 时 +1 按钮虽较暗，但没有明确禁用态，容易让人误以为仍可点击」，且 `+1` 按钮距右侧面板边缘安全边距偏小。`intuitive-game-design` Q2 的 signifier 缺口｜verify: 点数=0 时断言每个 `+1` 控件 `disabled===true` 或有 `aria-disabled="true"` 且 `opacity ≤ 0.45`；390 下 `+1` 右缘距面板内边 ≥8px（脚本 `scripts/e2e/attr-plus-disabled.mjs`）｜risk: low
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/attr-plus-disabled.mjs
   risk: low
