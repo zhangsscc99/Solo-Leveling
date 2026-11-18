@@ -707,7 +707,18 @@
   改回 `display:none` → 断言必红（`1440 桌面下 .help-toggle 不可见`），复原后连跑 2 次均 PASS。
   部署后线上 1440 复测：`.help-toggle` 位于 x=1376、44×44、点击落指令表、stage top 71→71、无横向溢出、无 pageerror。
 
-- [ ] F225 观察动作的代价没落到数值上（P0 零成本空转）｜第47轮走查：新档连点「环顾四周」6 次，HP 恒 100/100、MP 恒 20/20，XP/金币不变；第 5 次文案「收获不会再多一分，体力却一直往下耗」、第 6 次「动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上」，机制上什么都没发生（`game-balance-analyst` 死选项 + `narrative-systems-designer` Dissonant）。verify: `node scripts/e2e/observe-cost.mjs` 新档连点观察 6 次，断言 HP 或 MP 至少一项单调下降（≥1 点/次）或第 4 次起返回 must_choose/disabled；若走“省略消耗”路线则断言第 4 次后按钮 disabled，且正文不再出现「体力…耗」类承诺｜risk: med
+- [x] F225 观察动作的代价没落到数值上（P0 零成本空转）｜第47轮走查：新档连点「环顾四周」6 次，HP 恒 100/100、MP 恒 20/20，XP/金币不变；第 5 次文案「收获不会再多一分，体力却一直往下耗」、第 6 次「动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上」，机制上什么都没发生（`game-balance-analyst` 死选项 + `narrative-systems-designer` Dissonant）。verify: `node scripts/e2e/observe-cost.mjs` 新档连点观察 6 次，断言 HP 或 MP 至少一项单调下降（≥1 点/次）或第 4 次起返回 must_choose/disabled；若走“省略消耗”路线则断言第 4 次后按钮 disabled，且正文不再出现「体力…耗」类承诺
+  verify: node scripts/e2e/observe-cost.mjs
+  risk: med
+  done(第58轮): 侦察确认 P207/F216 已把「前 3 次免费观察 / 第 4 次起 encounter_clock +1 + 动静 N/4 可见计数」钉死，observe-economy 还证明保底账兑现为真实遇敌——
+  所以本轮**不**改成扣 HP/MP（会推翻免费观察契约，observe-economy / observe-after-cap / action-prose-by-chapter / observe-prose-concrete / no-placeholder-prose 五个断言全红），
+  只修真实残留矛盾：`OBSERVE_OVER_LINES[1]`「体力却一直往下耗」与 hp/mp 全程不变相悖（承诺了不存在的扣血）→ 改口「逗留的动静却在一格一格往上走」，
+  并在 P207 注释里写死口径「代价只许如实写动静/时间」；观察全线文案（进度尾注 / 复核池 / prose.js observe 池 / 风险尾注）复查无其它扣体力承诺。
+  新增 `scripts/e2e/observe-cost.mjs`（206 行，自起隔离实例：空闲端口 + 临时 DB + AI key 置空）：新档连发 6 次「观察」，断言 (a) 前 3 次 hp/mp/scene 不变、
+  (b) 第 4–6 次 encounter_clock 严格 +1 且「动静 N/M」N 严格递增、(c) 6 条回包零「体力…耗/耗…体力」虚假承诺、(d) 复核区每条含前进/休息/潜行指引、(e) 正文非空且前 3 次带场景名前缀。
+  红证：`OBSERVE_OVER_LINES[1]` 复原旧句 → (c) 在第 5 次观察 FAIL（exit=1），复原新句 PASS。自测：observe-cost 3 连跑 PASS（1.5–1.9s）、
+  observe-after-cap / observe-economy / observe-prose-concrete / action-prose-by-chapter / no-placeholder-prose 全 PASS、`cd server && node --test` 242 pass / 0 fail。
+  遗留：本条「扣数值代价」的字面诉求被 P207/F216 的免费观察契约否决；若日后要真扣 HP/MP，须先重开免费观察契约（连带改 5 个断言），不宜单轮内动。
 - [x] F226 决策未做时连点「前进」无限追加系统行（P0 拒绝刷屏）｜第47轮走查：must_choose 状态下连点「探索前进」8 次，`.stage-col` 由 20 → 36 行（每次 +2），HP/MP/XP/金币零变化；同一句拒绝可无限写进日志、把正文顶走。
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/reject-spam.mjs
   risk: low
