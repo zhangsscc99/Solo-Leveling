@@ -163,9 +163,12 @@ function sceneView(save) {
   const total = chaptersEngine.chapterPath(chapter).length;
   const idx = chaptersEngine.pathIndexOf(chapter, scene.id);
   // F114 单一事实源：chapter_steps 只由当前场景在主线链上的位置推导
-  // （站位 + 1；站位不在链上记 0）——不再叠加 main_steps 高水位，
-  // 位置与进度是一本账：回溯退几幕，计数就退几幕。
-  const steps = Math.min(total, Math.max(0, idx + 1));
+  // （站位 + 1）——不再叠加 main_steps 高水位，位置与进度是一本账：
+  // 回溯退几幕，计数就退几幕。
+  // F246：站位不在链上（支线场景只经 choice 进入、不占主线步序）时，
+  // progressStepsOf 沿场景出边反推「下一个可达主线节点」的步数——
+  // 支线落点不再把已走过的里程碑打成 0/N。
+  const steps = Math.min(total, chaptersEngine.progressStepsOf(chapter, scene.id));
   // F117 章尾入口数据：下一章的章号/章名随存档下发，主按钮
   // 「进入第N章 · 章名」按字段渲染——章名取自数据，前端不写死。
   const nextChapter = chaptersEngine.getChapter(chapter.index + 1);
@@ -4229,10 +4232,12 @@ api.get("/chapters", (req, res) => {
     let steps = state === "cleared" ? mainTotal : 0;
     if (state === "current") {
       const scene = chaptersEngine.currentScene(save);
-      const idx = scene ? chaptersEngine.pathIndexOf(chapter, scene.id) : -1;
-      // 与 saveView 同一口径：进度由当前站位推导（位置 + 1），
-      // 不读高水位——地图「当前」与顶栏步数永不脱钩。
-      steps = Math.min(mainTotal, Math.max(0, idx + 1));
+      // 与 saveView 同一口径：进度由当前站位推导（链上 = 位置 + 1，
+      // 支线站位按 F246 progressStepsOf 反推），不读高水位——
+      // 地图「当前」与顶栏步数永不脱钩。
+      steps = scene
+        ? Math.min(mainTotal, chaptersEngine.progressStepsOf(chapter, scene.id))
+        : 0;
     }
     return { ...view, state, progress: { current: steps, target: mainTotal } };
   });
