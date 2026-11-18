@@ -2875,3 +2875,10 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **F253（休息死选项）→ 视觉层已修**（20px 胶囊），但决策层仍是死选项，且点击零反馈（F245 仍开着）。
 - **F245（满状态休息无 toast）→ 仍在**：3 次点击 toast 全程为 null。
 - **F244（选项清单复读）→ 仍在且更严重**：本轮多出「（体力消耗 HP …→…）」这类数值括注。
+
+## 第 71 轮调度记录（2026-11-18 21:11 UTC，开发 loop，只做 1 条）
+
+- **闸门**：green（cpu 27% / load 1.74 / mem 52% / parallel 2），单条 devin 通道。
+- **F235 已做（devin swe-2-high，一次过）**：意图词表迁到仓库根 `shared/intents.json`（顺序 + 正则 + 疑问句守卫唯一出处，语义写进 `_doc`，沿革写进 `note`），`server/ai/keywords.js` 由 JSON 编译匹配表（影子三条仍取 `engine/shadow` 的已编译正则），`client/src/App.tsx` 三处镜像正则（advance / question_form / 早位意图族）改由同一 JSON 构造，字面量删除。新断言 `scripts/assert/intent-vocab-single-source.mjs`：grep 词表命中 0（≤1）+ 顺序校验 + 内嵌跑 deny-feedback / choice-refusal-dedupe。验收：verify F235 PASS(10.03s)、新断言连跑 2 次 PASS、server node --test 243 pass / 0 fail、client vite build + tsc 干净；ci-deploy 内置 E2E **22/22**、DEPLOY OK，`.deployed-ref=6a0a84a`，本地 200 / 公网 200，线上 bundle `index-DAdPxA2N.js`。
+- **观察到的既有失败（未修，留给独立任务）**：`scripts/assert/must-choose-copy.mjs` 在基线（c1c2a6b）就 FAIL——它硬点「探索前进」，而 F247 起该按钮在 must_choose 下 `disabled`，playwright 等 enabled 超时。属测试侧未随 F247 适配，不是产品回归。
+- **第 52 轮遗留项复核（本轮未派 devin，只做侦察）**：F249 的复读/零代价两半已被 F225（动静推进代价）+ F241（尾注轮换）覆盖，`observe-dedupe` 实测 PASS；F250 已被 F247 关闭（按钮 disabled + 指路 title）；F248 的「stage 底与底栏 1px」现已 45.7px（390）/53.8px（1440）。三条建议下次由走查任务复核后作废或改写，别再照旧文改代码。
