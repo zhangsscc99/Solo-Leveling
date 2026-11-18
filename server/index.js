@@ -1450,15 +1450,27 @@ function advanceOutcome(save, choice) {
       // choice_refusal_repeat 让路由只回一条不落库的轻提示。
       const fp = `${save.scene}|${opts}`;
       if (save.choice_refusal_key === fp) {
+        // F219：重复拒绝文案两修——① 方位词删掉（选项组实际渲染在行动
+        //    行下方，「点上方选项」把玩家指向空地）；② 不再回同一句
+        //    常量——按 choice_refusal_count 取模在两版措辞间确定性
+        //    轮换（偶数计次再把真实选项清单列一遍，奇数计次换句式
+        //    指路），连点三次得到三条两两不同的文案。轮换不用随机数，
+        //    断言可复现。patch 只带计数字段（零消耗/零位移口径不变），
+        //    choice_refusal_repeat 照旧不落库。
+        const n = Number(save.choice_refusal_count) || 0;
         return {
-          patch: null,
+          patch: { choice_refusal_count: n + 1 },
           refused: true,
           choice_refusal_repeat: true,
-          content: "【系统】仍需做出选择——点上方选项，或说「选择 序号」。",
+          content:
+            n % 2 === 0
+              ? `【系统】仍要做完这道选择才能前进：${opts}` +
+                `（说「选择 序号」或直接点选项）。`
+              : "【系统】抉择未定，先点一个选项，或说「选择 序号」。",
         };
       }
       return {
-        patch: { choice_refusal_key: fp },
+        patch: { choice_refusal_key: fp, choice_refusal_count: 0 },
         refused: true,
         content:
           `【系统】这里必须做出选择：${opts}` +

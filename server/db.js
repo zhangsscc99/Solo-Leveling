@@ -174,6 +174,13 @@ if (!saveCols.includes("stealth_charges")) {
 if (!saveCols.includes("choice_refusal_key")) {
   db.exec("ALTER TABLE saves ADD COLUMN choice_refusal_key TEXT");
 }
+// F219 拒绝文案轮换计数：同档同场景同选项集合下第 N 次重复拒绝按
+// 计数取模在两版措辞间确定性轮换（见 index.js advanceOutcome 必选门
+// 分支）——「连点三次拒绝文案逐字相同」等于刷屏。指纹失配（换场景/
+// 选项集合变化）时由指纹分支一并归零。老存档自动落 0。
+if (!saveCols.includes("choice_refusal_count")) {
+  db.exec("ALTER TABLE saves ADD COLUMN choice_refusal_count INTEGER NOT NULL DEFAULT 0");
+}
 
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
@@ -346,6 +353,7 @@ const MUTABLE_COLUMNS = [
   "chapter", "scene", "rank", "free_points", "deaths", "encounter_clock",
   "encounter_seq", "encounter_cd", "rest_used", "main_steps",
   "advance_streak", "stealth_charges", "choice_refusal_key",
+  "choice_refusal_count",
 ];
 
 function updateSave(id, patch) {
