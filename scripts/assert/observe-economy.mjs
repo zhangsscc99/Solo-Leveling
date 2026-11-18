@@ -12,24 +12,33 @@
 //     b) 前 3 次正文仍以场景叙述名「「…」——」开头（F092/F178 契约不动）；
 //     c) 第 4 次起回包正文不含「获得」「发现·」——不再产出、不再发现，
 //        也不得在「已经看熟」的同一条回包里给全新景物；
-//     d) 第 4–12 次 encounter_clock（所选代价字段）严格单调上升——每次
-//        超盖观察都付一格真实代价，不再是零成本按钮；
-//     e) 风险必须真实：若 12 次内真撞上遭遇（encounter 字段/combat），
-//        直接记为命中；否则（本实现的口径——观察不自己掷怪，而是把既
-//        有保底账推进一格，交由下一次真实行动的 roll 兑现）断言字段增
-//        长 + 正文含风险提示，再补发一次「前进」证明保底账不是摆设——
-//        clock 已过保底线时落地掷点必中，真实遇敌立刻兑现；
+//     d) 第 4–6 次 encounter_clock（所选代价字段）严格单调上升——每次
+//        超盖观察都付一格真实代价，不再是零成本按钮。F257 起第 7 次
+//        （clockNext>=PITY_LIMIT）保底账当场兑现成真实遭遇、clock 归
+//        零——严格递增断言只管到兑现前夜，归零是兑现不是赖账；
+//     e) 风险必须真实且必兑现：第 7 次观察回包 save.combat 非空（撞上
+//        真实遭遇），第 8 次起「观察」被交战门禁 refused 拦回——
+//        「一直观察」从此不是零成本选项；
 //     f) hp/mp 不作为唯一代价被静默忽略：全程 hp/mp 可以不变，但必须
-//        另有一条可量化代价成立（d 的字段单调递增即此代价）。
+//        另有一条可量化代价成立（d 的字段递增 + e 的遭遇兑现即此代价）。
+//
+//   F257 口径变更说明：旧版（P207/F225 时代）观察不自己掷怪，只把保底
+//   账推进一格交由下一次真实行动的 roll 兑现——本断言当时的 (e) 因此
+//   写了「未遇敌则补发前进证明保底必中」的兜底分支。第 52–54 轮走查实
+//   测连点 8 次零遭遇（威胁停在纸面），F257 把 clockNext>=4 的那次观察
+//   改为直接经 tryEncounter 开战——兑现点从「下一次行动」提前到「攒过
+//   线的这一下」，本断言相应把 (e) 收紧成「第 7 次必撞、第 8 次起必拒」
+//   （断言强度上调而非放宽：旧口径允许 12 次全程不撞）。
 //
 //   旧码红证：旧实现观察 patch 恒 null——encounter_clock 全程为 0，
-//   (d) 在第 4 次观察处即 FAIL；「12 次没遇敌 ⇒ 字段增长」同样 0 增长。
+//   (d) 在第 4 次观察处即 FAIL；F257 前夜码（观察永不掷怪）在 (e) 处
+//   FAIL——第 7 次没有 save.combat。
 //
 //   API_BASE 默认 http://127.0.0.1:3020/game/api，可用环境变量覆盖。
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -55,10 +64,16 @@ const s0 = sv0.save;
 const replies = [];
 for (let i = 1; i <= OBSERVES; i++) {
   const r = await act(id, "观察");
-  assert(r.refused !== true, `第${i}次观察被门禁拒绝（非交战态不得拒绝）: ${r.reply.content.slice(0, 80)}`);
+  // F257：第 7 次保底账兑现开战，第 8 次起交战门禁必须把「观察」拦回
+  // （refused）——兑现前不得拒绝、兑现后必须拒绝。
+  if (i <= 7) {
+    assert(r.refused !== true, `第${i}次观察被门禁拒绝（兑现前不得拒绝）: ${r.reply.content.slice(0, 80)}`);
+  } else {
+    assert(r.refused === true, `第${i}次观察未被交战门禁拦回——「一直观察」仍是零成本`);
+  }
   replies.push({ i, text: String(r.reply.content || ""), save: r.save });
   console.log(
-    `    OBS${String(i).padStart(2)} clock=${r.save.encounter_clock} hp=${r.save.hp} mp=${r.save.mp} · ` +
+    `    OBS${String(i).padStart(2)} refused=${r.refused === true} clock=${r.save.encounter_clock} hp=${r.save.hp} mp=${r.save.mp} · ` +
       r.reply.content.replace(/\s+/g, "").slice(0, 70)
   );
 }
@@ -98,10 +113,10 @@ for (const r of replies.slice(3)) {
   );
 }
 
-// ── (d) 第 4–12 次 encounter_clock 严格单调上升 ──────────────────
+// ── (d) 第 4–6 次 encounter_clock 严格单调上升；第 7 次兑现归零 ──
 {
   let prev = Math.max(0, Math.trunc(Number(replies[2].save.encounter_clock) || 0));
-  for (const r of replies.slice(3)) {
+  for (const r of replies.slice(3, 6)) {
     const cur = Math.trunc(Number(r.save.encounter_clock) || 0);
     assert(
       cur > prev,
@@ -109,47 +124,44 @@ for (const r of replies.slice(3)) {
     );
     prev = cur;
   }
+  // 兑现不是赖账：保底账攒过线的那次观察直接开战，clock 归 0 重新计。
+  assert(
+    Math.trunc(Number(replies[6].save.encounter_clock) || 0) === 0,
+    `(d) 第7次观察（保底兑现）encounter_clock 未归零: ${replies[6].save.encounter_clock}`
+  );
 }
 
-// ── (e) 风险真实：遭遇命中 or 字段增长 + 风险提示 + 保底兑现 ─────
+// ── (e) 风险必兑现：第 7 次撞上真实遭遇，第 4–6 次正文含风险提示 ──
 const combatHit = replies.slice(3).find((r) => r.save && r.save.combat);
-const riskHint = replies.slice(3).some((r) => RISK_RE.test(r.text));
+const riskHint = replies.slice(3, 6).every((r) => RISK_RE.test(r.text));
 const clockFinal = Math.trunc(Number(replies[replies.length - 1].save.encounter_clock) || 0);
-if (combatHit) {
-  console.log(`    (e) 第${combatHit.i}次观察撞上真实遇敌：${JSON.stringify(combatHit.save.combat && combatHit.save.combat.enemy && combatHit.save.combat.enemy.name)}`);
-} else {
+assert(
+  combatHit && combatHit.i === 7,
+  `(e) 第7次观察未撞上真实遭遇（首个带交战回包在第 ${combatHit ? combatHit.i : "—"} 次）——` +
+    `保底账攒过线仍是纸面威胁`
+);
+console.log(
+  `    (e) 第${combatHit.i}次观察撞上真实遇敌：${JSON.stringify(combatHit.save.combat && combatHit.save.combat.enemy && combatHit.save.combat.enemy.name)}`
+);
+assert(
+  riskHint,
+  `(e) 第 4–6 次正文必须各含风险/代价提示: ${replies[3].text.slice(-80)}`
+);
+// 兑现后再观察：交战门禁拦回且正文不含景物复述（「<name>」—— 开头即
+// 景物行口径，拒绝文案是【战斗】/【系统】行）。
+for (const r of replies.slice(7)) {
   assert(
-    clockFinal > Math.max(0, Math.trunc(Number(s0.encounter_clock) || 0)),
-    `(e) 12 次未遇敌且代价字段零增长（${s0.encounter_clock} -> ${clockFinal}）`
-  );
-  assert(
-    riskHint,
-    `(e) 12 次未遇敌时第 4 次起正文必须含风险/代价提示，实际均无: ${replies[3].text.slice(-80)}`
-  );
-  // 兑现证明：保底账不是摆设——clock 已越过保底线时，下一次真实行动
-  // 的掷点必中。连发真实推进（advanceStep 自动消化 must_choose 场景的
-  // 显式选择）直至落地掷点，封顶 4 步仍不中才红——真实遇敌 = 代价真实
-  // 可观测的最强证据。
-  let engaged = null;
-  for (let step = 0; step < 4 && !engaged; step++) {
-    const r = await advanceStep(id);
-    if (r.save && r.save.combat) engaged = r;
-  }
-  assert(
-    engaged && engaged.save.combat,
-    `(e) 代价字段已涨至 ${clockFinal}（过保底线），随后 4 步真实推进仍未掷出真实遇敌——` +
-      `保底账不兑现即是假代价`
-  );
-  console.log(
-    `    (e) 保底兑现：连蹲观察把 encounter_clock 推到 ${clockFinal} 后，「前进」撞上 ` +
-      `${engaged.save.combat.enemy.name} Lv.${engaged.save.combat.enemy.level}——代价真实`
+    !r.text.startsWith(`「${narrName}」——`),
+    `(e) 第${r.i}次观察（交战态）仍产出景物正文: ${r.text.slice(0, 80)}`
   );
 }
 
 // ── (f) hp/mp 不作为唯一代价被静默忽略 ───────────────────────────
 {
   const hpChanged = replies.some((r) => r.save.hp !== s0.hp || r.save.mp !== s0.mp);
-  const quantified = clockFinal > Math.max(0, Math.trunc(Number(s0.encounter_clock) || 0));
+  const quantified =
+    clockFinal > Math.max(0, Math.trunc(Number(s0.encounter_clock) || 0)) ||
+    Boolean(combatHit);
   assert(
     hpChanged || quantified,
     `(f) 12 次观察 hp/mp 未变且无任何可量化代价（encounter_clock ${s0.encounter_clock} -> ${clockFinal}）`
