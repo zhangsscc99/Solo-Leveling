@@ -835,3 +835,21 @@
   红证（实测）：回退旧样式重建 dist → FAIL「「力量」+1 cursor=default」；390 边距旧码 gap 0 < 8。
   验收：verify F243 PASS(17.25s)、脚本连跑 3 次 PASS、stat-row-fit/deny-feedback PASS、server node --test 242 pass 0 fail、
   tsc --noEmit 干净；ci-deploy 内置 E2E 15/15、health 200 + 公网 https://openfolio.uk/game 200。
+
+
+- [ ] F244 观察 / 前进正文把整段选项清单拼进每一行，第 4–6 次还双层括注嵌套（P1 文本复读 · 日志腔）｜第51轮走查：连点「环顾四周」6 次，正文增量 +123/+118/+149/+192/+195/+196，但第 3–6 次行尾逐字重复「必须做出选择——说「按石碑所写，低头敬拜」、「退到石柱后，观察石像与石碑的对应」或「趁乱往石门方向逃」」，第 4 次外层括注里又套一遍同一串选项（一行内同一段话出现 2 次）。`game-detail-bar` §5 Content that never repeats + `narrative-systems-designer` The Info Dump｜verify: 新增 `scripts/e2e/observe-mustchoose-prose.mjs`——隔离实例落到 must_choose 场景后连点「观察」6 次，逐行断言：① 单行内「必须做出选择」≤1 次；② 单行内「按石碑所写」整串选项名 ≤1 次；③ 单行括号嵌套层数 ≤1；④ 6 行去重后的描述句 ≥4 句。回退旧码应 FAIL｜risk: med
+  verify: 待实现 scripts/e2e/observe-mustchoose-prose.mjs（落地后补命令）
+  risk: med
+- [ ] F245 满 HP/MP 时点「休息」日志零增量、无 toast，只有常驻静态提示（P1 反馈真空）｜第51轮：HP 100/100 · MP 20/20 连点「休息」3 次，每次 `.stage-col` innerText 增量 0；100ms 采样 `.sys-toast` 为 null（同一条走查里「前进」被拒时 toast 80ms 内出现、存活约 1.5s，证明 toast 机制可用，是这条路径没接）。玩家无法判断这一下是否被系统收到。`game-detail-bar` §2「Every action answers at once」+ `intuitive-game-design` Q5 三级反馈缺 Immediate 层｜verify: 新增 `scripts/e2e/rest-full-feedback.mjs`——满状态点「休息」断言 200ms 内 `.sys-toast` 出现且文本含「体力」或「魔力」、可见时长 ≥1.2s（照 deny-feedback 的 80ms/时长写法）；反向：HP 降到 60 时点「休息」断言出现恢复文案而非拒绝文案｜risk: low
+  verify: 待实现 scripts/e2e/rest-full-feedback.mjs（落地后补命令）
+  risk: low
+- [ ] F246 做完抉择后章节进度 2/7 掉回 0/7（刷新后仍是 0/7）（P1 进度显示回退）｜第51轮：选「退到石柱后，观察石像与石碑的对应」前状态栏为 `第1章 双重地下城 2/7`，抉择落地、拿到线索 `read_the_law`、进入遭遇后变 `0/7`，`goto` 重载后依旧 `0/7`（HP 97/100、MP 18/20、XP 10、金币 10 均正确续档，故非渲染抖动）。`game-detail-bar` §6「Never take away earned progress」显示层违约｜verify: 新增 `scripts/e2e/chapter-progress-monotonic.mjs`——记录抉择前 `status` 里 `\d/7` 的分子，抉择并等遭遇出现后再读，断言后者 ≥ 前者；再 reload 断言等于抉择后的值｜risk: med
+  verify: 待实现 scripts/e2e/chapter-progress-monotonic.mjs（落地后补命令）
+  risk: med
+- [ ] F247 must_choose 状态下「探索前进」仍实色全亮可点，只靠 1.5s toast 告知必被拒（P1 死选项 / 可负担性缺口）｜第51轮：状态栏已写「【系统】这里必须做出选择」，正文流里仍有「前进」入口、底栏「探索前进 1」仍与「环顾四周 / 潜行 / 休息」同尺寸同色；点它 → 正文 +0 字，80ms 后 toast「抉择未定——先选一个…」约 1.5s 消失。vision 对 m3 结论：「系统已写明必须做出选择，界面却仍保留正文右侧『前进』和底部『探索前进』入口，看不出被禁用或置灰」。`intuitive-game-design` Q2：优先改 Real，而不是靠提示补救｜verify: 新增 `scripts/e2e/forward-locked-in-choice.mjs`——落到 must_choose 后断言「探索前进」`disabled===true` 或 `aria-disabled="true"` 且 opacity ≤0.5，正文流「前进」同款；反向：非 must_choose 回合该按钮 `disabled===false`（防写死禁用洗绿）｜risk: low
+  verify: 待实现 scripts/e2e/forward-locked-in-choice.mjs（落地后补命令）
+  risk: low
+- [ ] F248 战斗面板与战报互斥：面板一开正文战报被顶出可视区；且 390 下 stage 底与底栏只隔 1px（P2 版式/信息架构）｜第51轮实测：`.combat` 为 `position: static` 占位块（390 下 y=144–432、高 288），面板打开时正文「【战斗】石像残兵 HP 52→35」被挤出可视区，看血条就看不到战报；`.stage` 底边 646 与 `.actions` 顶边 647 只隔 1px（桌面 664/665 同样 1px，F242 要求 ≥8px）。`game-detail-bar` §9b Layout that never spills out of its frame + §9a「HUD that lives」｜verify: 新增 `scripts/e2e/combat-log-coexist.mjs`——交战态断言战斗面板与最新一条战报**同时可见**（两者 `getBoundingClientRect()` 均落在视口内且互不覆盖 ≥80% 面积），并断言 `.stage` 底与 `.actions` 顶间距 ≥8px（390 与 1440 各测一次）；回退旧码应 FAIL｜risk: med
+  verify: 待实现 scripts/e2e/combat-log-coexist.mjs（落地后补命令）
+  risk: med
+
