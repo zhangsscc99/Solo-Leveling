@@ -188,7 +188,14 @@ function sceneView(save) {
       .slice(0, 3)
       // F196：cost 是该选项 effects 的一句代价标注（「体力 −5」），
       // 前端按字段渲染——有代价的选项在按钮上就把账摊开。
-      .map((c) => ({ id: c.id, label: c.label, cost: choiceCostHint(c) })),
+      // F211：locked/locked_reason 是 requires 前置未达的就地说明，
+      // 与 choice 意图拒绝分支同口径，前端置灰并透传文案。
+      .map((c) => ({
+        id: c.id,
+        label: c.label,
+        cost: choiceCostHint(c),
+        ...choiceLockView(save, c),
+      })),
   };
 }
 
@@ -1257,6 +1264,33 @@ function choiceCostHint(choice) {
     parts.push(`获得「${ITEMS.get(fx.item).name}」`);
   }
   return parts.length ? parts.join(" · ") : null;
+}
+
+// F211 带前置选项的锁态视图：与 choice 意图 requires 拒绝分支同口径
+// （min_level 按 Math.trunc(Number(save.level)||0) 比对、flag 走 flagSeen
+// 日志账）——未达前置时 locked:true 并附一条可执行说明，前端据此置灰
+// 并把文案透传到 title 与选项组下方小字；无 requires 恒 locked:false。
+function choiceLockView(save, choice) {
+  const req =
+    choice && typeof choice.requires === "object" && choice.requires
+      ? choice.requires
+      : {};
+  if (
+    Number.isInteger(req.min_level) &&
+    Math.trunc(Number(save.level) || 0) < req.min_level
+  ) {
+    return {
+      locked: true,
+      locked_reason: `需 Lv.${req.min_level}（当前 Lv.${Math.trunc(Number(save.level) || 0)}）`,
+    };
+  }
+  if (typeof req.flag === "string" && req.flag && !flagSeen(save.id, req.flag)) {
+    return {
+      locked: true,
+      locked_reason: `先「观察」一次四周，看清线索后这一步才放得开`,
+    };
+  }
+  return { locked: false, locked_reason: null };
 }
 
 // 「前进」结算：严格沿本章主线链推进 save.scene，日志正文一律用落点

@@ -3531,6 +3531,29 @@ button {
   color: var(--line-strong);
 }
 
+/* ── F211 锁键原因的就地小字 ──
+   与 .rest-hint 同一语气：服务端 locked_reason 原文透传，弱一级对比度，
+   不是告警条。flex 整行落在选项组与系统 meta 行之间；单行不换行、窄屏
+   省略号收尾，不产生横向溢出；仅有锁定项时渲染，全可点/交战不占位。 */
+.choice-hint {
+  flex: 0 0 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.choice-hint::before {
+  content: "▪";
+  margin-right: var(--sp-2);
+  color: var(--line-strong);
+}
+
 /* ── F185 交战态「为什么不能前进」的就地小字 ──
    F185b：整行块级版把 footer 抬高 ~21.6px、把 .stage 压破 60% 视口
    （combat-actions-ui 契约红线）——改作「行动」组标签的行内后缀：
