@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-11-18 08:21 UTC（第50轮调度 · F212 系统键横滑暗示）
+
+只做 **F212**（`risk=low`，产品级视觉/手势死路；risk=high 的 F078/F093 按规则跳过）。玩家可见变化：
+390 下底部系统键行此前只露「背包/技能/属性」，无裁切渐隐、无任何「还有更多」提示，第一次进游戏的人
+会以为没有地图/任务/存档。现在：
+
+- 右缘一条 28px 渐隐条（`.sys-fade-r`，`pointer-events:none`，是可测量元素而非容器 mask），
+  滚到末端时它消失、左缘对称的 `.sys-fade-l` 出现；滚回起点反向。由 scroll 事件 + `ResizeObserver`
+  只写 `data-at-start/data-at-end` 驱动，零 setState、无 rAF 循环。
+- 首屏一次性「◂ 左滑还有 地图 / 任务 / 影子 / 战斗 / 存档」浮层，1.8s 自动淡出，绝对定位不占行高、
+  不推挤 `.actions-main`/`.input-row`、不进日志正文，同一会话只出现一次（组件 state，不落 localStorage）；
+  交战态与 ≥900px 桌面不渲染。
+
+**devin 通道**：swe-2-high 一次过（未触发回退），改动 `client/src/App.tsx`（`.sys-scroll` 包裹层，桌面
+`display:contents` 透传）、`client/src/styles.css`（删旧 mask、加渐隐条与 hint keyframes）、新断言
+`scripts/assert/sys-keys-affordance.mjs`。diff 已逐文件复核：`docs/FEATURES.md` 只动了 F212 一行，
+无其它文档回写丢失。
+
+**验收**：隔离实例（worktree 自建 dist + `PORT=3141` + `/tmp/sl-f212-v.db`）`sys-keys-affordance` 连跑
+3/3 PASS（22.6s/20.7s/19.1s）；同实例回归 `desktop-layout`（390 八键 8/8 hit self）、`mobile-actions`（含
+360 档）、`panels` 全 PASS；红向验证——同一断言打旧代码（`:3020` 部署版）立刻 FAIL（「首屏 1.5s 内未出现
+`.sys-swipe-hint`」），证明断言真的咬住了新行为。合入 main 后 `ci-deploy.sh` 全链路 7/7 E2E PASS
+（含 390 系统键八键 `elementFromPoint` 8/8），线上 `/game` 与 health 均 200，`verify.sh F212` PASS。
+
+**遗留方向**（未立项，交给后续走查）：① `.sys-swipe-hint` 与交战态 `.save-blocked-hint` 同占 `.actions`
+上缘位点，当前靠「交战不渲染 hint」避让，若以后要同时展示需另找位点；② 横滑提示只在首次进游戏出现，
+老档玩家（会话内第二次进入）没有再次提示，是否要在「首次打开某面板失败」时给一次补救提示值得走查；
+③ P210（`report.sh` 全表模式 >50 分钟跑不完）仍未做，本轮报告仍是手写替代，增量模式是每轮汇报的硬依赖。
+
 ## 2026-11-18 06:41 UTC（第48轮调度 · F219 must_choose 拒绝文案）
 
 只做 **F219**（不改战斗数值/布局结构）。玩家可见变化：390 下 must_choose 场景连点「探索前进」，
