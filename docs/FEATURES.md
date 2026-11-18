@@ -708,7 +708,14 @@
   部署后线上 1440 复测：`.help-toggle` 位于 x=1376、44×44、点击落指令表、stage top 71→71、无横向溢出、无 pageerror。
 
 - [ ] F225 观察动作的代价没落到数值上（P0 零成本空转）｜第47轮走查：新档连点「环顾四周」6 次，HP 恒 100/100、MP 恒 20/20，XP/金币不变；第 5 次文案「收获不会再多一分，体力却一直往下耗」、第 6 次「动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上」，机制上什么都没发生（`game-balance-analyst` 死选项 + `narrative-systems-designer` Dissonant）。verify: `node scripts/e2e/observe-cost.mjs` 新档连点观察 6 次，断言 HP 或 MP 至少一项单调下降（≥1 点/次）或第 4 次起返回 must_choose/disabled；若走“省略消耗”路线则断言第 4 次后按钮 disabled，且正文不再出现「体力…耗」类承诺｜risk: med
-- [ ] F226 决策未做时连点「前进」无限追加系统行（P0 拒绝刷屏）｜第47轮走查：must_choose 状态下连点「探索前进」8 次，`.stage-col` 由 20 → 36 行（每次 +2），HP/MP/XP/金币零变化；同一句拒绝可无限写进日志、把正文顶走。verify: `node scripts/e2e/reject-spam.mjs` 在 must_choose 状态连点前进 6 次，断言 `.stage-col` 子元素增量为 0（或 ≤1，即仅首次回执），且最后一次拒绝文本仍可见｜risk: low
+- [x] F226 决策未做时连点「前进」无限追加系统行（P0 拒绝刷屏）｜第47轮走查：must_choose 状态下连点「探索前进」8 次，`.stage-col` 由 20 → 36 行（每次 +2），HP/MP/XP/金币零变化；同一句拒绝可无限写进日志、把正文顶走。
+  verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/reject-spam.mjs
+  risk: low
+  done(第57轮): 根因是库层已去重（P206 `choice_refusal_repeat`）但前端不知道：`/action`、`/ai-action` 的 refused 回包新增 `choice_refusal_repeat:true` 下发，
+  且重复拒绝时连 user 行也不再落库（避免刷新后条数与界面不一致）；`client/src/App.tsx` 的 `dispatch` 收到标记后撤回乐观追加的 user 行、
+  不追加 reply 行，本次拒绝改走既有 `.sys-toast` 瞬时层（2.6s 自消，不进 `.stage-col`）+ 既有 `flashChoices()`，首条拒绝正文与选项组始终留在页面上。
+  新增 `scripts/e2e/reject-spam.mjs`（193 行，自起隔离端口/临时 DB，直落 `ch1_law`）：首拒 10→12 行（照旧 +2），6 连点 12→12（增量 0），
+  「必须做出选择」+3 个选项名仍可见，HP/MP/XP/金币零变化；PASS 10.0s。冒烟 boot 5.5s / action 6.3s 均 PASS，连跑 2 次稳定。
 - [ ] F227 刷新续档丢 9 条非回执日志（P1 续档一致性，F222 的扩大）｜第47轮走查：战斗+抉择后 `.stage-col` 64 行，刷新后 55 行，最后一条逐字相同、数值全对；F222 的豁免白名单只认「已调出技能/道具面板|【警报】与系统的连接中断」，战斗行与叙述行仍在丢。verify: `node scripts/e2e/resume-log-count.mjs` 打完一场并做一次抉择后记录 n0 与末 3 条，刷新后断言 n1===n0 且末 3 条逐字相同（豁免白名单不得扩大）｜risk: med
 - [ ] F228 双视口没有唯一主行动（P2 视觉，F223 复现）｜第47轮 vision：`walk-20261118T1110Z-m1-first.png`（390）判「四个探索键 + 两条剧情分支 + 页签三层同权重，不知道点哪」；`walk-20261118T1110Z-d1-first.png`（1440）判「多个入口竞争主次，右下大片暗色留白」。建议把续档页那条「先『观察』一次四周，看清线索后这一步才放得开」的引导前置到首屏主 CTA 位。verify: `node scripts/e2e/primary-cta.mjs` 断言 390 与 1440 下存在唯一 `.cta-primary`（或等效高亮类），且同权重可点按钮不含第二个描边高亮｜risk: low
 - [ ] F229 顶栏数值行贴边与字号（P2 排版）｜第47轮 vision 在 `m1-first` 与 `m16-resume` 两次把「攻20」读成「攻2」（疑似右边缘被裁），移动端「金币」字号过小 vision 读不出（桌面能读到「金币17」）。verify: 390 宽度下量 `.stat-row` 末项的 `getBoundingClientRect().right <= 容器 innerWidth - 8`，且正文字号≥11px、数值≥12px 的断言脚本｜risk: low
