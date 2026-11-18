@@ -754,7 +754,13 @@ export default function App() {
     const keep = keepLogPosRef.current;
     keepLogPosRef.current = null;
     if (keep) el.scrollTo({ top: el.scrollHeight - keep.height + keep.top });
-    else el.scrollTo({ top: el.scrollHeight });
+    // F217 新档首屏停在正文开头：整窗日志里尚无玩家输入行（开场条目
+    // 全是 narrator/system，玩家每次动作服务端都会先落一条 user 行），
+    // 此时不再自动沉底，让开场第一段落在首屏；有任何动作史的老档
+    // （含刷新回灌、同档追加动作后重进）照旧滚到底部。
+    else if (log.some((entry) => entry.role === "user"))
+      el.scrollTo({ top: el.scrollHeight });
+    else el.scrollTo({ top: 0 });
   }, [log]);
 
   // 战斗面板开合：save.combat（服务端真实交战态）是第一信号，日志里的
