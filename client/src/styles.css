@@ -4032,6 +4032,9 @@ button {
 
 /* F253：满状态「休息」降为次级文字态，不再以完整按钮体积占位 */
 .btn.rest-dim {
+  align-self: center;
+  margin-block: auto;
+  justify-self: center;
   min-height: 0;
   height: 20px;
   padding: 0 10px;
