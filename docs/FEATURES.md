@@ -819,9 +819,18 @@
   断言单句 ≤2 次、去重 ≥6 句、复核区仍带「动静 N/4」。红证（实测）：只按句号切旧码会因计数串进句而假绿，加 `——` 切法后旧码 FAIL「说「前进」动身，或说「潜行」绕开」出现 3 次。
   验收：verify F241 PASS(1.74s)、observe-dedupe 连跑 2 次 PASS、observe-cost/dwell-guidance PASS、server `node --test` 242 pass 0 fail；
   ci-deploy 内置 E2E 16/16、health 200 + 公网 https://openfolio.uk/game/api/health 200。
-- [ ] F242 桌面 1440×900 首屏正文末行被底部操作区截断（P2 排版硬伤）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-d2-main.png` 明确报「正文最底部一行被底部固定操作区遮挡/截断，首屏阅读不完整」；同屏底部并列 行动四键 / 选择两键 / 系统八键 / 自由输入 四层，主 CTA 被四个平行行动键稀释。`game-detail-bar` §9b Layout that never spills out of its frame｜verify: 新增 `scripts/e2e/stage-bottom-clearance.mjs`——390 与 1440 下量 `.stage-col` 最后一行 `getBoundingClientRect().bottom` 与 `.actions` 顶部 `top`，断言间距 ≥8px；并在日志滚到底后断言最后一行完整可见（未被 fixed 层覆盖，`elementFromPoint` 命中正文而非 `.actions`）｜risk: low
+- [x] F242 桌面 1440×900 首屏正文末行被底部操作区截断（P2 排版硬伤）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-d2-main.png` 明确报「正文最底部一行被底部固定操作区遮挡/截断，首屏阅读不完整」；同屏底部并列 行动四键 / 选择两键 / 系统八键 / 自由输入 四层，主 CTA 被四个平行行动键稀释。`game-detail-bar` §9b Layout that never spills out of its frame｜verify: 新增 `scripts/e2e/stage-bottom-clearance.mjs`——390 与 1440 下量 `.stage-col` 最后一行 `getBoundingClientRect().bottom` 与 `.actions` 顶部 `top`，断言间距 ≥8px；并在日志滚到底后断言最后一行完整可见（未被 fixed 层覆盖，`elementFromPoint` 命中正文而非 `.actions`）｜risk: low
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/stage-bottom-clearance.mjs
   risk: low
+  done(第65轮): devin swe-2-high 先量后改，发现**真因不是矩形相交**——滚到底态本来就有 49.8px/41.7px 间距（朴素「间距 ≥8px」断言对旧码假绿），
+  缺陷是停顶/中滚位时 `.stage-col` 裁剪缘把最低可见行拦腰铡断（1440 停顶 `.narration` 越出裁剪缘 108.3px、390 停顶 `.holo` 越界 25.8px，
+  与 walk-20261118T1519Z-d2-main.png 完全对应）。改法纯 CSS：`.stage-col` 加 `--edge-fade`（== 下内边距同一 var，桌面 sp-8=32px、≤880px 同步 sp-6=24px）
+  + `mask-image` 下缘渐隐（含 `-webkit-`），停顶/中滚时越界行溶出而非铡断，滚到底时末行完整停在渐隐区之上、零变暗；与 `.status-nums`/`.sys-fade` 同一渐隐语言。
+  `.stage-col` clientHeight 改前/改后 559/444 → 559/444（Δ=0，未拿空白换可读行数）。新断言 `scripts/e2e/stage-bottom-clearance.mjs`（373 行，照 attr-plus-disabled 隔离实例骨架）：
+  两视口各测停顶态越界像素 + 下缘渐隐存在、滚到底末行与 `.actions` 间距 ≥8px、`elementFromPoint` 命中 `.stage-col` 正文、无横溢、`.stage` 与 `.actions` 矩形不相交（防「把底栏挪出视口」洗绿）。
+  验收：verify F242 PASS(6.49s，改前红证写在脚本头注)、stage-bottom-clearance 连跑 2 次 PASS、desktop-layout/mobile/boot/action PASS；
+  ci-deploy 内置 E2E 17/17、DEPLOY OK、health 200 + 公网 https://openfolio.uk/game/api/health 200。
+  遗留（并入 F223 处理）：底栏四层并列（行动四键/选择两键/系统八键/自由输入）稀释主 CTA 的问题本轮未动，F223 的「唯一主行动」断言覆盖它。
 - [x] F243 属性面板「剩余属性点 0」时 `+1` 按钮无明确禁用态（P2 死选项视觉）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-m7-属性.png` 报「剩余属性点为 0 时 +1 按钮虽较暗，但没有明确禁用态，容易让人误以为仍可点击」，且 `+1` 按钮距右侧面板边缘安全边距偏小。`intuitive-game-design` Q2 的 signifier 缺口｜verify: 点数=0 时断言每个 `+1` 控件 `disabled===true` 或有 `aria-disabled="true"` 且 `opacity ≤ 0.45`；390 下 `+1` 右缘距面板内边 ≥8px（脚本 `scripts/e2e/attr-plus-disabled.mjs`）｜risk: low
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/attr-plus-disabled.mjs
   risk: low
