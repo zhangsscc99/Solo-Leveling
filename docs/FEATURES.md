@@ -3,6 +3,14 @@
 规则：每跳只做**一个**未勾选项；勾选时在行尾追加 `✅ (<日期> <lane>)`。
 `lane` 取值：`devin`（SWE-2 免费模型）或 `opencode`（deepseek-v4.1-flash）。
 
+## [BLOCKING] 阻塞回归（全量 E2E 守门，需优先于新功能）
+
+- [ ] GE2E-20261118 回归失败（偶发）：`quests.mjs` 打开任务面板后 `.quest` 20s 未出现，面板落到「任务信息不可用。与系统的连接中断」错误态｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/quests.mjs`｜risk: high
+  - 现场：2026-11-18T15:48Z 全量（commit `d9ad5f1`）13/14，`quests` 24.6s FAIL，`page.waitForSelector: Timeout 20000ms exceeded … waiting for locator('.quest')`；截图 `/root/logs/e2e-quests-1795017013973.png` 显示侧栏「任务」已选中但内容区为错误文案
+  - 非确定性：同命令隔离连跑 4 次全 PASS（4–5s），紧接着全量二跑 14/14 PASS；手工 `GET /game/api/saves/<id>/quests` 返回 200 且 payload 正常 → 一次瞬时 fetch 失败，非稳定回归
+  - 产品侧缺陷（真正待修）：`client/src/App.tsx:1172-1180` 的任务面板数据只做单次 `getQuests(...).catch(() => setQuestsError(true))`，失败后既无重试按钮也无自动重试，`QuestPanel` 在 `error` 时只渲染一句死文案——用户开着面板遇到一次网络抖动，任务页就被永久钉在错误态，只能切页签重新拉取。要求：失败态给「重试」入口（或 1 次自动退避重试），并在重试成功后清 `questsError`；同款隐患一并检查 `inventory`/`map`/`shadows` 三个面板
+  - 报告：`docs/runs/e2e-20261118T1548Z.md`
+
 ## M1.0 UI 视觉重做（优先级最高，先于功能条目）
 
 - [x] F000 设计计划：按 frontend-design skill 产出色板/字体/布局/原则，写入 `docs/DESIGN.md` ✅ (2026-11-15 opencode)
