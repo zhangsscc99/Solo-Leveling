@@ -413,7 +413,7 @@ function StatusBar({
           完整指令表照旧落日志行。 */}
       <button
         type="button"
-        className="drawer-toggle help-toggle"
+        className="help-toggle"
         onClick={onHelp}
         aria-label="查看可用指令"
         title="可用指令"
