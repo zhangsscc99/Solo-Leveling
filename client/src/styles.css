@@ -566,6 +566,45 @@ button {
   color: var(--faint);
 }
 
+/* ── F252 日志条目结构：每条日志一个可查询节点 + 最新条克制定位 ──
+   一条日志经 splitStageEntry 可拆多段、单段正文再按自然段拆多个
+   <p.narration>——.log-entry 把「一段」收成独立结构单元。条目间距
+   sp-5 大于段内段落间距 sp-4，同色长文因此出现分组节奏而非一堵
+   字墙；最新一条 3px 左轨（--system-dim）+ 极淡系统色底指认增量，
+   非最新条以 padding 预留同宽边位，高亮随新段下移时正文列不左右
+   跳。入场淡入 240ms，transform/opacity 双通道，不引发布局抖动。 */
+.log-entry {
+  margin: 0 0 var(--sp-5);
+  padding-left: calc(var(--sp-3) + 3px);
+  border-left: 0 solid transparent;
+  animation: log-entry-in 0.24s ease-out both;
+}
+
+.log-entry[data-latest="1"] {
+  padding-left: var(--sp-3);
+  border-left-width: 3px;
+  border-left-color: var(--system-dim);
+  background: rgba(79, 200, 255, 0.05);
+}
+
+@keyframes log-entry-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* reduced motion：与全局 * 规则同向，本组件显式兜底。 */
+@media (prefers-reduced-motion: reduce) {
+  .log-entry {
+    animation: none;
+  }
+}
+
 /* ── 系统全息窗：唯一的豪赌 ──
    切角 + 冷色玻璃 + 1px 内描边 + 外发光 + 扫描线/噪点 + 四角刻度 */
 .holo {

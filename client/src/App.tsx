@@ -1489,6 +1489,16 @@ export default function App() {
     );
   }
 
+  // F252：每条日志收进一个独立可查询的 .log-entry 节点——一条日志可拆
+  // 多段（splitStageEntry）、单段正文再按自然段拆多个 <p.narration>，
+  // 条目边界此前在 DOM 里不可寻址。最新一段挂 data-latest="1"（唯一，
+  // 供左侧强调轨 + 极淡底色指认「刚落下的那一段」）；ephemeral 标记
+  // 随段上移到包装节点，.stage-col > .holo-ephemeral 的既有豁免口径
+  // （resume-log-count 直接子节点选择器）因此不变。
+  const stageSegs = log.flatMap((entry) =>
+    splitStageEntry(entry).map((seg, i) => ({ seg, key: `${entry.id}:${i}` }))
+  );
+
   return (
     <div className="app">
       <StatusBar
@@ -1532,14 +1542,22 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className="stage-col" ref={logRef}>
+        <div className="stage-col log" ref={logRef}>
           {/* F167：一条日志可拆成多个 .stage-col 子节点（遭遇/教学段独立
-              成条），splitStageEntry 对回灌旧行与新行同规则生效。 */}
-          {log.flatMap((entry) =>
-            splitStageEntry(entry).map((seg, i) => (
-              <StageEntry key={`${entry.id}:${i}`} entry={seg} />
-            ))
-          )}
+              成条），splitStageEntry 对回灌旧行与新行同规则生效。
+              F252：每段再包一层 .log-entry——此前多段正文的每个
+              <p.narration> 各挂为一个直接子节点，现收进所属段节点；
+              子节点粒度由「段内段落」收敛为「段」，条目边界转为可查询
+              结构。 */}
+          {stageSegs.map(({ seg, key }, idx) => (
+            <div
+              key={key}
+              className={`log-entry${seg.ephemeral ? " holo-ephemeral" : ""}`}
+              data-latest={idx === stageSegs.length - 1 ? "1" : undefined}
+            >
+              <StageEntry entry={seg} />
+            </div>
+          ))}
           {save.at_epilogue && (
             // F089 一次性终章文案：按 save.at_epilogue 常驻一块横幅，不落
             // 日志、不随动作刷屏；附结算入口，与「查看结算」按钮同向。
