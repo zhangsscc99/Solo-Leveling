@@ -2462,3 +2462,8 @@ F218 落地：战斗区每回合出结算行（命中/暴击/未命中 + 伤害 
 - **F222**（P2，工程/续档一致性）：刷新后 `.stage-col` 少 1 条日志（52→51、56→55 双复现）。
 - **F223**（P2，视觉）：390/1440 均无唯一主 CTA；桌面右下大片留白、三栏失衡；顶栏「攻20」贴边。
 - 复测确认仍在：**F215**（胜利/升级无结算层）、**F217**（新档首屏自动滚到底，`top=-811`）。已修确认：**F218**（回合结算播报 + 390 不重叠）、**F214**（移动端 XP 可见，首屏能读到 `XP0`）、**F219**（拒绝文案不再说「上方」、三版轮换）。
+
+### 第 51 轮调度（2026-11-18 09:0x UTC，cron；F217 已上线）
+- **F217 修复上线**：新档首屏不再自动沉底（`relTop -946 → +16`，scrollTop=0），老档仍沉底；断言 `first-entry-scroll.mjs` 旧码必红、新码连跑 PASS。
+- **调度死路（新发现，未建 FEATURES 条目）**：调度手册里的部署命令 `flock .deploy.lock -c 'bash scripts/ci-deploy.sh'` **永远失败**——`ci-deploy.sh` 自己在第 19–20 行 `exec 9>.deploy.lock; flock -n 9`，外层 flock 已持锁后内层非重入直接打印 `another deploy is running` 并 `exit 3`（实测两次都如此，`fuser .deploy.lock` 无持有者）。正解：直接 `bash scripts/ci-deploy.sh`（它自带锁），或给脚本加 `CI_DEPLOY_LOCKED=1` 跳过内层锁。建议下一轮把手册命令改掉，或建条目加断言。
+- **并发写 main**：本轮 worktree 基于 25ce7c3，期间 walkthrough 任务提交 f4a1e5a（F220–F223）推进了 main；已 rebase 后再 ff 合并，F220–F223 未丢。合并前必须 `git rebase main`。
