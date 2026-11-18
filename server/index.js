@@ -550,6 +550,30 @@ const OBSERVE_PROGRESS_TAILS = [
   (prog) => `（${prog} · 心里大致有了数，说「前进」动身）`,
   (prog) => `（${prog} · 这一带已经看熟，说「前进」去下一幕）`,
 ];
+// F240：must_choose 场景里裸「前进」必被 P204 必选门拒绝（refused/零消
+// 耗）——观察区的指路句再写「说「前进」」就是把玩家推向一条走不通的
+// 路。指路改为点名本场景真实可点的选项：label 一律取自
+// scene.choices（与 P204 拒绝正文同一串接口径「、/或」），数据没配
+// label 时回落成不点名的抉择提示——同样不出现「前进」字样。
+function mustChooseGuide(scene) {
+  const names = (Array.isArray(scene && scene.choices) ? scene.choices : [])
+    .map((c) => (c && c.label ? `「${c.label}」` : ""))
+    .filter(Boolean);
+  if (!names.length) return "这里必须做出选择——说出你认定的路";
+  const opts =
+    names.length > 1
+      ? `${names.slice(0, -1).join("、")}或${names[names.length - 1]}`
+      : names[0];
+  return `必须做出选择——说${opts}`;
+}
+// must_choose 版收束变体：「探索 N/N」进度语与轮换口径和
+// OBSERVE_PROGRESS_TAILS 完全同律（计数标记同一常量），只把落点从
+// 「前进」换成 mustChooseGuide 的点名抉择。
+const OBSERVE_CHOOSE_TAILS = [
+  (prog, guide) => `（${prog} · 还有没看尽的角落——但${guide}）`,
+  (prog, guide) => `（${prog} · 心里大致有了数——${guide}）`,
+  (prog, guide) => `（${prog} · 这一带已经看熟——${guide}）`,
+];
 // F181：实体细节句的轮换按 (save_id, entity) 记——observe 构建器与
 // unknownSceneLine 共用同一份计数（与 unknownAckSeq 同口径），同一存档
 // 同一实体第二次观察必换文。
@@ -642,8 +666,13 @@ function observeClosing(save, scene, entity) {
     Number((proseStmts.observeSceneCount.get(save.id, `「${name}」——`) || {}).n) || 0
   );
   const prog = `${OBSERVE_COUNT_MARK} ${Math.min(sceneN + 1, OBSERVE_TOTAL)}/${OBSERVE_TOTAL}`;
-  const tail =
-    globalN === 0
+  // F240：must_choose 场景指路改点名真实选项（「前进」在此必拒）。
+  const guide = scene && scene.must_choose === true ? mustChooseGuide(scene) : null;
+  const tail = guide
+    ? globalN === 0
+      ? `（${prog} · ${OBSERVE_MARK}；${guide}）`
+      : OBSERVE_CHOOSE_TAILS[sceneN % OBSERVE_CHOOSE_TAILS.length](prog, guide)
+    : globalN === 0
       ? `（${prog} · ${OBSERVE_MARK}，或说「前进」）`
       : OBSERVE_PROGRESS_TAILS[sceneN % OBSERVE_PROGRESS_TAILS.length](prog);
   const clue = sceneN === OBSERVE_TOTAL - 1 ? `\n${observeClue(save, scene, entity)}` : "";
@@ -664,6 +693,17 @@ const OBSERVE_OVER_LINES = [
   () => `景物没有新变化，黑暗里的动静却在逼近——说「潜行」挪个位置，别等它找上门。`,
   () => `蹲在这里只是重数旧痕——说「前进」换一处瞧瞧，或说「休息」缓一缓再走。`,
 ];
+// F240 must_choose 版复核区正文：普通池里「说「前进」换一处瞧瞧」
+// 这类指路在必选场景必被门禁拒绝，整池改指向当前抉择——选项名仍走
+// mustChooseGuide（取自 scene.choices label），轮换种子口径不变。
+const OBSERVE_OVER_LINES_CHOOSE = [
+  (entity, guide) =>
+    `翻查到此已经见底${entity ? `，${entity}也再挤不出新收获` : ""}，耗着只会把暗处的东西引来——${guide}。`,
+  (entity, guide) =>
+    `收获不会再多一分，逗留的动静却在一格一格往上走——${guide}，别让犹豫替你做主。`,
+  (entity, guide) => `景物没有新变化，黑暗里的动静却在逼近——${guide}，别等它找上门。`,
+  (entity, guide) => `蹲在这里只是重数旧痕——${guide}，定了心才有下一步。`,
+];
 
 // 复核区观察的风险尾注：只在掷点管线真的会在这里开火时才说「有东西靠
 // 近」——encounters:"none" 的现实世界/收束场景与终章永不掷怪，谎称危
@@ -678,6 +718,16 @@ function observeOverRiskTail(scene, clockNext) {
   const meter = `动静 ${Math.min(Math.max(0, clockNext), encounterEngine.PITY_LIMIT)}/${
     encounterEngine.PITY_LIMIT
   }`;
+  // F240：must_choose 场景「前进/潜行」指路同样必被必选门拦下——风险
+  // 尾注改点名当前抉择；「动静 N/4」与「已被惊动」判定口径一字不动。
+  if (scene && scene.must_choose === true) {
+    const guide = mustChooseGuide(scene);
+    if (!rollable)
+      return `（这一带已经看熟——再蹲下去也只是耗时间。${meter}，${guide}。）`;
+    return Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1
+      ? `（这一带已经看熟——${meter}，逗留的动静攒过了头，附近的东西已被惊动：再拖下去多半要正面撞上——${guide}。）`
+      : `（这一带已经看熟——${meter}，你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——${guide}。）`;
+  }
   if (!rollable)
     return `（这一带已经看熟——再蹲下去也只是耗时间。${meter}，说「前进」或「休息」都强过空耗。）`;
   return Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1
@@ -701,7 +751,12 @@ function observeOverCap(save, scene, entity) {
   const body =
     disc && discoverySeen(save.id, disc.name)
       ? `你凑近${entity}又看了一遍——这里你已经查过了，「${disc.name}」不会再有第二份收获。`
-      : OBSERVE_OVER_LINES[Math.max(0, rawClock) % OBSERVE_OVER_LINES.length](entity);
+      : scene && scene.must_choose === true
+        ? OBSERVE_OVER_LINES_CHOOSE[Math.max(0, rawClock) % OBSERVE_OVER_LINES_CHOOSE.length](
+            entity,
+            mustChooseGuide(scene)
+          )
+        : OBSERVE_OVER_LINES[Math.max(0, rawClock) % OBSERVE_OVER_LINES.length](entity);
   return {
     patch: { encounter_clock: clockNext },
     content: `「${sceneNarrName(scene)}」——${body}${observeOverRiskTail(scene, clockNext)}`,

@@ -790,7 +790,17 @@
 
 - [ ] F236 （第62轮调度侦察）F232「休息无反馈」疑似已被 F177 覆盖，需现场证据而非再改一遍｜代码现状：`server/index.js` 的 `restStatus()` 在 hp/mp 俱满时返回 `available:false, reason:"体力与魔力俱满，无需休息"`；前端 `App.tsx` 已有 `disabled={busy||restBlocked}` + `.rest-hint` 可见文案；线上新档实测 `/api/saves/<id>` → `rest={"available":false,"remaining":3,"reason":"体力与魔力俱满，无需休息"}`。而第48轮走查报「按钮不是 disabled、每次 0.9s」。二者矛盾，说明真缺口可能在别处（rest 配额未耗尽且 hp<max 时点休息只回 HP 无可见日志？或当时旧 dist 未部署？）。要求：用 Playwright 现场复现三分支（新档满状态 / hp<max 可休息 / 配额用尽）并留截图，再决定 F232 是改代码还是判为已修。断言：`node scripts/e2e/rest-feedback.mjs` —— 三分支各自断言「有可见反馈」或「disabled + 原因文案」，不得把 hover/title 当反馈｜risk: low
 
-- [ ] F240 观察见底后的指路文案把玩家推向被门禁锁死的「前进」（P1 指路冲突）｜第49轮实测：场景 `must_choose`（三个剧情选项）时，观察第 5、6 次的括号提示写「说「前进」或「潜行」马上动身」，但同屏「探索前进」必被拒（点击后 80ms 出 toast「抉择未定」，日志 0 增量）。玩家照提示操作会连续吃两次拒绝。`intuitive-game-design` Q2 Affordance gap（Perceived 与 Real 不一致）、`narrative-systems-designer` 的 Irrelevant Choice｜verify: 新增 `scripts/e2e/dwell-guidance.mjs`——在 `must_choose` 场景连点「环顾四周」6 次，断言每次新增正文里的指路句**不含**「前进/探索前进」且**必须**包含至少一个当前真实可点的选项键文案；同时断言该场景下「前进」仍返回 refused（门禁不被文案改动顺手打开）｜risk: low
+- [x] F240 观察见底后的指路文案把玩家推向被门禁锁死的「前进」（P1 指路冲突）｜第49轮实测：场景 `must_choose`（三个剧情选项）时，观察第 5、6 次的括号提示写「说「前进」或「潜行」马上动身」，但同屏「探索前进」必被拒（点击后 80ms 出 toast「抉择未定」，日志 0 增量）。玩家照提示操作会连续吃两次拒绝。`intuitive-game-design` Q2 Affordance gap（Perceived 与 Real 不一致）、`narrative-systems-designer` 的 Irrelevant Choice｜verify: 新增 `scripts/e2e/dwell-guidance.mjs`——在 `must_choose` 场景连点「环顾四周」6 次，断言每次新增正文里的指路句**不含**「前进/探索前进」且**必须**包含至少一个当前真实可点的选项键文案；同时断言该场景下「前进」仍返回 refused（门禁不被文案改动顺手打开）｜risk: low
+  verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/dwell-guidance.mjs
+  risk: low
+  done(第62轮): devin swe-2-high 落地观察区指路改造——`server/index.js` 新增 `mustChooseGuide`（选项 label 取自
+  scene.choices，与 P204 拒绝正文同一「、/或」串接），must_choose 场景下 observeClosing 收束、
+  OBSERVE_OVER_LINES 复核正文池、observeOverRiskTail 风险尾注三处指路全部改点名真实选项；非必选场景
+  文案一字未动，「探索 N/N」计数口径不变，必选门判定未碰。新断言 `scripts/e2e/dwell-guidance.mjs`
+  （自起隔离实例，DB 直落 ch1_law）：连点 6 次「环顾四周」回包正文均无「前进」、6/6 点名真实选项，
+  随后「探索前进」仍 refused + HP/MP 零变化。红证：旧码第 1 次观察即 FAIL（「或说「前进」」）。
+  验收：verify F240 PASS、dwell-guidance 连跑 3 次 PASS、boot/action PASS（本地实例）、
+  `cd server && node --test` 242 pass 0 fail。
 - [ ] F241 观察 4–6 次的括号提示逐字复读（P1 文本质量）｜第49轮实测：连续 6 次观察，第 4/5/6 次新增 125/116/115 字，除 `动静 1/4 → 2/4 → 3/4` 的数字外，`这一带已经看熟——你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——说「前进」动身，或说「潜行」绕开。` 三处完全相同。`game-detail-bar` §5「Content that never repeats」｜verify: 新增 `scripts/e2e/observe-dedupe.mjs`——同一场景连点 6 次「环顾四周」，把每步新增正文按句号切分，断言任意单句出现次数 ≤2，且去重后不同句子数 ≥6｜risk: low
 - [ ] F242 桌面 1440×900 首屏正文末行被底部操作区截断（P2 排版硬伤）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-d2-main.png` 明确报「正文最底部一行被底部固定操作区遮挡/截断，首屏阅读不完整」；同屏底部并列 行动四键 / 选择两键 / 系统八键 / 自由输入 四层，主 CTA 被四个平行行动键稀释。`game-detail-bar` §9b Layout that never spills out of its frame｜verify: 新增 `scripts/e2e/stage-bottom-clearance.mjs`——390 与 1440 下量 `.stage-col` 最后一行 `getBoundingClientRect().bottom` 与 `.actions` 顶部 `top`，断言间距 ≥8px；并在日志滚到底后断言最后一行完整可见（未被 fixed 层覆盖，`elementFromPoint` 命中正文而非 `.actions`）｜risk: low
 - [ ] F243 属性面板「剩余属性点 0」时 `+1` 按钮无明确禁用态（P2 死选项视觉）｜第49轮 vision 对 `docs/runs/walk-20261118T1519Z-m7-属性.png` 报「剩余属性点为 0 时 +1 按钮虽较暗，但没有明确禁用态，容易让人误以为仍可点击」，且 `+1` 按钮距右侧面板边缘安全边距偏小。`intuitive-game-design` Q2 的 signifier 缺口｜verify: 点数=0 时断言每个 `+1` 控件 `disabled===true` 或有 `aria-disabled="true"` 且 `opacity ≤ 0.45`；390 下 `+1` 右缘距面板内边 ≥8px（脚本 `scripts/e2e/attr-plus-disabled.mjs`）｜risk: low
