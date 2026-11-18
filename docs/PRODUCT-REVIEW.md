@@ -2771,3 +2771,11 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   本轮报告手工记账。
 - 观察（未修，留给下一轮）：走查所称「正文右侧『前进』入口」在 DOM 里并不存在（`.stage-col` 内无前进控件），
   F247 断言已改为「页面所有含『前进』的按钮」，将来新增入口自动覆盖；若产品上真需要正文内联前进，应单开视觉条目。
+- 部署事故与修复（同一轮内闭合）：首次 `ci-deploy.sh` 在 e2e 环节红并自动回滚（`action/reject-spam/dwell-guidance`
+  点「探索前进」20s 超时，因为 F247 把该按钮置灰了）——回滚期间线上短暂停留在旧产物。随即派 F247b（devin swe-2-medium）
+  只改测试侧：`lib.mjs` 出 `sendAdvance`/`advanceButton`，三条用例改走输入框发「前进」或在 must_choose 下改点首个主线选项
+  （`reject-spam`/`dwell-guidance` 另加按钮 disabled 断言钉住新合同），断言口径一条未放宽；本地独立复跑五条全 PASS。
+  再次部署：build/restart/health 全绿，内置全量 E2E **20/20**，`.deployed-ref=065b4e8`，本地 health 200、公网 200，
+  线上 bundle `index-CAP7b--Z.js` 已含「先做出选择」指路文案。
+- 运维提醒：`scripts/ci-deploy.sh` 自带 `flock -n .deploy.lock`（fd 9），外层再 `flock .deploy.lock -c` 会自我冲突并直接
+  报 "another deploy is running" —— 直接 `bash scripts/ci-deploy.sh`，别包 flock。
