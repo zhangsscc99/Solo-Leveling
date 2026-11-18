@@ -637,3 +637,7 @@
 - [ ] P209 （P1 工程死路，第38轮验收发现）`scripts/assert/combat-actions-ui.mjs` 已自我失效：连跑必崩在 `browser.newContext: Target page, context or browser has been closed`（第 324 行）。根因是重试循环先失败一次（`fetch failed`）后浏览器已随之关闭，第二次仍对同一个已关闭的 browser 调 `newContext()`，异常直接抛到顶 → `report.sh` 里这条永远是红，而且红因与业务无关。同类：同一 worktree 里 `server/db.test.js` 三连（`stats_json 非法 JSON` / 道具）在 main、P205、P207 三个工作区全红，也属环境/用例自身问题，不是业务回归。要求：① 重试前显式关闭并按需重启 browser（每次 attempt 独立 launch，或 attempt 内 catch 后 `browser.close()` 再重建）；② 首败日志必须打印失败步骤与 URL（现在只有一句 `fetch failed`）；③ 用例名带随机后缀（F136 口径）；④ 修好后在隔离实例上连跑 3 次全绿，并在 `report.sh` 全表里确认由红转绿。
   verify: node scripts/assert/combat-actions-ui.mjs
   risk: low
+
+- [ ] P210 （P1 工程死路，第40轮调度发现）`scripts/report.sh` 在全表模式下逐条执行 FEATURES 里每一条 verify（每条断言自起隔离实例、部分还要起 Playwright），实测运行 >50 分钟仍未写出报告文件，被调度器强行终止——于是「本轮汇报」这件必做事项在 15 分钟单轮预算内永远做不完，报告只能手工替写。要求：① 支持增量模式（`--changed` 取本轮合并区间涉及的 verify、或 `--since <ref>`），增量模式 3 分钟内产出报告；② 全表模式改为有界并发（默认并发 2，CPU>90% 时自动降到 1），单条失败不阻塞其余条目；③ 每条结果边跑边落盘（部分报告也要可用，进程被杀不丢已跑结果）；④ 增量模式与全表模式对同一批 FID 的 PASS/FAIL 结论必须一致（抽 5 条对照）。断言：`node scripts/assert/report-incremental.mjs` —— 在隔离仓库副本上跑 `--changed` 于 180s 内生成报告文件且含本轮 FID，杀掉进程后已跑行仍在文件里，再对同一批 FID 与全表模式结论逐条比对相等
+  verify: node scripts/assert/report-incremental.mjs
+  risk: medium
