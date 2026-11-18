@@ -3654,3 +3654,18 @@ button {
     grid-column: span 2;
   }
 }
+
+/* ── F214：≤640px 顶栏把 XP 徽记提到数值行首 ────────────────
+   390 宽下 .status-nums 仍是 ≤880px 档的 nowrap+横滚单行（不再加
+   第二行——atk-def 契约顶栏高 ≤142px 不允许增行）；原排末位的
+   .stat-xp 会整格落出视口被裁。order:-1 将其提至行首，数值与
+   进度条同格完整落在视口内，其余项维持原顺序、仍可横滑触达。 */
+@media (max-width: 640px) {
+  .status-nums .stat-xp {
+    order: -1;
+    /* inline-flex + 居中：消除 .xp-bar inline-block 撑高行盒造成的
+       数字基线 3px 偏移（其它 .stat 为 2px），与同排单元格同口径。 */
+    display: inline-flex;
+    align-items: center;
+  }
+}
