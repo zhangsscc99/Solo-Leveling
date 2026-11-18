@@ -2474,3 +2474,9 @@ F218 落地：战斗区每回合出结算行（命中/暴击/未命中 + 伤害 
 - **部署死路复现（第 3 次）**：`flock .deploy.lock -c 'bash scripts/ci-deploy.sh'` 仍打印 `another deploy is running`（内层 `flock -n 9` 不可重入）。本轮直接 `bash scripts/ci-deploy.sh` 一次成功（E2E 7/7）。**建议调度手册同步改掉这条命令**，否则每轮都要多花一次调用并可能误判「部署被人占用」。
 - **worktree 冒烟坑**：git worktree 不带 `scripts/e2e/node_modules`，被调度器忽略（未跟踪不显示），冒烟档会报 `playwright-core not found`。需 `ln -s /www/Solo-Leveling/scripts/e2e/node_modules scripts/e2e/node_modules` 后再跑，否则会误判 devin 失败。
 - 剩余 P1：**F220 已清**，P0 级 F216（观察 3/3 后无限空转）仍在待办首位。
+
+### 第 53 轮调度（2026-11-18 09:31 UTC，cron；只做 1 条：F222）
+- **F222 上线**：刷新丢的一条日志不是战斗记录，而是**仅内存态的系统回执行**（「已调出技能面板/道具面板」抽屉回执、断线警报）——`setLog` 直接塞进内存，服务端从不落库，回灌后自然消失；战斗结算行、掉落行、数值全部完好。修法只动 `client/src/App.tsx`（`UiEntry.ephemeral` + `.holo-ephemeral`），回执行照常渲染，`skill-panel-feedback` 仍 PASS。
+- **豁免写成闭集白名单**（第一 pass 的 `ephemeral` 整类豁免等于「谁挂 class 谁就能静默丢行」，第二 pass 收紧）：豁免行 innerText 必须命中 `/已调出(技能|道具)面板|【警报】与系统的连接中断/` 且 ≤2 条；刷新前必须真的存在 ≥1 条豁免行（防豁免类空转绿）；主断言 `n1===n0` 与最后 3 条逐字相同原样保留。旧码红证：`expected an ephemeral receipt after opening skill drawer`。
+- 验收：隔离实例 3134 上连跑 2 次 PASS（19.2s/13.5s），冒烟 boot 5.7s + action 8.8s PASS，`ci-deploy` 后线上 `verify.sh F222 PASS (9.61s)`，公网 200。
+- 发现（非本轮修）：devin 第一 pass 会**主动选择**「给已知差异打 class 然后豁免」这条最省力的路，而不是让玩家看得一致；这类「豁免型修复」必须由调度器第二 pass 把豁免收成闭集，否则断言会退化。
