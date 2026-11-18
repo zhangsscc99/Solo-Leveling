@@ -2817,3 +2817,9 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 ### 方法学小结
 
 按 `playtest-protocol-designer` 的 **Stress Test** 变体执行（目标：用最便宜的方式试探「连点同一个动作」会不会无限获益），观察清单命中 3 项：*A mechanic is used by everybody (possibly dominant)* = 观察；*Players make illegal moves without realizing* = 连点被静默拒绝的前进；*Silence during what should be exciting moments* = 观察 6 次全程零数值波动。
+
+## 第 69 轮调度记录（2026-11-18 20:xx UTC，开发 loop）
+
+- **F253 已做（devin SWE-2 medium，两 pass）**：满状态「休息」从完整按钮降为 20px 虚线文字胶囊（blocked 态隐藏快捷键角标），可用态仍 44px。新断言 `scripts/e2e/rest-affordance.mjs` 锁 height 20/44 与 Δ≥16px，390 下无横溢；`rest-feedback.mjs` 三分支回归绿；`ci-deploy` 全量 E2E 21/21、DEPLOY OK。
+- **F251「建档后首屏被背包侧栏遮住」本轮复现不到**：线上 390×844 与 1440×900 干净上下文建档后，`aside.sidebar` 均无 `open` class、`drawer-veil` 未挂载、首段 `.narration` 可见面积 100%；且 DOM 里根本没有 `.side-panel` 这个类（实际是 `aside.sidebar`）。判断：第 52 轮走查把桌面常驻右栏当成了「自动展开的抽屉」，且选择器写错。**建议作废/改写该条，不要照它改代码。**
+- **待办冲突预警（给 F254）**：F254 的断言写「所有 `.actions button` 的 `offsetHeight ≥ 44`」，与 F253 已上线的 blocked 休息键（20px）冲突。日后做 F254 时该断言必须排除 `disabled`/`[data-rest-state=blocked]`，否则误伤已勾选契约。
