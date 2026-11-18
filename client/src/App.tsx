@@ -1548,20 +1548,51 @@ export default function App() {
             {!liveCombat && save.next_choices && save.next_choices.length >= 2 && (
               <div className="btn-group btn-group-choice">
                 <span className="group-label">选择</span>
-                {save.next_choices.map((c) => (
-                  <button
-                    key={c.id}
-                    className="btn"
-                    disabled={busy}
-                    title={c.cost ? `${c.label} · 代价：${c.cost}` : c.label}
-                    onClick={() => dispatch(c.label, c.id)}
-                  >
-                    {c.label}
-                    {c.cost ? <span className="rest-count">{c.cost}</span> : null}
-                  </button>
-                ))}
+                {save.next_choices.map((c) => {
+                  // F211：requires 前置未达的选项置灰——disabled +
+                  // aria-disabled 保留语义，title 给服务端可执行说明
+                  // （锁键不再把 label 复读一遍）；服务端 choice 拒绝
+                  // 分支仍是兜底。
+                  const locked = c.locked === true;
+                  return (
+                    <button
+                      key={c.id}
+                      className="btn"
+                      disabled={busy || locked}
+                      aria-disabled={busy || locked}
+                      title={
+                        locked
+                          ? c.locked_reason || c.label
+                          : c.cost
+                            ? `${c.label} · 代价：${c.cost}`
+                            : c.label
+                      }
+                      onClick={() => dispatch(c.label, c.id)}
+                    >
+                      {c.label}
+                      {c.cost ? <span className="rest-count">{c.cost}</span> : null}
+                    </button>
+                  );
+                })}
               </div>
             )}
+            {/* F211 锁键原因就地常驻：title 在触屏等于不存在——选项组
+                下方一行小字，文案取所有锁定项里第一条 locked_reason
+                （服务端原文透传，与 .rest-hint 同一口径）；无锁定项时
+                不渲染、不占行，交战态整组换战斗五键时一并消失。 */}
+            {!liveCombat &&
+              save.next_choices &&
+              save.next_choices.length >= 2 &&
+              (() => {
+                const first = save.next_choices.find(
+                  (c) => c.locked === true && c.locked_reason
+                );
+                return first ? (
+                  <div className="choice-hint" role="note">
+                    {first.locked_reason}
+                  </div>
+                ) : null;
+              })()}
             {/* F177「休息」死键的就地原因：title 在触屏等于不存在——
                 禁用态在四键下方常驻一行小字，文案原样透传服务端
                 save.rest.reason（单一事实源，前端不另写措辞）；可休息
