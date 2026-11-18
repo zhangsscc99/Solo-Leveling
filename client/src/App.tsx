@@ -840,6 +840,12 @@ export default function App() {
       save.advance_mode !== "next_chapter" &&
       save.advance_mode !== "retreat_to_boss"
   );
+  // F257：不可掷怪场景复核区「看尽」锁定后「环顾四周」是服务端必拒
+  // 的死键——置灰为不可点并给出理由，不再是「看得见、按得动、每次
+  // 仍涨 190 字」的空转键。口径由 save.observe 下发，前端不猜场景。
+  const observeLocked = Boolean(
+    save && !liveCombat && save.observe && !save.observe.available
+  );
   // F228：当前屏唯一主行动——分支/交战/叫阵/终章/下章/探索按优先级
   // 解析成一颗，JSX 只按结果挂 primary cta-primary + data-primary-cta。
   const primaryCta = save ? pickPrimaryCta(save, liveCombat) : null;
@@ -1251,12 +1257,17 @@ export default function App() {
         else if (b.input === "前进" && forwardChoiceLocked) {
           showToast(DENY_CHOICE_TEXT);
           flashChoices();
-        } else dispatch(b.input);
+        }
+        // F257：「看尽」锁定态快捷键与按钮同口径——不发这条必拒的
+        // 「观察」请求，就地弹服务端下发的理由（不静默）。
+        else if (b.input === "观察" && observeLocked)
+          showToast(save?.observe?.reason || "此处已看尽");
+        else dispatch(b.input);
       } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, forwardChoiceLocked, flashChoices, toggleBarSkills, toggleBarItems, save, showToast]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, forwardChoiceLocked, observeLocked, flashChoices, toggleBarSkills, toggleBarItems, save, showToast]);
 
   // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
   // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
@@ -1710,6 +1721,11 @@ export default function App() {
                 // 服务端 save.rest 下发，不硬编码。
                 const restInfo = b.input === "休息" ? save.rest : null;
                 const restBlocked = Boolean(restInfo && !restInfo.available);
+                // F257：「看尽」锁定吃 save.observe 口径——与休息键同构
+                // （disabled + title 理由 + 就地小字），锁定原因由服务端
+                // 给出，前端不硬编码文案。
+                const obsInfo = b.input === "观察" ? save.observe : null;
+                const obsBlocked = Boolean(obsInfo && !obsInfo.available);
                 // F089：终章态（save.at_epilogue，服务端字段）「探索前进」
                 // 改写为「查看结算」——服务端对终章「前进」整体拒绝，前台
                 // 不再发这条必拒指令。F096/F106：守关者未击杀被门挡时
@@ -1755,12 +1771,14 @@ export default function App() {
                 return (
                   <button
                     key={b.label}
-                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked ? " rest-dim" : ""}`}
+                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked || obsBlocked ? " rest-dim" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
                     data-rest-state={restInfo ? (restBlocked ? "blocked" : "available") : undefined}
-                    disabled={busy || restBlocked || choiceLocked}
+                    data-observe-state={obsInfo ? (obsBlocked ? "locked" : "available") : undefined}
+                    disabled={busy || restBlocked || choiceLocked || obsBlocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
+                      (obsBlocked && (obsInfo?.reason || "此处已看尽")) ||
                       (choiceLocked &&
                         "先做出选择——点选项键，或输入「选择 <选项名>」") ||
                       (restBlocked && (restInfo?.reason || "暂时无法休息")) ||
@@ -1772,7 +1790,7 @@ export default function App() {
                             ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
                             : `快捷键 ${i + 1}`)
                     }
-                    aria-disabled={busy || restBlocked || choiceLocked}
+                    aria-disabled={busy || restBlocked || choiceLocked || obsBlocked}
                   >
                     {challenge ? (
                       "叫阵守关者"
@@ -1787,7 +1805,7 @@ export default function App() {
                       b.label
                     )}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
-                    {!restBlocked && <kbd className="key-badge">{i + 1}</kbd>}
+                    {!restBlocked && !obsBlocked && <kbd className="key-badge">{i + 1}</kbd>}
                   </button>
                 );
               })}
@@ -1923,6 +1941,14 @@ export default function App() {
             {!liveCombat && save.rest && !save.rest.available && save.rest.reason && (
               <div className="rest-hint" role="note">
                 {save.rest.reason}
+              </div>
+            )}
+            {/* F257「看尽」锁键理由就地常驻：与休息键同一口径——title 在
+                触屏等于不存在，禁用原因在四键下方常驻一行小字透传服务端
+                save.observe.reason；可观察时不渲染不占位。 */}
+            {!liveCombat && save.observe && !save.observe.available && save.observe.reason && (
+              <div className="rest-hint observe-hint" role="note">
+                {save.observe.reason}
               </div>
             )}
             {/* F113/F119 非交战战斗入口：单行矮槽位，disabled +

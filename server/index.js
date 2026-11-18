@@ -332,6 +332,26 @@ function restStatus(save, combat) {
   return { available: reason === null, remaining, reason };
 }
 
+// F257 观察可用性：不可掷怪场景（encounters:"none"/终章）的复核区
+// 收口为「看尽」锁定后，available=false + reason 随存档下发——前端
+// 据此把「环顾四周」置灰（disabled + aria-disabled + title 与就地小
+// 字），与 save.rest 同一「服务端给口径、前端只渲染」模式；标记本体
+// 是日志里的【看尽】行（observeSpentSeen），刷新/重进后依旧锁定。
+// 交战态也如实报不可用（观察意图本就被交战门禁拦回，按钮那时整组
+// 已换成战斗五键、不渲染，但字段口径不撒谎）。可掷怪场景永不锁：
+// 那里的复核区代价已在 observeOverCap 里兑现成真实遭遇。
+function observeStatus(save, combat) {
+  if (combat) return { available: false, reason: "交战中无法观察" };
+  const scene = chaptersEngine.currentScene(save);
+  if (scene && !observeSceneRollable(scene) && observeSpentSeen(save.id, scene)) {
+    return {
+      available: false,
+      reason: "此处已看尽——每个角落都翻检过了，再看也看不出新东西",
+    };
+  }
+  return { available: true, reason: null };
+}
+
 // F096 收尾：守关者未击杀时玩家位置不得越过 boss 场景——人站在守关者
 // 身后（含主线链尾，多为旧档冷却期穿房的落点）时，「前进」的真实语义是
 // 折返回守关房再战而非继续推进。主按钮据此换标「折返守关者」：模式由
@@ -427,6 +447,9 @@ function saveView(save) {
     // 前提），前端只渲染不自行推导——按钮 disabled 与 /action 门禁同一口径。
     skills: skillViews(save, combat),
     rest: restStatus(save, combat),
+    // F257：观察可用性随存档下发——「看尽」锁定/交战态的禁用原因由
+    // 服务端给出，前端只渲染（与 save.rest 同一模式，不硬编码口径）。
+    observe: observeStatus(save, combat),
     advance_mode: advanceMode(save),
     // F161：下一次「前进」的实付代价随存档下发——与 advanceCostView
     // 同一判定，前端按字段渲染预告，不猜场景。
@@ -590,6 +613,12 @@ const proseStmts = {
   observeSceneCount: db.prepare(
     `SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND instr(content, ?) = 1 AND content LIKE '%${OBSERVE_COUNT_MARK}%'`
   ),
+  // F257 「看尽」幂等标记：不可掷怪场景复核区观察的第一次收口写一条
+  // 「<narr_name>」——…【看尽】… 行——锁定态与【发现·名字】同走日志查
+  // 账，刷新/重进后依旧锁定，不需要新加存档列。
+  observeSpent: db.prepare(
+    `SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'narrator' AND instr(content, ?) = 1 AND content LIKE '%【看尽】%'`
+  ),
   sneakCount: db.prepare(
     "SELECT COUNT(*) AS n FROM log WHERE save_id = ? AND role = 'user' AND content = '潜行'"
   ),
@@ -745,6 +774,26 @@ const OBSERVE_OVER_RISK_ALERT_CHOOSE = [
   (m, g) => `（没什么可再看的了——${m}，动静攒得过了界，附近的东西已被惊动：下一刻多半撞上——${g}，别迟疑。）`,
 ];
 
+// F257 可掷怪场景判定：「这里观察攒的动静会不会兑现成遭遇」的唯一
+// 口径——encounters:"none" 的现实世界/收束场景与终章永不掷怪
+// （tryEncounter 的 EPILOGUE 拦截同一事实源）。observeOverRiskTail 的
+// 风险措辞、observeOverCap 的保底兑现/「看尽」锁定、observeStatus 的
+// 按钮锁定三处共用本判定，不再各处手写两行条件。
+function observeSceneRollable(scene) {
+  return Boolean(
+    scene &&
+      scene.encounters !== encounterEngine.ENCOUNTERS_NONE &&
+      scene.id !== endingEngine.EPILOGUE_SCENE_ID
+  );
+}
+
+// 本场景「看尽」标记是否已入账（F257）：日志查账与 discoverySeen 同口径。
+function observeSpentSeen(saveId, scene) {
+  if (!scene) return false;
+  const row = proseStmts.observeSpent.get(saveId, `「${sceneNarrName(scene)}」——`);
+  return Boolean(row && Number(row.n) > 0);
+}
+
 // 复核区观察的风险尾注：只在掷点管线真的会在这里开火时才说「有东西靠
 // 近」——encounters:"none" 的现实世界/收束场景与终章永不掷怪，谎称危
 // 险是说假话，那里如实只剩「耗时间」（口径固定不轮换，那两类场景本
@@ -752,10 +801,7 @@ const OBSERVE_OVER_RISK_ALERT_CHOOSE = [
 // 口「已被惊动」（与 roll 的 c+1>=PITY_LIMIT 同一判定：下一次真实行
 // 动掷点必中）。
 function observeOverRiskTail(scene, clockNext) {
-  const rollable =
-    scene &&
-    scene.encounters !== encounterEngine.ENCOUNTERS_NONE &&
-    scene.id !== endingEngine.EPILOGUE_SCENE_ID;
+  const rollable = observeSceneRollable(scene);
   const meter = `动静 ${Math.min(Math.max(0, clockNext), encounterEngine.PITY_LIMIT)}/${
     encounterEngine.PITY_LIMIT
   }`;
@@ -784,9 +830,98 @@ function observeOverRiskTail(scene, clockNext) {
 // （前进落地 / 休息惊动）照单收下——连蹲数下之后保底必中，遇敌风险
 // 的上升既写进字段、也兑现在既有管线里（encounter.js 参数与 PITY 机制
 // 一律未动，观察接入的是同一本账）。
+// F257 保底兑现版复核区正文：把保底账推过线、敌人当场面成形的这一
+// 下，不能再写「说「潜行」绕开 / 说「休息」喘口气」的指路——交战态
+// 潜行/休息一律被门禁拒绝，写完就是假话。正文只叙「东西找上门」这
+// 一事实，下一步交给【遭遇】行后的撤离指引（逃跑/前进才是真实可
+// 行）。按开战盐 seq 轮换，同档两场观察引战不重文。
+const OBSERVE_OVER_TRIGGER_LINES = [
+  `你俯身细看的这一瞬，身后的寂静先一步裂开——攒过界的响动引来了东西`,
+  `你刚把注意力收回来，黑暗里已多出第二道呼吸——连番逗留的动静没有白记`,
+  `还想再翻一遍的念头还没落定，四周的死寂先动了——你逗留的响动终于被听见了`,
+];
+
+// 触发尾注：保底账兑现当次仍保留「动静 N/4」计数串（与风险尾注同一
+// 口径），但不再写「将被惊动/下一刻撞上」的预告——预告已经兑现成
+// 【遭遇】行，再写就是过期的警告。
+function observeOverTriggerTail(clockNext) {
+  const meter = `动静 ${Math.min(Math.max(0, clockNext), encounterEngine.PITY_LIMIT)}/${
+    encounterEngine.PITY_LIMIT
+  }`;
+  return `（${meter}——攒过界的动静当场兑现，它找上门了。）`;
+}
+
+// P207 复核区观察（本场景第 OBSERVE_TOTAL+1 次起）：不再产出——不发物
+// 品、不挂【发现】、不写全新景物描写；点名已领走的发现物改回「已经查
+// 过」的复核视角。每次都必须付出可量化代价：把既有 encounter_clock 推
+// 进一格（与「前进」同一口径——负值 = 守关房再入冷却向 0 收一格，非负
+// = 保底计数 +1）。该字段就是 tryEncounter → encounterEngine.roll 与
+// rollRest 掷点读的同一个保底账，观察耗掉的每一格都被下一次真实行动
+// （前进落地 / 休息惊动）照单收下——连蹲数下之后保底必中，遇敌风险
+// 的上升既写进字段、也兑现在既有管线里（encounter.js 参数与 PITY 机制
+// 一律未动，观察接入的是同一本账）。
+// F257 纸面威胁兑现（第 52–54 轮走查）：旧码 clock 攒过 PITY_LIMIT 后
+// 文案写「下一刻多半撞上」却永远不撞——连点 8 次观察零消耗零遭遇，
+// 威胁停在纸面。现在分两种场景兑现：
+//   可掷怪场景：clockNext >= PITY_LIMIT 的这一次观察直接复用
+//   tryEncounter 开战（与「前进」落地同一掷点管线——保底到顶必中、
+//   boss 场景必中、再入冷却/EPILOGUE 拦截内部口径不动），回包带
+//   res.combat 与开战盐 encounter_seq，保底账清零；正文换兑现版句式
+//   + 【遭遇】行 + 撤离指引（去【提示】前缀），尾注仍留「动静 N/4」；
+//   不可掷怪场景（encounters:"none"/终章）：掷不出怪就不假装攒威胁，
+//   复核区第一次收口写「此处已看尽」+【看尽】日志标记，其后该场景
+//   观察整键锁定（save.observe 下发，前端置灰），直接口述「观察」也
+//   被 refused 拦回——两种场景过盖后都不再产出新景物描写。
 function observeOverCap(save, scene, entity) {
   const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
   const clockNext = rawClock < 0 ? Math.min(0, rawClock + 1) : rawClock + 1;
+
+  // 不可掷怪场景：威胁无从兑现，复核区收口为一次性「看尽」——第一
+  // 次到盖写锁定行（照常推进保底账一格，动静计数仍是真实代价账，
+  // 攒下的账到下一处可掷怪场景照旧兑现）；标记入账后再观察一律
+  // refused（零消耗零事件，与门禁同口径）。
+  if (!observeSceneRollable(scene)) {
+    if (observeSpentSeen(save.id, scene)) {
+      const guide =
+        scene && scene.must_choose === true ? mustChooseGuide(scene) : "说「前进」动身";
+      return {
+        patch: null,
+        refused: true,
+        content: `【系统】此处已看尽——再看也看不出新东西，${guide}。`,
+      };
+    }
+    return {
+      patch: { encounter_clock: clockNext },
+      content:
+        `「${sceneNarrName(scene)}」——此处已看尽：每个角落都翻检过了，` +
+        `再看也挤不出新东西——【看尽】${observeOverRiskTail(scene, clockNext)}`,
+    };
+  }
+
+  // 可掷怪场景：保底账攒过线的这一下「多半撞上」必须当场兑现——
+  // 掷点走 tryEncounter 既有管线（不新写掷点逻辑），击杀冷却只压
+  // 「掷点」通道、压不住保底账本身：动静攒过界引来的不是概率事件。
+  // clockNext 的判定阈值是 PITY_LIMIT 本身（=4）——clock 到 3 仍只
+  // 是「已被惊动」的预告区，第 4 格才开火（observe-cost/dedupe 连点
+  // 6 次只把 clock 推到 3，口径不动）。
+  if (clockNext >= encounterEngine.PITY_LIMIT) {
+    const enemy = tryEncounter(save, scene.id);
+    if (enemy) {
+      return {
+        patch: { encounter_clock: 0, encounter_seq: enemy.seq },
+        combat: { op: "set", enemy, turn: 1 },
+        content:
+          `「${sceneNarrName(scene)}」——` +
+          OBSERVE_OVER_TRIGGER_LINES[
+            Math.max(0, Math.trunc(Number(enemy.seq) || 0)) % OBSERVE_OVER_TRIGGER_LINES.length
+          ] +
+          `\n【遭遇】${enemy.name} Lv.${enemy.level} 拦住了去路——HP ${enemy.hp}/${enemy.maxHp}。` +
+          fleeGuidanceLine(enemy.seq).replace(/^【提示】/, "") +
+          observeOverTriggerTail(clockNext),
+      };
+    }
+  }
+
   const disc = entity ? sceneDiscoveryOf(scene, entity) : null;
   const body =
     disc && discoverySeen(save.id, disc.name)

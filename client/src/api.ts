@@ -97,6 +97,14 @@ export interface RestStatus {
   reason: string | null;
 }
 
+// F257 观察可用性：不可掷怪场景「看尽」锁定 / 交战态时 available=false
+// 且 reason 给出禁用原因——与 RestStatus 同一「服务端给口径」模式，
+// 前端据此置灰「环顾四周」并在 title / 就地小字透传理由。
+export interface ObserveStatus {
+  available: boolean;
+  reason: string | null;
+}
+
 export interface Save {
   id: number;
   player_name: string;
@@ -116,6 +124,7 @@ export interface Save {
   chapter: number;
   combat: CombatState | null;
   rest: RestStatus;
+  observe: ObserveStatus;
   cleared: boolean;
   // F089 终章态信号（=cleared，当前场景即 ch8_epilogue）：前端按字段渲染
   // 「查看结算」入口与终章横幅，不做文本匹配。
