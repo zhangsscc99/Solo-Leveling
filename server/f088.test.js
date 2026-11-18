@@ -91,7 +91,14 @@ test("HP 归零进入复活分支：deaths+1 · HP≈max/2 · 交战收敛", asy
     // 否则会在门前空转 120 次而从不进战。其余拒绝照旧退回「前进」。
     const refusedByGate =
       cur && cur.refused === true && /守关者|叫阵|现形/.test(cur.reply.content || "");
-    cur = await act(id, (cur && cur.save.combat) || refusedByGate ? "攻击" : "前进");
+    // P204：must_choose 场景拒绝裸「前进」——驱动改点名首个选项（数据上
+    // 各必选场景的第 1 项都落主线链，测试只求继续推进不择支线）。
+    const mustChoose =
+      cur && cur.refused === true && /必须做出选择/.test(cur.reply.content || "");
+    cur = await act(
+      id,
+      mustChoose ? "选择 1" : (cur && cur.save.combat) || refusedByGate ? "攻击" : "前进"
+    );
   }
   assert.ok(cur && cur.save.deaths > 0, "never died within 120 actions");
   const s = cur.save;
@@ -126,6 +133,10 @@ test("击杀后原地连点「攻击」不再刷怪：冷却生效，移动后�
   let second = null;
   for (let i = 0; i < 12 && !second; i++) {
     cur = await act(id, cur.save.combat ? "攻击" : "前进");
+    // P204：must_choose 拒绝裸「前进」——改点名首个主线选项走完冷却。
+    if (cur.refused === true && /必须做出选择/.test(cur.reply.content || "")) {
+      cur = await act(id, "选择 1");
+    }
     if (!cur.save.combat) cur = await act(id, "攻击");
     if (cur.save.combat) second = cur.save.combat;
   }

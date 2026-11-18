@@ -39,7 +39,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, fail, post, get, makeSave, act, clearCombat, fetchSaveView } from "./_http.mjs";
+import { assert, ok, fail, post, get, makeSave, act, clearCombat, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -136,7 +136,7 @@ async function advance(id, { fightCap = 8, max = 600 } = {}) {
         if (status === 200) continue;
       }
     }
-    return await act(id, "前进");
+    return await advanceStep(id);
   }
   fail(`advance: ${max} actions without a scene change`);
 }

@@ -63,6 +63,7 @@
             },
             { "id": "run", "label": "趁乱往石门方向逃", "next": "ch1_death" }
           ],
+          "must_choose": true,
           "next_scene": "ch1_worship"
         },
         {
@@ -131,6 +132,7 @@
               "effects": {"flag": "gripped_old_knife"}
             }
           ],
+          "must_choose": true,
           "next_scene": "ch1_system"
         },
         {
@@ -147,6 +149,7 @@
             },
             { "id": "refuse", "label": "拒绝这块来路不明的光幕", "next": "ch1_death" }
           ],
+          "must_choose": true,
           "next_scene": "ch1_awaken"
         },
         {

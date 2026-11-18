@@ -15,7 +15,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -131,7 +131,9 @@ db.prepare(
   "UPDATE saves SET hp = 1, scene = ?, rest_used = 3 WHERE id = ?"
 ).run(PATH[1], idA);
 const deathsBeforeB = (await fetchSaveView(idA)).save.deaths;
-const dieB = await act(idA, "前进");
+// P204：PATH[1]=ch1_law 标了 must_choose——裸「前进」被拒，advanceStep
+// 补发首个主线选项（kneel→worship），扣血力竭的死亡口径不变。
+const dieB = await advanceStep(idA);
 assert(
   dieB.save.deaths === deathsBeforeB + 1,
   `B: deaths should be ${deathsBeforeB + 1}, got ${dieB.save.deaths}`
@@ -215,7 +217,9 @@ for (let i = 0; i < 40; i++) {
     const rot = s.advance_mode === "challenge_boss" ? ROTATE_BOSS : ROTATE;
     input = rot[steps % rot.length];
   }
-  const r = await act(idA, input);
+  // P204：must_choose 场景「探索前进」被拒——advanceStep 自动补发首个
+  // 主线选项；其余动作（环顾/潜行/休息/攻击）照旧直发。
+  const r = input === "探索前进" ? await advanceStep(idA) : await act(idA, input);
   trail.push({
     i,
     input,

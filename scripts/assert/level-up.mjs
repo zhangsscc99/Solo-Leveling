@@ -12,7 +12,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, post, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, post, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -83,7 +83,8 @@ const play = async () => {
   // 补足击杀数：原地「攻击」掷遭遇（保底必出），让每日任务与击杀 XP
   // 落进跨级窗口；击杀冷却（encounter_cd>0）时不再空挥。
   if (s.kills < 3 && !(s.encounter_cd > 0)) return act(id, "攻击");
-  return act(id, "前进");
+  // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+  return advanceStep(id);
 };
 
 // ── 1) 自然玩到第 2 章前必然 level>=2 ────────────────────────────

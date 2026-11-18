@@ -45,7 +45,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, fail, makeSave, act, fetchSaveView, get } from "./_http.mjs";
+import { assert, ok, fail, makeSave, act, fetchSaveView, get, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -108,7 +108,8 @@ async function advanceUntil(id, cond, { max = 400, tag = "advanceUntil" } = {}) 
   for (let i = 0; i < max; i++) {
     const { save: s } = await fetchSaveView(id);
     if (cond(s)) return { cur, save: s };
-    cur = await act(id, "前进");
+    // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+    cur = await advanceStep(id);
   }
   fail(`${tag}: ${max} actions without reaching condition`);
 }
@@ -134,7 +135,7 @@ async function fightOut(id, { max = 60 } = {}) {
   const id = await makeSave("f096-no-kill");
   let sawBoss = false;
   for (let i = 0; i < 60; i++) {
-    const r = await act(id, "前进");
+    const r = await advanceStep(id);
     const s = r.save;
     assert(s.chapter === 1, `(a) advance crossed the chapter: ${s.chapter}`);
     const idx = idxIn(CH1_PATH, s.scene);
@@ -211,7 +212,7 @@ async function fightOut(id, { max = 60 } = {}) {
       break;
     }
     if (s.combat) await fightOut(id);
-    else await act(id, "前进");
+    else await advanceStep(id);
   }
   assert(cleared, "(c) never killed the ch1 guardian within budget");
   // 站到链尾再推：过门进 ch2 且落在 ch2 主线链首。

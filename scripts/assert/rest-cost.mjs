@@ -7,7 +7,7 @@
 //   c) 每章休息配额（服务端下发 rest.remaining）用尽 → 拒绝且 HP 不变；
 //   d) 交战中「休息」→ HP/MP 不变、无「恢复」字样（与 F088 口径一致）。
 // 断言只依赖 API 返回（reply.content / save.*），不调引擎、不读库。
-import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const ID = await makeSave("rest-cost");
 const doAct = (input) => act(ID, input);
@@ -50,7 +50,9 @@ assert(r.save.rest.available === false && r.save.rest.reason,
 // 章首铺陈步零消耗（F124）：首推落到第二幕不掉血，第二推才是真扣
 // （HP -3），可能顺带掷出遭遇——先打/逃到脱战。
 await doAct("前进");
-await doAct("前进");
+// P204：第二推落在 must_choose 场景（ch1_law）会被拒——advanceStep 自动
+// 补发首个主线选项（kneel→worship），真扣体力口径不变。
+await advanceStep(ID);
 let s = await ensureOutOfCombat();
 assert(s.hp < s.max_hp, `expected HP below max after 前进 (got ${s.hp}/${s.max_hp})`);
 

@@ -9,7 +9,7 @@
 if (!process.env.API_BASE && process.env.SL_VERIFY_API_BASE) {
   process.env.API_BASE = process.env.SL_VERIFY_API_BASE;
 }
-const { assert, ok, fail, post, act, fetchSaveView } = await import("./_http.mjs");
+const { assert, ok, fail, post, act, fetchSaveView, advanceStep } = await import("./_http.mjs");
 
 const HEAL_NAMES = {
   low_heal_potion: "低级治疗药水",
@@ -33,7 +33,8 @@ for (let i = 0; i < 60 && !settled; i++) {
     input =
       s.hp > 0 && s.hp < s.max_hp * 0.5 && heal ? `喝${HEAL_NAMES[heal.item_id]}` : "攻击";
   }
-  const r = await act(id, input);
+  // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+  const r = input === "前进" ? await advanceStep(id) : await act(id, input);
   if (r.reply.content.includes("【章节结算】")) settled = r;
 }
 assert(settled, "60 步内未出现【章节结算】——章节打完仍无收束");

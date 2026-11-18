@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const { loadPW, findChrome, createSave, assert } = await import("../e2e/lib.mjs");
-const { act, fetchSaveView, post } = await import("./_http.mjs");
+const { act, fetchSaveView, post, advanceStep } = await import("./_http.mjs");
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -119,7 +119,8 @@ async function killCh1Boss(id) {
       continue;
     }
     // retreat_to_boss 时「前进」折返回守关房；其余正常推进。
-    await act(id, "前进");
+    // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+    await advanceStep(id);
   }
   throw new Error("400 actions without killing ch1 boss");
 }

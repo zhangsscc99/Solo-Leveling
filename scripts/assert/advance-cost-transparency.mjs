@@ -8,7 +8,7 @@
 //   d) 第 1 次与第 10 次回包不得完全一致——数值账单或风险提示至少一处
 //      不同（疾行机制真的在改变每一次按压）。
 //   e) 存档持久化佐证：save.advance_streak 落库且随连按单调递增（刷新不丢）。
-import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const BARE_FREE_RE = /（本次没有消耗体力）/;
 const FREE_NOTE_RE = /（[^）]*(?:没耗|未耗|不耗|没有消耗|零消耗)[^）]*）/g;
@@ -21,7 +21,8 @@ const startVitals = Number(s0.hp) + Number(s0.mp);
 
 const replies = [];
 for (let i = 0; i < 10; i++) {
-  const r = await act(id, "前进");
+  // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+  const r = await advanceStep(id);
   replies.push(r);
 }
 const sEnd = (await fetchSaveView(id)).save;

@@ -24,7 +24,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, post, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, post, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -88,7 +88,8 @@ while (!(s.scene === CH1_BOSS.id && !s.combat && s.advance_mode === "challenge_b
   if (s.combat) {
     if (!(await maybeHeal(s, inventory))) await act(id, "前进");
   } else {
-    if (!(await maybeHeal(s, inventory))) await act(id, "前进");
+    // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+    if (!(await maybeHeal(s, inventory))) await advanceStep(id);
   }
   sends++;
   assert(sends < 60, `[a] 推进驱动空转 ${sends} 次仍未到守关房：${locTag(s)}`);
@@ -172,7 +173,7 @@ console.log(`    (b) 首屏完整提示 + 4 次一行指引，文案两两不同
     if (cs.combat) {
       if (!(await maybeHeal(cs, inventory))) await act(id, "前进");
     } else {
-      await act(id, "前进");
+      await advanceStep(id);
     }
     await checkAlive("[c] return");
   }

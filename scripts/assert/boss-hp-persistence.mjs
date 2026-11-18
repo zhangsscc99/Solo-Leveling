@@ -19,7 +19,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, post, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, post, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -62,7 +62,7 @@ let sends = 0;
 while (!engaged && !atDoor) {
   assert(sends < 40, `推进驱动空转 ${sends} 次仍未到守关房（${locTag(s)} ${bossTag(s)}）`);
   const inMobCombat = Boolean(s.combat);
-  const r = await act(id, "前进");
+  const r = await advanceStep(id);
   sends++;
   s = r.save;
   checkAlive("[a]");
@@ -196,7 +196,7 @@ while (!back) {
     }
   }
   const inMobCombat = Boolean(s.combat);
-  const r = await act(id, "前进");
+  const r = await advanceStep(id);
   dSends++;
   s = r.save;
   checkAlive("[d]");

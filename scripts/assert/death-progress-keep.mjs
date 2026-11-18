@@ -18,7 +18,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -129,7 +129,9 @@ db.prepare(
 ).run(PATH[1], idB);
 
 const preB = await fetchSaveView(idB);
-const dieB1 = await act(idB, "前进");
+// P204：PATH[1]=ch1_law 标了 must_choose——裸「前进」被拒，advanceStep
+// 补发首个主线选项（ kneel→worship ），扣血力竭的死亡口径不变。
+const dieB1 = await advanceStep(idB);
 const repB1 = dieB1.reply.content;
 assert(repB1.includes("倒下"), `B1: missing 倒下 broadcast`);
 assert(repB1.includes("XP +30"), `B1: first death missing consolation XP +30: ${repB1.slice(-300)}`);
@@ -151,7 +153,7 @@ const xpAfterFirst = dieB1.save.xp;
 // 第二次倒下同样推进中力竭：回溯落点是链首入口，F124 口径下章首铺陈步
 // 零消耗（站在链首 hp=1 推不死人）——把站位锚回 PATH[1]，与 B1 同一口径。
 db.prepare("UPDATE saves SET hp = 1, scene = ? WHERE id = ?").run(PATH[1], idB);
-const dieB2 = await act(idB, "前进");
+const dieB2 = await advanceStep(idB);
 const repB2 = dieB2.reply.content;
 assert(dieB2.save.deaths === 2, `B2: deaths should be 2, got ${dieB2.save.deaths}`);
 assert(

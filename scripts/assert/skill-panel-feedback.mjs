@@ -8,14 +8,15 @@ process.env.E2E_BASE_URL = BASE;
 process.env.API_BASE = process.env.API_BASE || `${BASE}/api`;
 
 const { run, assert, stageCount } = await import("../e2e/lib.mjs");
-const { makeSave, act, fetchSaveView } = await import("./_http.mjs");
+const { makeSave, act, fetchSaveView, advanceStep } = await import("./_http.mjs");
 
 // API 侧逼遭遇：前进直到 save.combat 为真（死亡回溯也继续磨）。
 async function engage(saveId, max = 60) {
   for (let i = 0; i < max; i++) {
     const { save } = await fetchSaveView(saveId);
     if (save.combat) return save;
-    await act(saveId, "前进");
+    // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+    await advanceStep(saveId);
   }
   assert(false, `engage: ${max} actions without encounter`);
 }

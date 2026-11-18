@@ -16,7 +16,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -110,7 +110,7 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
   for (let i = 0; i < max; i++) {
     const { save: s } = await fetchSaveView(id);
     if (s.scene === sceneId && !s.combat) return s;
-    cur = s.combat && fight ? await fightStep(id) : await act(id, "前进");
+    cur = s.combat && fight ? await fightStep(id) : await advanceStep(id);
   }
   throw new Error(`toScene(${sceneId}) exceeded ${max} actions`);
 }
@@ -143,14 +143,14 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
         cur = await fightStep(id);
       }
     } else {
-      cur = await act(id, "前进");
+      cur = await advanceStep(id);
     }
   }
   assert(killed, "boss never died within 300 actions");
   assert(bossActs <= 12, `boss fight took ${bossActs} actions, budget is 12`);
 
   for (let i = 0; i < 20 && cur.save.chapter < 2; i++) {
-    cur = cur.save.combat ? await fightStep(id) : await act(id, "前进");
+    cur = cur.save.combat ? await fightStep(id) : await advanceStep(id);
   }
   assert(cur.save.chapter === 2, `chapter should reach 2 after boss kill + tail landing, got ${cur.save.chapter}`);
   assert(cur.save.level >= 2, `level should be >=2 after ch1 run, got ${cur.save.level}`);
@@ -161,7 +161,7 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
 {
   const id = await makeSave("ch1-boss-escape");
   await toScene(id, PREV_SCENE); // 站上 boss 房门口，不触发守关者
-  let cur = await act(id, "前进"); // 踏入 boss 房，必遇守关者
+  let cur = await advanceStep(id); // 踏入 boss 房，必遇守关者
   assert(cur.save.combat && cur.save.combat.enemy.boss, `expected boss combat at ${bossScene.id}`);
 
   // 逃跑直到成功（失败才吃反击；低血先嗑药防翻车）。成功回合 HP 不得再掉。
@@ -189,7 +189,7 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
   );
 
   // 下一步再进 boss 房：冷却生效，不强制重遇同一 boss。
-  cur = await act(id, "前进");
+  cur = await advanceStep(id);
   assert(cur.save.scene === bossScene.id, `re-entry should land on ${bossScene.id}, got ${cur.save.scene}`);
   assert(!cur.save.combat || !cur.save.combat.enemy.boss, "cooldown re-entry must not force the same boss");
 
@@ -205,7 +205,7 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
 {
   const id = await makeSave("ch1-boss-awaken");
   await toScene(id, PREV_SCENE);
-  let cur = await act(id, "前进");
+  let cur = await advanceStep(id);
   assert(cur.save.combat && cur.save.combat.enemy.boss, "expected boss combat for death #1");
   const preLv = cur.save.level;
   const preFp = cur.save.free_points;
@@ -241,7 +241,7 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
   // 死亡 #2：重生后再进 boss 房继续「防御」到死——觉醒只发一次，
   // 这次必须是纯回溯（无【觉醒】行、等级不再跳）。
   await toScene(id, PREV_SCENE);
-  cur = await act(id, "前进");
+  cur = await advanceStep(id);
   if (!cur.save.combat) cur = await act(id, "攻击"); // 冷却期则叫阵
   assert(cur.save.combat && cur.save.combat.enemy.boss, "expected boss combat for death #2");
   const lvAfter1 = cur.save.level;
@@ -259,7 +259,7 @@ async function toScene(id, sceneId, { fight = true, max = 120 } = {}) {
   // 第三次再进 boss 房：这次真打——觉醒后的成长必须兑现为击杀，
   // 死亡→重生→再进房不再是零收益循环。
   await toScene(id, PREV_SCENE);
-  cur = await act(id, "前进");
+  cur = await advanceStep(id);
   if (!cur.save.combat) cur = await act(id, "攻击");
   assert(cur.save.combat && cur.save.combat.enemy.boss, "expected boss combat for the revenge run");
   const killsBefore = cur.save.kills;

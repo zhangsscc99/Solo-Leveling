@@ -23,7 +23,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, fail, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, fail, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -86,7 +86,7 @@ async function walkToBossRoom(id, { max = 300 } = {}) {
       await act(id, "逃跑");
       continue;
     }
-    await act(id, "前进");
+    await advanceStep(id);
   }
   fail("walkToBossRoom: budget exhausted before reaching the guardian room");
 }

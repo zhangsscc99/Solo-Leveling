@@ -56,7 +56,24 @@ run(
       if (!(await page.locator(".actions-main .btn", { hasText: "探索前进" }).count())) break;
       n0 = before;
       await clickAdvance(page);
-      const texts = await stageKids(page);
+      let texts = await stageKids(page);
+      // P204：must_choose 场景裸「探索前进」被拒（正文「必须做出选择」）——
+      // 点第 1 个选项键续推（各必选场景第 1 项都落主线链）。
+      if (
+        texts.slice(before).some((t) => t.includes("必须做出选择")) &&
+        (await page.locator(".btn-group-choice .btn").count()) > 0
+      ) {
+        const cbtn = page.locator(".btn-group-choice .btn").first();
+        const [cresp] = await Promise.all([
+          page.waitForResponse(
+            (r) => r.url().includes("/api/action") && r.request().method() === "POST"
+          ),
+          cbtn.click(),
+        ]);
+        await cresp.finished().catch(() => {});
+        await page.waitForFunction(() => !document.querySelector(".pending"));
+        texts = await stageKids(page);
+      }
       if (texts.slice(before).some((t) => t.includes("【遭遇】"))) hitAt = before;
     }
     assert(hitAt >= 0, "15 次「探索前进」内没有出现【遭遇】播报");
