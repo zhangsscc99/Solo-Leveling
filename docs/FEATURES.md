@@ -695,9 +695,17 @@
 - [ ] F223 （P2 视觉/首屏，第50轮真实玩家走查）两个视口都没有唯一主行动，桌面还右下沉一大片空：vision 对 `walk-20261118T0832Z-m2-first.png`（390）判「视觉最抢眼的是第二行大按钮，但『探索前进』又带数字 1 和亮蓝框，主 CTA 至少两三个候选，不唯一」、对 `d2-first.png`（1440）判「右下与底部右侧大片暗色空白，内容集中左上，三栏失衡」「材质与按钮样式同质、主视觉焦点不足」；另两遍都读到顶栏属性行最右「攻20」贴边。要求：① 同一时刻只允许一个按钮带主行动样式（`.btn-primary` 或等价），剧情选项出现时由选项接管主位、通用四键降为次级；② 1440 下把右栏底部与正文下方的空白用"下一步提示/进度/任务卡"填到 ≤20% 视口高，或收窄容器使三栏等重；③ 390 下顶栏属性行不得有元素贴视口右边（已在 F214 修 XP，此项针对其余 stat）。断言：`node scripts/assert/primary-cta-unique.mjs` —— 390/1440 各断言首屏 `button` 中带主行动样式的元素恰好 1 个；断言 1440 首屏底部空白区高度 < 0.2×视口；断言 390 下 `.status-nums .stat` 每个 `getBoundingClientRect().right <= innerWidth - 8`
   verify: node scripts/assert/primary-cta-unique.mjs
   risk: low
-- [ ] F224 （P2 发现性/桌面端死路，第55轮部署后自查）帮助入口只在窄屏存在：`.drawer-toggle` 与 `.help-toggle` 的基线样式是 `display:none`，只有 `@media (max-width:880px)` 里 `display:block`，所以 1440 桌面视口顶栏既无「档案」也无「?」——而 F221 已把兜底回包里的指令表尾巴整段删除，宽屏玩家现在**没有任何**发现指令表的路径（只能自己猜着输入「帮助」）。要求：① 桌面（>880px）提供可见的帮助入口（顶栏 `?` 键或正文外的固定帮助锚点，不得塞回叙事正文）；② 窄屏行为不变（仍走 `.help-toggle`，不得重新占用 `.drawer-toggle` 唯一选择器）；③ 点击后与服务端「帮助」指令同一条 dispatch，指令表落日志行。断言：`node scripts/assert/help-entry-desktop.mjs` —— 1440×900 下 `.help-toggle` 或等价的帮助锚点 `isVisible()` 为真且 44px 触达；点击后 `.stage-col` 新增一行含「前进」与「帮助」的指令表；390×844 下帮助键仍可见、`.drawer-toggle` 仍唯一（count===1）
+- [x] F224 （P2 发现性/桌面端死路，第55轮部署后自查）帮助入口只在窄屏存在：`.drawer-toggle` 与 `.help-toggle` 的基线样式是 `display:none`，只有 `@media (max-width:880px)` 里 `display:block`，所以 1440 桌面视口顶栏既无「档案」也无「?」——而 F221 已把兜底回包里的指令表尾巴整段删除，宽屏玩家现在**没有任何**发现指令表的路径（只能自己猜着输入「帮助」）。要求：① 桌面（>880px）提供可见的帮助入口（顶栏 `?` 键或正文外的固定帮助锚点，不得塞回叙事正文）；② 窄屏行为不变（仍走 `.help-toggle`，不得重新占用 `.drawer-toggle` 唯一选择器）；③ 点击后与服务端「帮助」指令同一条 dispatch，指令表落日志行。断言：`node scripts/assert/help-entry-desktop.mjs` —— 1440×900 下 `.help-toggle` 或等价的帮助锚点 `isVisible()` 为真且 44px 触达；点击后 `.stage-col` 新增一行含「前进」与「帮助」的指令表；390×844 下帮助键仍可见、`.drawer-toggle` 仍唯一（count===1）
   verify: node scripts/assert/help-entry-desktop.mjs
   risk: low
+  done(第56轮): 只动 `client/src/styles.css`（19 行）：把 `display:none` 从 `.drawer-toggle, .help-toggle` 共享基线里摘掉，
+  `.drawer-toggle` 单独保留 `display:none`（宽屏有右侧常驻档案栏，桌面不需要抽屉），`.help-toggle` 提为桌面基线 `display:block`；
+  窄屏 `@media (max-width:880px)` 里的 `display:block` 相应删掉，只留 `order`/`margin-left` 排布。共享观感（hull-2 底、44px 触达、
+  `min-width:44px`）不变。新增 `scripts/assert/help-entry-desktop.mjs`（208 行，自起隔离实例 + worktree 自己的 `client/dist`）：
+  1440 命中 44×44 可点、点击后 `.stage-col` 多出含「前进/帮助」的指令表行、`.stage.top` 前后都是 71（顶栏不增高）、
+  `scrollWidth-clientWidth=0`；390 下帮助键仍可见且 `.drawer-toggle` count===1。红证：把 dist CSS 的 `.help-toggle`
+  改回 `display:none` → 断言必红（`1440 桌面下 .help-toggle 不可见`），复原后连跑 2 次均 PASS。
+  部署后线上 1440 复测：`.help-toggle` 位于 x=1376、44×44、点击落指令表、stage top 71→71、无横向溢出、无 pageerror。
 
 - [ ] F225 观察动作的代价没落到数值上（P0 零成本空转）｜第47轮走查：新档连点「环顾四周」6 次，HP 恒 100/100、MP 恒 20/20，XP/金币不变；第 5 次文案「收获不会再多一分，体力却一直往下耗」、第 6 次「动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上」，机制上什么都没发生（`game-balance-analyst` 死选项 + `narrative-systems-designer` Dissonant）。verify: `node scripts/e2e/observe-cost.mjs` 新档连点观察 6 次，断言 HP 或 MP 至少一项单调下降（≥1 点/次）或第 4 次起返回 must_choose/disabled；若走“省略消耗”路线则断言第 4 次后按钮 disabled，且正文不再出现「体力…耗」类承诺｜risk: med
 - [ ] F226 决策未做时连点「前进」无限追加系统行（P0 拒绝刷屏）｜第47轮走查：must_choose 状态下连点「探索前进」8 次，`.stage-col` 由 20 → 36 行（每次 +2），HP/MP/XP/金币零变化；同一句拒绝可无限写进日志、把正文顶走。verify: `node scripts/e2e/reject-spam.mjs` 在 must_choose 状态连点前进 6 次，断言 `.stage-col` 子元素增量为 0（或 ≤1，即仅首次回执），且最后一次拒绝文本仍可见｜risk: low
