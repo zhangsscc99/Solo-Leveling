@@ -2756,3 +2756,18 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   在 F246 改动前的基线上逐字复现，与进度无关。根因就是 F244（must_choose 场景把整段选项清单拼进每行观察正文，单行 118 字已占正文一半），
   即 F244 已有一条现成红证可用；F244 修好后这条断言应自动转绿。
 - F242 已随本轮部署上线：`stage-bottom-clearance` 实测 390 滚到底间距 41.7px、1440 49.8px（走查里「线上仍 1px」的结论作废）。
+
+### 第 68 轮调度记录（2026-11-18 19:11 UTC，cron；单条车道 devin swe-2-medium，无回退）
+
+- 消费 F247（P1 must_choose 下「前进」死选项）：devin 一轮完成（552s），`App.tsx` 新增 `forwardChoiceLocked`
+  （非交战 + `sceneMustChoose` + 非 查看结算/叫阵/下章/折返 换标形态），「探索前进」叠加 `disabled` +
+  `aria-disabled` + 指路 title，视觉沿用 `.btn:disabled`（实测 opacity 0.45）；快捷键 1 同口径改为
+  `showToast(DENY_CHOICE_TEXT)` + 选项组描边，不再发必拒请求。换标形态与交战撤离不受影响（不误伤合法出路）。
+- 新断言 `scripts/e2e/forward-locked-in-choice.mjs` PASS 7.7s：390/1440 均 `disabled=true aria=true opacity=0.45`，
+  title 含「选择」，反向普通探索档 `disabled=false opacity=1` 点击正文 +5 行，390 无横向溢出；旧码红证写在文件头。
+- 连带修正：F231 的 `deny-feedback.mjs` 原本点按钮触发，F247 后按钮 disabled 无法点击 → 改由输入框发「前进」
+  （submit 计时），断言口径不变，仍 PASS（toast 54ms、回包 378ms、三连发增量 0、四维零变化）。
+- 冒烟档：`boot.mjs` PASS 4.3s、`action.mjs` PASS 7.1s；全量 E2E 交 full-e2e。`report.sh` 仍无增量模式（P210 未修），
+  本轮报告手工记账。
+- 观察（未修，留给下一轮）：走查所称「正文右侧『前进』入口」在 DOM 里并不存在（`.stage-col` 内无前进控件），
+  F247 断言已改为「页面所有含『前进』的按钮」，将来新增入口自动覆盖；若产品上真需要正文内联前进，应单开视觉条目。
