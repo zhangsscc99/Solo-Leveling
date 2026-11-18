@@ -122,6 +122,30 @@ const isNarrationInput = (text: string) => {
   return s.length >= 8 && !COMMAND_SIGNAL_RE.test(s);
 };
 
+// F231 must_choose 未决时「前进」的即时回执：这类输入服务端必返
+// refused（P204 门，结算/日志/去重口径照旧在服务端），但线上回包
+// ~1.1s 起步——拒绝提示先在点击当帧由 .sys-toast 槽位点亮，不等回包。
+// 预判口径镜像 server/ai/keywords.js（单一事实源在服务端词表）：
+// advance 词命中、非疑问句守卫、且不再命中排在 advance 之前的意图族
+// ——词表按表序取首个命中，被早位意图（观察/攻击/离开……）抢走的
+// 输入在服务端根本轮不到 must_choose 门，提前弹「先选一个」是谎报。
+const ADVANCE_INTENT_RE =
+  /前进|继续|探索|走|移动|进入|深入|前行|advance|explore|go|move|continue/i;
+const QUESTION_FORM_RE = /[？?]\s*$|还是|吗|要不要|是不是/;
+const PRE_ADVANCE_INTENT_RE =
+  /影子|编队|攻击|打击|砍|斩|刺|击杀|消灭|猎杀|叫阵|挑战|挥|打它|打你|揍|出手|砸|attack|strike|fight|技能|施放|咏唱|释放|skill|cast|防御|格挡|招架|防守|defend|block|guard|道具|使用|服用|喝|吃|use|drink|item|逃跑|逃离|撤退|逃走|离开|撤离|回到|回去|返回|往回|回头|退回|原路返回|脱战|溜|走人|flee|escape|retreat|状态|面板|属性|status|stat|帮助|指令|help|观察|查看|环顾|四周|环境|看|look|inspect/i;
+
+// 拒绝文案只指路不复述选项名——选项名在首条拒绝正文（.stage-col
+// 落库行）里，瞬时层只说清「先选一个」这一步要做的动作。
+const DENY_CHOICE_TEXT = "抉择未定——先选一个：点选项键，或输入「选择 <选项名>」";
+
+// F231：must_choose 由 saveView 随场景视图下发（api.ts 冻结不动——
+// 本地窄化取值，与 reply.panel 等回包附加字段同一读法）。带可选
+// 分支的非必选场景（next_choices ≥2 但 must_choose 缺席）不命中，
+// 「前进」在那些场景是合法推进，不得提前弹拒绝提示。
+const sceneMustChoose = (s: Save | null | undefined): boolean =>
+  Boolean(s && (s as Save & { must_choose?: boolean }).must_choose === true);
+
 interface ActionResponse {
   reply: LogEntry;
   save?: Save;
@@ -891,6 +915,21 @@ export default function App() {
     async (text: string, choiceId?: string): Promise<boolean> => {
       const trimmed = text.trim();
       if (!trimmed || !save || busy) return false;
+      // F231：must_choose 未决 + 指令形态的「前进」＝服务端必拒——
+      // 回执不等回包，点击当帧点亮 .sys-toast（300ms 反馈预算内），
+      // F219 选项组描边闪光同步指路。交战态「前进」是撤离掷逃、显式
+      // choice_id 是真选项，两类都不在本列。
+      if (
+        !choiceId &&
+        !save.combat &&
+        sceneMustChoose(save) &&
+        ADVANCE_INTENT_RE.test(trimmed) &&
+        !QUESTION_FORM_RE.test(trimmed) &&
+        !PRE_ADVANCE_INTENT_RE.test(trimmed)
+      ) {
+        showToast(DENY_CHOICE_TEXT);
+        flashChoices();
+      }
       setBusy(true);
       setLog((l) => [...l, { id: Date.now(), role: "user", content: trimmed }]);
       try {
@@ -913,6 +952,16 @@ export default function App() {
         ) {
           flashChoices();
         }
+        // F231：服务端确认这是 must_choose 门的「前进」拒绝（含预判未
+        // 覆盖的路径——/ai-action 由 AI 判入 advance 的叙述句）——同一
+        // .sys-toast 槽位补亮指路文案；连发时只是重置计时，不换元素。
+        if (
+          (r as { refused?: boolean }).refused === true &&
+          (r as { intent?: string }).intent === "advance" &&
+          sceneMustChoose(updated ?? save)
+        ) {
+          showToast(DENY_CHOICE_TEXT);
+        }
         showSaveHint(Boolean((updated ?? save).combat));
         // F200 连击：一次动作可能带回多条战报（replies），逐条入日志；
         // 单条动作仍只有 reply 一条。回包 reply.id 缺失时补本地 id
@@ -930,9 +979,10 @@ export default function App() {
           // 追加的 user 行、不追加 reply 行（连点拒绝一次 +2 行把正文
           // 顶走）。首条拒绝正文仍在日志里；本次轻提示走 .sys-toast
           // 瞬时层（actions 浮层，2.6s 自消，不动 .stage-col 子元素），
-          // 选项组闪光已由上方 refused 分支触发。
+          // 选项组闪光已由上方 refused 分支触发。F231：提示文案改走
+          // DENY_CHOICE_TEXT——说清「先选一个」，不复读三个选项名。
           setLog((l) => l.slice(0, -1));
-          showToast(reply.content);
+          showToast(DENY_CHOICE_TEXT);
         } else if (replyDegraded === true) {
           const firstDegraded = !degradedNoteRef.current;
           degradedNoteRef.current = true;

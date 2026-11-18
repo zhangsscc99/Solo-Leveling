@@ -154,6 +154,10 @@ function sceneView(save) {
     chapter_unlock: null,
     next_chapter: null,
     next_choices: [],
+    // F231：must_choose 门随场景视图下发——「前进」必拒的判定不再由
+    // 前端按选项个数猜（非必选场景同样带 ≥2 个可选分支），拒绝回执
+    // 能在点击当帧点亮，不必等 ~1s 的回包。
+    must_choose: false,
   };
   if (!chapter || !scene) return base;
   const total = chaptersEngine.chapterPath(chapter).length;
@@ -196,6 +200,7 @@ function sceneView(save) {
         cost: choiceCostHint(c),
         ...choiceLockView(save, c),
       })),
+    must_choose: scene.must_choose === true,
   };
 }
 
@@ -4722,6 +4727,23 @@ api.post("/ai-action", async (req, res) => {
       });
     }
 
+    // F231 must_choose 预选门：规则词表已判「前进」且当前场景挂
+    // must_choose 时，这次输入必落 P204 拒绝（refused/零消耗/正文去重
+    // 口径与 /action 逐字一致——/action 本无 AI 调用，天然在网关之前
+    // 命中同一分支）——必拒指令不值得白跑一趟上行，线上实测首包
+    // 6.41s 正是这次网关往返。与散文快路径同走 resolveAction，degraded
+    // 保持 falsy。交战态除外：那时「前进」是撤离掷逃，必须落到正常
+    // 结算管线。词表判不出的叙述句照旧走 AI——AI 若也判 advance，
+    // 下方 executeIntent 的 refused 分支同口径收口（resolveAction
+    // 自己先剥「选择 X」，显式选项不会被本门吞掉）。
+    const mustChooseAdvance = (() => {
+      if (intentRules.resolveIntent(input, bagSupplyNames(save)) !== "advance") {
+        return false;
+      }
+      const here = chaptersEngine.getScene(save.scene);
+      return Boolean(here && here.must_choose === true && !store.getCombat(save.id));
+    })();
+
     // F174 散文快路径：echoRequired===false 的自然语言长句不打 AI 网关——
     // 线上实测每句散文都要白等一次慢模型往返（12s+），且 qwen 会把散文
     // 误判成 item 让 F162/F166 的具象否认整段丢失（答成补给播报）。散文
@@ -4731,7 +4753,7 @@ api.post("/ai-action", async (req, res) => {
     const proseFastPath = !require("./ai/free-action").echoRequired(input);
     let intentId = null;
     let degraded = false;
-    if (!proseFastPath) {
+    if (!proseFastPath && !mustChooseAdvance) {
       try {
         const ctx = aiContext.buildContext({
           save: saveView(save),
@@ -4776,7 +4798,7 @@ api.post("/ai-action", async (req, res) => {
     // 不再退回 observe 模板把自由输入答成通用观察话术。F174：散文快路径
     // 同走此口——对同一句输入与 /action 的正文逐字相同。
     const outcome =
-      degraded || proseFastPath
+      degraded || proseFastPath || mustChooseAdvance
         ? resolveAction(fresh, input)
         : executeIntent(fresh, intentId, input) || executeIntent(fresh, "observe", input);
     // F096 章节门拒绝：与 /action 同口径——零消耗、零事件、零位移；

@@ -3502,6 +3502,11 @@ button {
   font-size: var(--fs-xs);
   letter-spacing: 0.04em;
   white-space: nowrap;
+  /* F231：390 视口防横溢——偶发长文案（服务端回执原文）截断成省略，
+     瞬时浮层绝不把页面撑出横向滚动条。 */
+  max-width: calc(100vw - 2 * var(--sp-4));
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 
