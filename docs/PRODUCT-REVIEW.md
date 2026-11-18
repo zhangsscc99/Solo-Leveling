@@ -2108,3 +2108,14 @@
 - 车道 1：**P204**（选择必须落地：`must_choose` 场景上「前进」拒绝并列出选项，`server/index.js` + `server/data/chapters.json` + 新断言，swe-2-high）
 - 车道 2：**F201**（自动保存微提示，`client/src/App.tsx` + `scripts/assert/autosave-hint.mjs`，swe-2-medium）
 - 暂不做：P205（连击代价，与 P204 同动战斗/数值面，下轮）、F078（降级横幅）、F102/F093（旧账）。
+
+### 第 37 轮验收与上线记录（2026-11-18 00:05–00:30 UTC）
+
+- **F201（swe-2-medium，自动保存「已记录」微提示）**：`StatusBar` 顶栏下缘绝对定位挂 `.save-hint`（`role=status`，等宽 11px、`--faint`、峰值 opacity 0.9、1.8s 淡出后 2s 卸载），非交战文案「已记录」，交战态改「交战结束后可写入」，`onRebind` 同步清理。**调度器独立复验**（隔离实例 3198）：`autosave-hint.mjs` PASS、390 实测提示出现后 `.stage` 高度 442→442（零扰动）、`scrollWidth==clientWidth`、2.2s 后元素消失；旧码（线上 6e27e22 之前）跑同一断言 FAIL（`.save-hint` 不存在）。回归 `awake-hint` / `combat-actions-ui` / `node --test` 123 全绿。
+  - 过程记录：该 pass 清理测试进程时误 kill 了线上 3020 的 node 进程，supervisor 数秒内拉起，全程 health=200 未中断业务，无数据影响。
+- **P204（swe-2-high，两 pass，must_choose 选择门）**：`chapters.json` 给 `ch1_law` / `ch1_statues` / `ch1_system` 加 `must_choose:true`；`advanceOutcome` 在「场景 must_choose 且无显式 choice」时零消耗拒绝（`refused:true`、`patch:null`，正文列出真实选项名与「说「选择 序号」或报选项名」），显式 `选择 accept` 照走 F196 管线并结算 `xp 30 + system_bound`。**实测**（隔离实例 3219，新断言 `choice-gate.mjs`）：`ch1_law`/`ch1_statues`/`ch1_system` 三处拒绝正文均列选项、`accept` 落地 `scene=ch1_awaken xp=67 level=2 flag=system_bound`、未标场景 `ch1_double_gate` 的「前进」仍能推进；旧码红证 FAIL。回归 17 条纯 API 断言 + 5 条 Playwright 断言 + `node --test` 123/123 全绿。
+  - 既有断言只做**加法**：把穿越驱动换成 `_http.mjs` 新增的 `advanceStep`（仅在场景带 `must_choose` 时补一步显式选择，落点必须仍在本章主线链上；旧码下恒等价于裸「前进」）；无删除、无放宽、无跳过。
+  - 第一 pass 因免费模型限流中断（含把 3199 端口误认成自己实例），第二 pass 重跑一切并以 3219 验收。
+- **调度器接手的收尾（devin 未覆盖）**：`scripts/e2e/action.mjs` 第二推「必须扣血」在新契约下红（第二推落在 `ch1_law` 被零消耗拒绝）——devin 环境缺 playwright 没跑到 e2e。调度器按最小改动补 4 行：拒绝出现时点第一个主线选项完成该步，断言口径不变。修后 `run-all` 7/7 两遍全绿。
+- **上线**：`ci-deploy` 首跑 E2E gate 在 `panels.mjs` 超时红（重跑即 PASS，属既有 flaky）+ `action.mjs` 上述契约红；修 `action.mjs` 后重跑 DEPLOY OK，health 200、公网 200。
+- **本轮新增 2 条**：P204（已上线）、P206（拒绝正文去重，下轮做）。P205（连击代价）仍挂，与 P206 一起排下轮。

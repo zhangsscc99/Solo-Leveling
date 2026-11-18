@@ -35,6 +35,9 @@ run("action", async ({ page }) => {
   );
 
   // 第二推是真实推进：等待回包后 HP 或 MP 必须下降。
+  // P204 must_choose：某些场景裸「前进」是零消耗拒绝（正文「这里必须做出
+  // 选择：1) … 2) …」），此时按界面提示点第一个主线选项把这一步走完——
+  // 断言口径不变：真实推进仍然要付体力。
   const n1 = await stageCount(page);
   await page.locator(".actions-main .btn", { hasText: "探索前进" }).first().click();
   await page.waitForFunction(
@@ -43,6 +46,19 @@ run("action", async ({ page }) => {
       !document.querySelector(".pending"),
     n1
   );
+
+  const refused = await page.evaluate(() =>
+    [...document.querySelectorAll(".stage-col > *")]
+      .slice(-3)
+      .some((e) => /必须做出选择/.test(e.textContent || ""))
+  );
+  if (refused) {
+    const choice = page.locator(".btn-group-choice > .btn").first();
+    assert((await choice.count()) > 0, "must_choose refusal without any choice button");
+    await choice.click();
+    await page.waitForFunction(() => !document.querySelector(".pending"));
+    await page.waitForTimeout(300);
+  }
 
   const after = await readVitals(page);
   assert(
