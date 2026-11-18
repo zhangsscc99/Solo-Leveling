@@ -141,6 +141,12 @@ const ACTION_BUTTONS: { label: string; input: string; primary?: boolean; combatB
 // 无交战时五键折叠为 .combat-entry 单行矮入口（F113/F119 高度预算）。
 // 快捷键沿用 1–5 槽位：键位永远指向当前组内同位置按钮；交战态 5=逃跑，
 // 系统组 5–9 的键位在交战时不抢占（else-if 链先吃战斗组）。
+// P205：连击整次固定代价 6 MP——数值唯一事实源在服务端
+// server/index.js COMBO_MP_COST（门禁与实扣都在那边结算），前端只按
+// 同一常数做展示态：键面标代价、MP 不足时 disabled 并在键面上给可见
+// 理由（移动端无 hover，可见文字落键面而非只挂 title）。
+const COMBO_MP_COST = 6;
+
 const COMBAT_BUTTONS: {
   label: string;
   input: string | null;
@@ -150,7 +156,7 @@ const COMBAT_BUTTONS: {
   { label: "攻击", input: "攻击" },
   // F200 连击 ×3：一次点击由服务端连续结算至多 3 回合（战斗提前结束即
   // 停），只在交战态出现在「攻击」之后——与自由输入「连击」同一动作。
-  { label: "连击 ×3", input: "连击", cls: "combat-act" },
+  { label: `连击 ×3 · ${COMBO_MP_COST}MP`, input: "连击", cls: "combat-act" },
   { label: "释放技能", input: null, expand: "skills" },
   { label: "防御", input: "防御" },
   { label: "道具", input: null, expand: "items" },
@@ -947,6 +953,10 @@ export default function App() {
         const b = COMBAT_BUTTONS[n - 1];
         if (b.expand === "skills") toggleBarSkills();
         else if (b.expand === "items") toggleBarItems();
+        // P205：快捷键与按钮同口径——连击 MP 不足不发请求，就地提示
+        // （按钮已 disabled，键位不能绕出一次必拒的请求）。
+        else if (b.input === "连击" && (save?.mp ?? 0) < COMBO_MP_COST)
+          showToast(`魔力不足：连击需要 ${COMBO_MP_COST} MP——「攻击」零消耗`);
         else dispatch(b.input as string);
       } else if (n >= 1 && n <= ACTION_BUTTONS.length && !liveCombat) {
         const b = ACTION_BUTTONS[n - 1];
@@ -959,7 +969,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, toggleBarSkills, toggleBarItems]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, toggleBarSkills, toggleBarItems, save, showToast]);
 
   // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
   // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
@@ -1468,7 +1478,12 @@ export default function App() {
                 COMBAT_BUTTONS.map((b, i) => {
                 const challengeable = challengeBoss && !liveCombat && b.input === "攻击";
                 if (challengeBoss && !liveCombat && !challengeable) return null;
-                const disabled = busy || (!liveCombat && !challengeable);
+                // P205：连击 MP 不足即死键——disabled + 键面可见理由
+                // （「（不足）」后缀，移动端无 hover 也读得到）+ title/
+                // aria-label 给完整口径；服务端同条件 refused 兜底。
+                const comboShort =
+                  b.input === "连击" && liveCombat && save.mp < COMBO_MP_COST;
+                const disabled = busy || (!liveCombat && !challengeable) || comboShort;
                 return (
                   <button
                     key={b.label}
@@ -1478,14 +1493,23 @@ export default function App() {
                     disabled={disabled}
                     aria-disabled={disabled}
                     aria-expanded={b.expand ? barList === b.expand : undefined}
+                    aria-label={
+                      comboShort
+                        ? `连击 ×3 · 魔力不足：需要 ${COMBO_MP_COST} MP（当前 ${save.mp} MP），「攻击」零消耗`
+                        : undefined
+                    }
                     title={
-                      liveCombat
-                        ? b.expand
-                          ? `${b.expand === "skills" ? "展开技能列表" : "展开道具列表"} · 快捷键 ${i + 1}`
-                          : `快捷键 ${i + 1}`
-                        : challengeable
-                          ? "守关者就在面前 — 叫阵开战"
-                          : "当前没有可攻击的目标"
+                      comboShort
+                        ? `魔力不足：连击需要 ${COMBO_MP_COST} MP（当前 ${save.mp} MP）·「攻击」零消耗，或先喝魔力药剂`
+                        : liveCombat
+                          ? b.expand
+                            ? `${b.expand === "skills" ? "展开技能列表" : "展开道具列表"} · 快捷键 ${i + 1}`
+                            : b.input === "连击"
+                              ? `一次结算至多 3 回合 · 代价 ${COMBO_MP_COST} MP · 快捷键 ${i + 1}`
+                              : `快捷键 ${i + 1}`
+                          : challengeable
+                            ? "守关者就在面前 — 叫阵开战"
+                            : "当前没有可攻击的目标"
                     }
                     onClick={() =>
                       b.expand === "skills"
@@ -1495,7 +1519,7 @@ export default function App() {
                           : dispatch(b.input as string)
                     }
                   >
-                    {challengeable ? "叫阵 · 攻击" : b.label}
+                    {challengeable ? "叫阵 · 攻击" : comboShort ? `${b.label}（不足）` : b.label}
                     {liveCombat && <kbd className="key-badge">{i + 1}</kbd>}
                   </button>
                 );
