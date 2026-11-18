@@ -375,6 +375,8 @@ button {
 }
 
 .gauge-num {
+  /* F218：相对定位只做 .gauge-delta 跳字的锚，自身布局不变。 */
+  position: relative;
   min-width: 68px;
   text-align: right;
   font-family: var(--font-mono);
@@ -385,6 +387,45 @@ button {
 .gauge-num i {
   font-style: normal;
   color: var(--faint);
+}
+
+/* F218 顶栏 HP/MP 跳字：绝对定位叠在数值上缘，1.1s 上浮淡出后由
+   React 计时卸载——不占行高、pointer-events:none 不拦点击；配色与
+   .combat-float 同口径：掉血 --blood、回血回蓝 --system。 */
+.gauge-delta {
+  position: absolute;
+  right: 0;
+  top: -11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  pointer-events: none;
+  opacity: 0;
+  animation: gauge-delta 1.1s ease-out forwards;
+}
+
+.gauge-delta.gd-dn {
+  color: var(--blood);
+}
+
+.gauge-delta.gd-up {
+  color: var(--system);
+}
+
+@keyframes gauge-delta {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  20% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
 }
 
 .status-nums {
@@ -447,17 +488,29 @@ button {
 }
 
 /* ── ② 主舞台 ─────────────────────────────── */
+/* F218：.stage 从滚动容器改为纵向 flex 槽——交战面板与回溯控件钉在
+   列顶独立成行，.stage-col 独占滚动（flex:1 + min-height:0）。交战
+   面板矩形因此与正文列恒不相交，390 下不再压日志；.stage 自身仍是
+   同一 grid 行高（≥60% 视口的版式口径不变）。 */
 .stage {
   grid-area: stage;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background:
     radial-gradient(900px 380px at 50% 0%, rgba(35, 80, 160, 0.12), transparent 65%),
     var(--abyss);
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
 }
 
 .stage-col {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  /* width:100% 必写：纵轴 flex 容器里横向 auto margin 会抑制
+     align-self 拉伸，auto 宽会退成收缩适配（版心口径随之塌陷）。 */
+  width: 100%;
   max-width: 72ch;
   margin: 0 auto;
   padding: var(--sp-6) var(--sp-5) var(--sp-8);
@@ -2449,10 +2502,13 @@ button {
    敌人 HP 无服务端数值，用暗色满槽 + ??/?? 仪表表示「未探明」。
 */
 .combat {
-  position: sticky;
-  top: var(--sp-2);
-  z-index: 10;
-  margin: 0 0 var(--sp-5);
+  /* F218：sticky 浮层改为舞台顶部独立槽位（.stage 纵向 flex 的第一行），
+     面板矩形与 .stage-col 恒不相交。宽度对齐正文列内容盒：桌面版心
+     72ch−2×sp-5，窄屏随列内 padding 收成满宽减 2×sp-3。 */
+  flex: none;
+  width: calc(100% - 2 * var(--sp-3));
+  max-width: calc(72ch - 2 * var(--sp-5));
+  margin: var(--sp-3) auto 0;
   padding: var(--sp-3) var(--sp-4) var(--sp-4);
   background: var(--hull);
   border: 1px solid var(--line-strong);
@@ -2641,6 +2697,41 @@ button {
     opacity: 0;
     transform: translateY(-14px);
   }
+}
+
+/* F218 回合结算行：服务端本回合真实结算（命中/未命中/暴击 + 伤害 +
+   敌方 HP 变化），战斗区底部原样渲染。发丝线顶边 + 等宽口径与
+   .combat-est 同排印；kind 只调文字深浅，不引新色新元素。 */
+.combat-report {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+}
+
+.combat-report-label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.combat-report-line {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+
+.combat-report[data-kind="hit"] .combat-report-line {
+  color: var(--dim);
+}
+
+.combat-report[data-kind="crit"] .combat-report-line {
+  color: var(--blood);
 }
 
 /* F163 单回合伤害预估：情报面板收尾行——发丝线顶边 + 等宽数字，
@@ -3259,6 +3350,8 @@ button {
    发丝虚线 + 等宽小字，读作「向上翻页」而非新按钮层级；「已到最初」
    死键留占位不消失，玩家知道翻到头了。 */
 .log-earlier {
+  /* 与 .stage-col 同理：纵轴 flex 里 auto margin 抑制拉伸，显式 100% 宽。 */
+  width: 100%;
   max-width: calc(72ch + 2 * var(--sp-5));
   margin: 0 auto;
   padding: var(--sp-2) var(--sp-5) 0;
@@ -3512,6 +3605,11 @@ button {
   .stage-col,
   .log-earlier {
     max-width: var(--main-w);
+  }
+
+  /* F218：交战面板宽度随版心放大（口径同 .stage-col 内容盒）。 */
+  .combat {
+    max-width: calc(var(--main-w) - 2 * var(--sp-5));
   }
 
   .actions {

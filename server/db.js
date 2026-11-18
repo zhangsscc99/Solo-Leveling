@@ -89,11 +89,14 @@ CREATE TABLE IF NOT EXISTS quest_daily (
 -- F088 当前交战态：一存档至多一条，敌人完整模板（id/名/rank/level/
 -- hp/max_hp/stats/atk/def/xp）序列化进 enemy_json，回合数与起始时间
 -- 单独成列便于查询。击杀/逃跑/倒下时整行删除，不留半死不活的战斗。
+-- F218 last_json：最近一回合的结算播报（{turn,kind,line}），随回合
+-- 推进覆写——前端战斗区原样渲染，刷新回灌不丢上一回合结算。
 CREATE TABLE IF NOT EXISTS combat (
   save_id INTEGER PRIMARY KEY REFERENCES saves(id) ON DELETE CASCADE,
   enemy_json TEXT NOT NULL,
   turn INTEGER NOT NULL DEFAULT 1,
-  started_at TEXT NOT NULL DEFAULT (datetime('now'))
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_json TEXT
 );
 `);
 
@@ -182,6 +185,13 @@ if (!saveCols.includes("choice_refusal_count")) {
   db.exec("ALTER TABLE saves ADD COLUMN choice_refusal_count INTEGER NOT NULL DEFAULT 0");
 }
 
+// F218 回合结算行：老库的 combat 表补 last_json（新库 CREATE 已带）。
+// 无回填——开战 setCombat 置 NULL、每回合 setCombatTurn 覆写。
+const combatCols = db.prepare("PRAGMA table_info(combat)").all().map((c) => c.name);
+if (!combatCols.includes("last_json")) {
+  db.exec("ALTER TABLE combat ADD COLUMN last_json TEXT");
+}
+
 // F051 编队：deployed 默认 0，老存档的行自动落为「未出战」，无需回填。
 // F072 属性：stats_json 存影子五项属性，缺失时引擎按 rank 的 baseStats 兜底。
 const shadowCols = db.prepare("PRAGMA table_info(shadows)").all().map((c) => c.name);
@@ -236,17 +246,18 @@ const stmts = {
     ON CONFLICT(save_id, day_key, quest_id)
     DO UPDATE SET progress = excluded.progress, done = excluded.done
   `),
-  getCombat: db.prepare(`SELECT save_id, enemy_json, turn, started_at FROM combat WHERE save_id = ?`),
+  getCombat: db.prepare(`SELECT save_id, enemy_json, turn, started_at, last_json FROM combat WHERE save_id = ?`),
   setCombat: db.prepare(`
     INSERT INTO combat (save_id, enemy_json, turn, started_at)
     VALUES (?, ?, ?, datetime('now'))
     ON CONFLICT(save_id) DO UPDATE SET
       enemy_json = excluded.enemy_json,
       turn = excluded.turn,
-      started_at = excluded.started_at
+      started_at = excluded.started_at,
+      last_json = NULL
   `),
   setCombatTurn: db.prepare(`
-    UPDATE combat SET enemy_json = ?, turn = ? WHERE save_id = ?
+    UPDATE combat SET enemy_json = ?, turn = ?, last_json = ? WHERE save_id = ?
   `),
   clearCombat: db.prepare(`DELETE FROM combat WHERE save_id = ?`),
 };
@@ -457,11 +468,18 @@ function toCombat(row) {
     enemy = null;
   }
   if (!enemy || typeof enemy !== "object") return null;
+  let last = null;
+  try {
+    last = JSON.parse(row.last_json || "null");
+  } catch {
+    last = null;
+  }
   return {
     save_id: row.save_id,
     enemy,
     turn: Math.max(1, Math.trunc(Number(row.turn) || 1)),
     started_at: row.started_at,
+    last: last && typeof last === "object" ? last : null,
   };
 }
 
@@ -475,8 +493,13 @@ function setCombat(saveId, enemy, turn) {
   stmts.setCombat.run(saveId, JSON.stringify(enemy || {}), Math.max(1, Math.trunc(Number(turn) || 1)));
 }
 
-function setCombatTurn(saveId, enemy, turn) {
-  stmts.setCombatTurn.run(JSON.stringify(enemy || {}), Math.max(1, Math.trunc(Number(turn) || 1)), saveId);
+function setCombatTurn(saveId, enemy, turn, last) {
+  stmts.setCombatTurn.run(
+    JSON.stringify(enemy || {}),
+    Math.max(1, Math.trunc(Number(turn) || 1)),
+    last && typeof last === "object" ? JSON.stringify(last) : null,
+    saveId
+  );
 }
 
 function clearCombat(saveId) {

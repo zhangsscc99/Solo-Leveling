@@ -19,6 +19,8 @@ export interface CombatEnemy {
   max_hp: number;
   atk: number;
   def: number;
+  // F218：敌方五项属性随视图下发，断言离线复演 resolveTurn 用。
+  stats?: Stats;
 }
 
 // F088 服务端交战态：save.combat 非空即真实交战，敌人 HP/回合全部可信。
@@ -26,6 +28,14 @@ export interface CombatState {
   enemy: CombatEnemy;
   turn: number;
   started_at: string | null;
+  // F218 回合结算行：服务端按本回合真实事件拼出的播报
+  // （命中/未命中/暴击 + 伤害 + 敌方 HP 变化），战斗区原样渲染；
+  // 开战后未结算回合为 null。
+  last?: {
+    turn: number;
+    kind: string;
+    line: string;
+  } | null;
 }
 
 // F116 解锁门三态：服务端 chaptersEngine.unlockView 统一下发，

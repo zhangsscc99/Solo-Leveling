@@ -234,7 +234,38 @@ function RankEmblem({ rank, level }: { rank: string; level: number }) {
   );
 }
 
-function Gauge({ label, value, max, kind }: { label: string; value: number; max: number; kind: "hp" | "mp" }) {
+// F218 顶栏跳字：跟随 save.hp/mp 的逐次差值渲染一枚 ~1.1s 浮字
+// （绝对定位不占行高、pointer-events:none 不拦点击）。差值为 0 不浮字；
+// 同槽位连续变动时换 key 重放动画，数值按最新一次差值更新。
+function useGaugeDelta(value: number): { key: number; delta: number } | null {
+  const prevRef = useRef<number | null>(null);
+  const seqRef = useRef(0);
+  const [delta, setDelta] = useState<{ key: number; delta: number } | null>(null);
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = value;
+    if (prev === null || prev === value) return;
+    seqRef.current += 1;
+    setDelta({ key: seqRef.current, delta: value - prev });
+    const t = setTimeout(() => setDelta(null), 1100);
+    return () => clearTimeout(t);
+  }, [value]);
+  return delta;
+}
+
+function Gauge({
+  label,
+  value,
+  max,
+  kind,
+  delta,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  kind: "hp" | "mp";
+  delta?: { key: number; delta: number } | null;
+}) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
     <div className={`gauge gauge-${kind}${pct <= 30 ? " gauge-low" : ""}`}>
@@ -246,6 +277,15 @@ function Gauge({ label, value, max, kind }: { label: string; value: number; max:
         {value}
         <i>/</i>
         {max}
+        {delta && (
+          <span
+            key={delta.key}
+            className={`gauge-delta ${delta.delta > 0 ? "gd-up" : "gd-dn"}`}
+            aria-hidden="true"
+          >
+            {delta.delta > 0 ? `+${delta.delta}` : delta.delta}
+          </span>
+        )}
       </span>
     </div>
   );
@@ -280,6 +320,10 @@ function StatusBar({
   const xpNeed = Number(save.xp_to_next) || 0;
   const xpPct = xpNeed <= 0 ? 0 : Math.min(100, Math.max(0, (save.xp / xpNeed) * 100));
   const xpTip = `经验 ${save.xp}/${save.xp_to_next} · 距 Lv.${save.level + 1} 还需 ${Math.max(0, xpNeed - save.xp)}`;
+  // F218 顶栏 HP/MP 跳字：每次 /action 回包带出的差值各浮一枚，
+  // ≤1.1s 自动卸载。
+  const hpDelta = useGaugeDelta(save.hp);
+  const mpDelta = useGaugeDelta(save.mp);
   return (
     <header className="status">
       <div className="status-id">
@@ -303,8 +347,8 @@ function StatusBar({
         </div>
       </div>
       <div className="status-gauges">
-        <Gauge label="HP" value={save.hp} max={save.max_hp} kind="hp" />
-        <Gauge label="MP" value={save.mp} max={save.max_mp} kind="mp" />
+        <Gauge label="HP" value={save.hp} max={save.max_hp} kind="hp" delta={hpDelta} />
+        <Gauge label="MP" value={save.mp} max={save.max_mp} kind="mp" delta={mpDelta} />
       </div>
       <div className="status-nums">
         {/* F164 属性点徽标：free_points>0 时钉在属性组首位——可点直达
@@ -1260,6 +1304,7 @@ export default function App() {
   return (
     <div className="app">
       <StatusBar
+        key={save.id}
         save={save}
         equipment={equipment}
         degraded={degraded && !degradedDismissed}
@@ -1269,7 +1314,20 @@ export default function App() {
         onFreePoints={onFreePointsBadge}
       />
 
-      <main className="stage" ref={logRef}>
+      <main className="stage">
+        {/* F218：交战面板从 .stage-col 内 sticky 浮层改为舞台顶部的独立
+            槽位——.stage 纵向 flex，面板钉在正文滚动区之外，矩形与
+            .stage-col 恒不相交（390 下不再压住日志正文）；正文滚动职责
+            随 logRef 一并下放 .stage-col。 */}
+        {combatOpen && (
+          <CombatPanel
+            save={save}
+            log={log}
+            logBase={logBaseRef.current}
+            equipment={equipment}
+            onClose={() => setCombatOpen(false)}
+          />
+        )}
         {/* F084 日志顶部回溯控件：只放 stage-col 外（不进 .stage-col > *
             的行数口径）。有更早记录时是「加载更早」活键，翻到底后留
             「已到最初」死键占位；历史不足一屏时整块不渲染。 */}
@@ -1285,16 +1343,7 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className="stage-col">
-          {combatOpen && (
-            <CombatPanel
-              save={save}
-              log={log}
-              logBase={logBaseRef.current}
-              equipment={equipment}
-              onClose={() => setCombatOpen(false)}
-            />
-          )}
+        <div className="stage-col" ref={logRef}>
           {/* F167：一条日志可拆成多个 .stage-col 子节点（遭遇/教学段独立
               成条），splitStageEntry 对回灌旧行与新行同规则生效。 */}
           {log.flatMap((entry) =>

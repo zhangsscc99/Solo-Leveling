@@ -215,12 +215,26 @@ function combatView(combat, save) {
       atk: Math.max(0, Math.trunc(Number(e.atk) || 0)),
       def: Math.max(0, Math.trunc(Number(e.def) || 0)),
       boss: Boolean(e.boss),
+      // F218：敌方五项属性随视图下发——断言离线复演 resolveTurn 需要与
+      // 服务端注入引擎的实体逐项一致（闪避只吃 stats.agility）。
+      stats: statsEngine.sanitizeStats(e),
     },
     turn: Math.max(1, Math.trunc(Number(combat.turn) || 1)),
     started_at: combat.started_at || null,
     // 开战盐：连续两场战斗的 seq 必不同（断言可直接比对）。
     seq: Number.isFinite(e.seq) ? e.seq : null,
   };
+  // F218 回合结算行：combatTurn 本回合真实事件拼出的播报（{turn,kind,line}），
+  // 随交战态持久化——战斗区原样渲染，刷新回灌仍在；开战后未结算回合为 null。
+  const last = combat.last && typeof combat.last === "object" ? combat.last : null;
+  view.last =
+    last && typeof last.line === "string" && last.line
+      ? {
+          turn: Math.max(1, Math.trunc(Number(last.turn) || 1)),
+          kind: String(last.kind || "none"),
+          line: String(last.line),
+        }
+      : null;
   // F191 每回合预估：与 guardianWarning / resolveTurn 注入引擎的实体同一
   // 口径——装备加成折回五项属性，伤害走同一条 computeDamage（力量基数、
   // rank 压制、体力减伤、暴击上下限），区间 = 不暴击下限到暴击上限，未计
@@ -2582,7 +2596,11 @@ function combatTurn(save, cbt, action, input, skill, opts) {
 
   // 回合种子：enemy.seq 是开战盐（每场唯一），旧战斗无 seq 时退回
   // started_at。同一存档连续两场战斗的 RNG 流必然不同。
-  const seed = `combat:${save.id}:${cbt.enemy && cbt.enemy.seq !== undefined ? cbt.enemy.seq : cbt.started_at || "?"}:${cbt.turn}`;
+  // F218 测试注入：opts.seed 追加进回合种子——断言可确定性造出落空
+  // 回合；线上请求不带该字段，与旧口径逐字一致。
+  const seed =
+    `combat:${save.id}:${cbt.enemy && cbt.enemy.seq !== undefined ? cbt.enemy.seq : cbt.started_at || "?"}:${cbt.turn}` +
+    (opts && opts.seed ? `:${opts.seed}` : "");
   const { state, events } = combatEngine.resolveTurn(
     {
       turn: cbt.turn,
@@ -2636,6 +2654,66 @@ function combatTurn(save, cbt, action, input, skill, opts) {
     `【战斗】第${cbt.turn}回合 · ` +
     events.map((ev) => ev.text).join(" · ");
   if (vitals.length) content += `\n【战斗】${vitals.join(" · ")}`;
+
+  // F218 回合结算行：由本回合真实事件与 HP 快照拼成一行播报，随交战态
+  // last_json 持久化——战斗面板的回合播报原样渲染，前端不再从日志反推
+  // 数值。kind 给前端做克制染色（命中=青、未命中=灰、暴击=红等）。
+  const last = (() => {
+    // strike 事件的 side 是守方：玩家命中 → side=player（hit/crit），
+    // 玩家落空 → side=enemy（miss/dodge）；敌方结算恰相反。
+    const you = events.find(
+      (ev) =>
+        (ev.side === "player" && (ev.type === "hit" || ev.type === "crit")) ||
+        (ev.side === "enemy" && (ev.type === "miss" || ev.type === "dodge"))
+    );
+    const foe = events.find(
+      (ev) =>
+        (ev.side === "enemy" && (ev.type === "hit" || ev.type === "crit")) ||
+        (ev.side === "player" && (ev.type === "miss" || ev.type === "dodge"))
+    );
+    const heal = events.find((ev) => ev.type === "heal" && ev.side === "player");
+    const flee = events.find((ev) => ev.type === "flee");
+    const verb = action === "skill" ? "你的技能" : "你的攻击";
+    const enemyMax = Math.max(1, Math.trunc(Number(e.maxHp) || 1));
+    const segs = [];
+    let kind = "none";
+    if (you && (you.type === "hit" || you.type === "crit")) {
+      kind = you.type;
+      segs.push(`${verb}${you.type === "crit" ? "暴击" : "命中"}`);
+      segs.push(`造成 ${Math.max(0, Math.trunc(Number(you.value) || 0))} 伤害`);
+      segs.push(`${e.name} ${enemyHpBefore}→${enemyHpAfter}`);
+    } else if (you) {
+      kind = you.type; // miss|dodge——闪避句补「未命中」字样保持口径完整
+      segs.push(you.type === "dodge" ? `${verb}被闪避` : `${verb}未命中`);
+      if (you.type === "dodge") segs.push("未命中");
+      segs.push(`${e.name} ${enemyHpAfter}/${enemyMax}`);
+    } else if (heal) {
+      kind = "item";
+      segs.push("你使用了补给");
+      const healed = Math.max(0, Math.trunc(Number(heal.value) || 0));
+      if (healed > 0) segs.push(`恢复 ${healed}`);
+      segs.push(`${e.name} ${enemyHpAfter}/${enemyMax}`);
+    } else if (action === "defend") {
+      kind = "defend";
+      segs.push("你摆出防御姿态");
+      segs.push(`${e.name} ${enemyHpAfter}/${enemyMax}`);
+    } else if (flee) {
+      kind = flee.side === "player" ? "flee" : "flee_fail";
+      segs.push(kind === "flee" ? "你脱离了战斗" : "你的逃跑被拦下");
+      segs.push(`${e.name} ${enemyHpAfter}/${enemyMax}`);
+    }
+    if (foe && (foe.type === "hit" || foe.type === "crit")) {
+      segs.push(`承伤 ${Math.max(0, Math.trunc(Number(foe.value) || 0))}`);
+    } else if (foe) {
+      segs.push("敌方反击落空");
+    }
+    if (!segs.length) return null;
+    return {
+      turn: Math.max(1, Math.trunc(Number(cbt.turn) || 1)),
+      kind,
+      line: segs.join(" · "),
+    };
+  })();
 
   const res = { patch, content, events: [], combat: null, rewards: null, grantMain: null };
   if (action === "skill" && patch.mp < save.mp) res.events.push("skill");
@@ -2755,7 +2833,7 @@ function combatTurn(save, cbt, action, input, skill, opts) {
       res.content += `\n【战斗】${e.name}没有追出来。`;
     }
   } else {
-    res.combat = { op: "turn", enemy: e, turn: state.turn };
+    res.combat = { op: "turn", enemy: e, turn: state.turn, last };
   }
 
   // F182：守关者残血随每回合结算落档——撤离/阵亡时交战行虽删，残血
@@ -2890,7 +2968,7 @@ function peacefulCombatIntent(save, input, action) {
   return { patch: null, content: lines[action], events: [] };
 }
 
-function combatIntent(save, input, action) {
+function combatIntent(save, input, action, opts) {
   const cbt = store.getCombat(save.id);
   if (!cbt) return peacefulCombatIntent(save, input, action);
   let skill = null;
@@ -2900,7 +2978,10 @@ function combatIntent(save, input, action) {
     if (!gate.ok) return { patch: null, content: gate.content, events: [], refused: true };
     skill = gate.skill;
   }
-  return combatTurn(save, cbt, action, input, skill, { retreatOnFlee: action === "flee" });
+  return combatTurn(save, cbt, action, input, skill, {
+    retreatOnFlee: action === "flee",
+    seed: opts && opts.seed,
+  });
 }
 
 // F200「连击 ×3」：一次输入连打至多 3 个回合，只在玩家点击时结算
@@ -2921,7 +3002,7 @@ function combatIntent(save, input, action) {
 // 也不多出一条（work.mp 已是扣后值，与连点「攻击」逐字同形）。
 const COMBO_MP_COST = 6;
 
-function combatComboIntent(save, input) {
+function combatComboIntent(save, input, opts) {
   const cbt0 = store.getCombat(save.id);
   // 非交战「连击」与「攻击」同义：叫阵/遭遇掷点，不白送回合——没有三回合
   // 结算可付，6 MP 代价不适用于此路径（与「攻击」同口径零消耗）。
@@ -2948,7 +3029,7 @@ function combatComboIntent(save, input) {
     grantMain: null,
   };
   for (let i = 0; i < 3; i++) {
-    const res = combatTurn(work, cbt, "attack", input, null, {});
+    const res = combatTurn(work, cbt, "attack", input, null, { seed: opts && opts.seed });
     merged.log_entries.push(res.content);
     merged.patch = { ...merged.patch, ...(res.patch || {}) };
     Object.assign(work, res.patch || {});
@@ -3122,28 +3203,30 @@ const INTENTS = [
     // 对它返回 null），由 resolveAction 判入本意图，按输入词分流成至多
     // 3 回合的连续结算或单击一回合；INTENTS 表不新增 id（ai/validate 的
     // 镜像白名单保持同步，AI 端也无须认识新意图）。
-    build: (save, input) =>
-      /连击/.test(input) ? combatComboIntent(save, input) : combatIntent(save, input, "attack"),
+    build: (save, input, opts) =>
+      /连击/.test(input)
+        ? combatComboIntent(save, input, opts)
+        : combatIntent(save, input, "attack", opts),
   },
   {
     id: "skill",
     role: "system",
-    build: (save, input) => combatIntent(save, input, "skill"),
+    build: (save, input, opts) => combatIntent(save, input, "skill", opts),
   },
   {
     id: "defend",
     role: "system",
-    build: (save, input) => combatIntent(save, input, "defend"),
+    build: (save, input, opts) => combatIntent(save, input, "defend", opts),
   },
   {
     id: "item",
     role: "system",
-    build: (save, input) => combatIntent(save, input, "item"),
+    build: (save, input, opts) => combatIntent(save, input, "item", opts),
   },
   {
     id: "flee",
     role: "system",
-    build: (save, input) => combatIntent(save, input, "flee"),
+    build: (save, input, opts) => combatIntent(save, input, "flee", opts),
   },
   {
     id: "shadow_formation",
@@ -3539,7 +3622,7 @@ const COMBAT_BLOCKED_VERB = {
 // build 出参的 events/combat/rewards/grantMain 是真实结算事件与副作用
 // 描述，由 applyOutcome 统一落库（战斗态写删、奖励入账、死亡回溯、
 // 每日任务推进）。
-function executeIntent(save, intentId, input) {
+function executeIntent(save, intentId, input, opts) {
   const intent = INTENTS.find((it) => it.id === intentId);
   if (!intent) return null;
   if (!COMBAT_INTENTS.has(intentId)) {
@@ -3564,7 +3647,7 @@ function executeIntent(save, intentId, input) {
       };
     }
   }
-  const built = intent.build(save, input);
+  const built = intent.build(save, input, opts);
   // F161 疾行计数只记「连续前进」：任何未被拒绝的非前进动作（观察/休息/
   // 战斗/道具……）都把它归零——streak 是「连着按前进」的账，断档即清。
   // advance/choice 自己经 advanceWithEncounter 落新值（F196：分支落地
@@ -3656,7 +3739,7 @@ function applyOutcome(saveId, outcome) {
         // 玩家重新需要完整状态面板而不是一行指引。
         gateHintReset(saveId);
       } else if (outcome.combat.op === "turn") {
-        store.setCombatTurn(saveId, outcome.combat.enemy, outcome.combat.turn);
+        store.setCombatTurn(saveId, outcome.combat.enemy, outcome.combat.turn, outcome.combat.last);
       } else if (outcome.combat.op === "clear") {
         store.clearCombat(saveId);
       }
@@ -3919,7 +4002,7 @@ function unknownFallbackContent(save, input) {
   );
 }
 
-function resolveAction(save, input, choiceSel) {
+function resolveAction(save, input, choiceSel, opts) {
   // 裸面板名最先走面板路由（F129）：比关键词表更靠前，因为「属性」
   // 「影子编队」本就会被 status/shadow_formation 意图接住而轮不到
   // unknown 分支——面板路由是同一意图的更好落地，不是新解析层。
@@ -3933,18 +4016,18 @@ function resolveAction(save, input, choiceSel) {
     choiceSel !== undefined && choiceSel !== null && String(choiceSel).trim() !== ""
       ? String(choiceSel).trim()
       : choiceSelFromInput(input);
-  if (sel !== null) return executeIntent(save, "choice", sel);
+  if (sel !== null) return executeIntent(save, "choice", sel, opts);
   // F154：背包真实补给名一并交给解析器——词尾表之外的点名叫法
   // （「喝能量饮」且背包真有「能量饮」）仍判 item；没点名不算。
   const intentId = intentRules.resolveIntent(input, bagSupplyNames(save));
   if (intentId) {
-    return executeIntent(save, intentId, input);
+    return executeIntent(save, intentId, input, opts);
   }
   // F200「连击 ×3」：指令词表在 ai/keywords.js（本改动不动它）——「连击」
   // 不含任何既有信号词，resolveIntent 必然返回 null，走到这里才判入
   // attack 意图的连击变体；与词表同口径吃疑问句守卫（「你会连击吗？」不触发）。
   if (/连击/.test(input) && !intentRules.QUESTION_FORM.test(input)) {
-    return executeIntent(save, "attack", input);
+    return executeIntent(save, "attack", input, opts);
   }
   // 交战中收到无法解析的输入：给战斗指令提示而不是通用提示。
   const cbt = store.getCombat(save.id);
@@ -4488,7 +4571,13 @@ api.post("/action", (req, res) => {
   // result is clamped, so any numbers in the client payload are ignored.
   // F196：choice_id 是显式分支指令（前端选项按钮/断言点名），随请求体
   // 下发——选择子的归属与门槛全由服务端按当前场景数据判定。
-  const outcome = resolveAction(save, input, body.choice_id);
+  // F218：可选 seed 字段追加进战斗回合种子——断言可注入确定性随机源
+  // 造出必然落空的回合；缺省（线上请求不带）与旧口径逐字一致。
+  const testSeed =
+    typeof body.seed === "string" || typeof body.seed === "number"
+      ? String(body.seed).slice(0, 64)
+      : undefined;
+  const outcome = resolveAction(save, input, body.choice_id, { seed: testSeed });
   // F096 章节门拒绝：零结算、零位移、零事件——applyOutcome 照跑空管线，
   // patch 本应为 null，谁把它改回带消耗谁就在响应里现形。
   // F142：但被拒的输入与拒绝文案本身是真实发生的往来——照旧写两条日志
