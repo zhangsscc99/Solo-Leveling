@@ -2236,3 +2236,11 @@
 ### 本轮新增 4 条，建议下一轮做 2 条
 - 新增：**F210**（P1 移动端分支选项文字溢出）、**F211**（P2 前置条件选项不置灰）、**F212**（P2 系统键横滑无提示）、**F213**（P2 正文单段过长）。
 - 建议下轮：F210（swe-2-medium，纯 `styles.css` 选项组布局 + 新断言）与 F211（swe-2-medium，`chapters.json` 条件渲染或拒绝文案）。F212/F213 排在 P209 之后。
+
+## 第 41 轮调度验收（2026-11-18 03:21–05:0x UTC，cron；单条规模，仅做 P209）
+
+- **做了什么**：P209（P1 工程死路）——`scripts/assert/combat-actions-ui.mjs` 自我失效。devin（swe-2-medium）改为**每次 attempt 独立 launch**（attempt 内 `finally` 关闭自己的 ctx/browser，绝不复用已关对象）、失败日志带 `step=` + `page.url()` + 错误栈首行、用例名叠随机后缀。
+- **验收**：隔离实例（worktree 库 + `PORT=3199`）连跑 3 次 `[ASSERT] combat-actions-ui OK (attempt 1)` 全绿；`boot.mjs` 4.2s PASS、`action.mjs` 4.6s PASS；`node --test server/db.test.js` 清环境后 3/3 PASS。
+- **根因修正（重要）**：P209 条目里「db.test.js 三红属 worktree 未装依赖」的猜测**不成立**。真因是**调度 shell 泄漏环境变量**：`DB_PATH=/tmp/sl-main38.db` 让 `server/db.js` 打开 A 库，而用例 `raw()` 硬编码 `<repo>/data/game.db` 打开 B 库 → 行插进 A 却从 B 里查（`rows.length` 0）。同一泄漏的 `E2E_BASE_URL=http://127.0.0.1:3118/game`（死端口）才是 `combat-actions-ui` 首败 `fetch failed` 的来源；崩溃链路（浏览器被连带关闭 → 重试对已关 browser `newContext`）是二次伤害。已登记 **P211**（`verify.sh`/`report.sh` 入口统一 unset + 用例复用 `DB_FILE`）作为根治项。
+- **踩到的坑**：① 在 worktree 里跑 UI 断言时，断言读的是 worktree 的 `data/game.db`，而 `:3020` 上的 server 读的是 `/www/Solo-Leveling/data/game.db` → 断言里直接改库（MP 压低、清冷却）的用例必假红（`MP-不足 reason missing`）。正确做法是起隔离实例（worktree 库 + 独立端口 + `E2E_BASE_URL` 指向它）。② devin 本轮把 `docs/FEATURES.md` 的 F210–F213 与 `PRODUCT-REVIEW.md` 第 40 轮整节写丢（疑似按陈旧快照回写），已在合并前用 `git checkout main -- docs/` 还原并人工重写勾选/备注——**devin 提交后必须逐文件看 diff，不能只看有没有改动**。
+- **未做/仍挂**：F078、F093（人工确认）、P210、P211、F210/F211/F212/F213。

@@ -24,7 +24,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const { loadPW, findChrome, createSave, assert, readVitals } = await import("../e2e/lib.mjs");
-const { fetchSaveView } = await import("./_http.mjs");
+const { fetchSaveView, mustChoosePick } = await import("./_http.mjs");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
@@ -34,8 +34,13 @@ const dbPath =
 const Database = require("better-sqlite3");
 const db = new Database(dbPath);
 
-const NAME = `e2e-f094-${Date.now().toString(36)}`;
+// 觉醒输入框 maxLength=20：NAME + "-" + attempt 序号必须 ≤20，
+// 否则尾部被截断、同一进程两次 attempt 撞同名档弹「继续/另起新档」。
+const NAME = `e2e-f094-${Date.now().toString(36).slice(-5)}-${Math.random().toString(36).slice(2, 5)}`;
 const settle = (page, ms = 400) => page.waitForTimeout(ms);
+
+// 当前步骤标记：失败日志带上下文（attempt/STEP/url），不再只留 fetch failed。
+let STEP = "boot";
 
 // 行动组（第一组）内的按钮定位——排除系统组。
 const combatBtn = (page, label) =>
@@ -43,6 +48,7 @@ const combatBtn = (page, label) =>
 
 // 自由行动输入框发指令，等 /action 回包完整落地并返回响应 JSON。
 async function send(page, text) {
+  STEP = `send(${text})`;
   await page.fill(".input-row input", text);
   const [resp] = await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/action") && r.request().method() === "POST"),
@@ -54,6 +60,7 @@ async function send(page, text) {
 
 // 保证处于交战态：击杀冷却期「攻击」必空挥，先「前进」磨冷却再逼遭遇。
 async function ensureEngaged(page, saveId) {
+  STEP = "ensureEngaged";
   for (let i = 0; i < 20; i++) {
     if (await combatBtn(page, "攻击").isEnabled().catch(() => false)) return;
     const s = (await fetchSaveView(saveId)).save;
@@ -62,7 +69,13 @@ async function ensureEngaged(page, saveId) {
       await settle(page);
       continue;
     }
-    await send(page, s.encounter_cd > 0 ? "前进" : "攻击");
+    const r = await send(page, s.encounter_cd > 0 ? "前进" : "攻击");
+    // P204 must_choose：被标场景拒绝无显式选项的「前进」——补发主线选项
+    // 让场景真正推进，否则整轮在这里空转到超时（曾造成连跑必崩）。
+    if (r && r.refused === true) {
+      const pick = mustChoosePick((r.save && r.save.scene) || s.scene);
+      if (pick) await send(page, `选择 ${pick.id}`);
+    }
     await settle(page, 350);
   }
   assert(await combatBtn(page, "攻击").isEnabled(), "ensureEngaged: never entered combat");
@@ -70,6 +83,7 @@ async function ensureEngaged(page, saveId) {
 
 async function body(page, saveId) {
   // ── a) 无敌人：战斗入口折叠为单行矮槽位，四键本体不常驻 ──────────
+  STEP = "a) combat-entry";
   await page.waitForSelector(".combat-entry");
   const entry = page.locator(".combat-entry");
   assert((await entry.count()) === 1, "combat entry missing (expect exactly one)");
@@ -96,6 +110,7 @@ async function body(page, saveId) {
   }
 
   // ── b) 触发遭遇 → 五键可用 →「攻击」结算一回合 ──────────────────
+  STEP = "b) engage+attack";
   await ensureEngaged(page, saveId);
   await settle(page);
   for (const label of ["攻击", "释放技能", "防御", "道具", "逃跑"]) {
@@ -143,6 +158,7 @@ async function body(page, saveId) {
   }
 
   // ── c) 技能按钮：MP/冷却文案 + 真实扣 MP + 日志同源 ──────────────
+  STEP = "c) skill cast";
   await ensureEngaged(page, saveId);
   await combatBtn(page, "释放技能").click();
   await page.waitForSelector(".bar-skills");
@@ -191,6 +207,7 @@ async function body(page, saveId) {
   }
 
   // ── d) 交战门禁：休息/潜行/存档零收益 + 拒绝文案 + refused ──────
+  STEP = "d) combat gates";
   await ensureEngaged(page, saveId);
   {
     const vit0 = await readVitals(page);
@@ -221,6 +238,7 @@ async function body(page, saveId) {
   }
 
   // ── c') MP 不足 / 需 Lv.N：DB 落点压低 MP、清冷却，重载回灌 ──────
+  STEP = "c') MP-不足/需Lv.N";
   await ensureEngaged(page, saveId);
   {
     db.prepare("UPDATE saves SET mp = ?, skill_cd_json = '{}' WHERE id = ?").run(6, saveId);
@@ -249,6 +267,7 @@ async function body(page, saveId) {
   }
 
   // ── e) 390×844：五键全在视口内、≥44px、可点；底栏 ≤30%、正文 ≥60% ──
+  STEP = "e) 390x844 layout";
   {
     await page.setViewportSize({ width: 390, height: 844 });
     await settle(page, 500);
@@ -312,45 +331,68 @@ async function body(page, saveId) {
 }
 
 // F087 口径：整套断言失败重试一次（每次开新档，互不污染）。
+// 每次 attempt 独立 launch：任何一次失败/浏览器崩溃不污染下一次，
+// attempt 的 finally 关闭本次自己的 ctx 与 browser，绝不复用已关闭对象。
 async function main() {
   const pw = loadPW();
-  const browser = await pw.chromium.launch({
-    executablePath: findChrome(),
-    headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-  });
   let lastErr = null;
   for (let a = 0; a < 2; a++) {
-    const ctx = await browser.newContext({
-      viewport: { width: 1440, height: 900 },
-      locale: "zh-CN",
-    });
-    const page = await ctx.newPage();
-    page.setDefaultTimeout(20000);
+    STEP = "launch";
+    let browser = null;
+    let ctx = null;
+    let page = null;
     try {
+      browser = await pw.chromium.launch({
+        executablePath: findChrome(),
+        headless: true,
+        args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      });
+      ctx = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        locale: "zh-CN",
+      });
+      page = await ctx.newPage();
+      page.setDefaultTimeout(20000);
+      STEP = "createSave";
       const saveId = await createSave(page, `${NAME}-${a}`).then(() =>
         page.evaluate(() => Number(localStorage.getItem("solo_leveling_save_id")))
       );
       assert(saveId > 0, "save_id missing in localStorage");
       await body(page, saveId);
-      await ctx.close();
       console.log(`[ASSERT] combat-actions-ui OK (attempt ${a + 1})`);
-      await browser.close();
+      await ctx.close().catch(() => {});
+      ctx = null;
+      await browser.close().catch(() => {});
+      browser = null;
       process.exit(0);
     } catch (e) {
       lastErr = e;
       try {
         fs.mkdirSync("/root/logs", { recursive: true });
-        await page.screenshot({
-          path: `/root/logs/e2e-combat-actions-ui-${Date.now()}.png`,
-          fullPage: true,
-        });
+        if (page) {
+          await page.screenshot({
+            path: `/root/logs/e2e-combat-actions-ui-${Date.now()}.png`,
+            fullPage: true,
+          });
+        }
       } catch {}
-      console.log(`[ASSERT] combat-actions-ui attempt ${a + 1} failed: ${e.message}${a === 0 ? " — retrying once" : ""}`);
-      await ctx.close().catch(() => {});
+      const url = await (async () => {
+        try {
+          return page ? page.url() : "(no page)";
+        } catch {
+          return "(url unavailable)";
+        }
+      })();
+      const stackTop = ((e && e.stack) || "").split("\n").find(Boolean) || "";
+      console.log(
+        `[ASSERT] combat-actions-ui attempt ${a + 1} failed: step=${STEP} url=${url} ` +
+          `err=${e && e.message} | ${stackTop}${a === 0 ? " — retrying once" : ""}`
+      );
+    } finally {
+      if (ctx) await ctx.close().catch(() => {});
+      if (browser) await browser.close().catch(() => {});
     }
   }
-  await browser.close();
   console.error(`[ASSERT] combat-actions-ui FAIL: ${lastErr && lastErr.message}`);
   process.exit(1);
 }

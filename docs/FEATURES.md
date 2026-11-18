@@ -634,9 +634,10 @@
   verify: node scripts/assert/xp-bar-topbar.mjs
   risk: low
 
-- [ ] P209 （P1 工程死路，第38轮验收发现）`scripts/assert/combat-actions-ui.mjs` 已自我失效：连跑必崩在 `browser.newContext: Target page, context or browser has been closed`（第 324 行）。根因是重试循环先失败一次（`fetch failed`）后浏览器已随之关闭，第二次仍对同一个已关闭的 browser 调 `newContext()`，异常直接抛到顶 → `report.sh` 里这条永远是红，而且红因与业务无关。同类：同一 worktree 里 `server/db.test.js` 三连（`stats_json 非法 JSON` / 道具）在 main、P205、P207 三个工作区全红，也属环境/用例自身问题，不是业务回归。要求：① 重试前显式关闭并按需重启 browser（每次 attempt 独立 launch，或 attempt 内 catch 后 `browser.close()` 再重建）；② 首败日志必须打印失败步骤与 URL（现在只有一句 `fetch failed`）；③ 用例名带随机后缀（F136 口径）；④ 修好后在隔离实例上连跑 3 次全绿，并在 `report.sh` 全表里确认由红转绿。
+- [x] P209 ✅ (2026-11-18 devin) （P1 工程死路，第38轮验收发现）`scripts/assert/combat-actions-ui.mjs` 已自我失效：连跑必崩在 `browser.newContext: Target page, context or browser has been closed`（第 324 行）。根因是重试循环先失败一次（`fetch failed`）后浏览器已随之关闭，第二次仍对同一个已关闭的 browser 调 `newContext()`，异常直接抛到顶 → `report.sh` 里这条永远是红，而且红因与业务无关。同类：同一 worktree 里 `server/db.test.js` 三连（`stats_json 非法 JSON` / 道具）在 main、P205、P207 三个工作区全红，也属环境/用例自身问题，不是业务回归。要求：① 重试前显式关闭并按需重启 browser（每次 attempt 独立 launch，或 attempt 内 catch 后 `browser.close()` 再重建）；② 首败日志必须打印失败步骤与 URL（现在只有一句 `fetch failed`）；③ 用例名带随机后缀（F136 口径）；④ 修好后在隔离实例上连跑 3 次全绿，并在 `report.sh` 全表里确认由红转绿。
   verify: node scripts/assert/combat-actions-ui.mjs
   risk: low
+  > 备注（调度验收）：db.test.js 三红的真根因不是用例逻辑，是**调度 shell 泄漏的环境变量**：`DB_PATH=/tmp/sl-main38.db` 让 `server/db.js` 打开 A 库，而用例 `raw()` 硬编码 `<repo>/data/game.db` 打开 B 库 → 插进去的行读不到（`rows.length` 0）。清掉 `DB_PATH/E2E_BASE_URL/API_BASE` 后三条全绿（3/3）。同一泄漏也解释了 P209 原始症状的首因：`E2E_BASE_URL=http://127.0.0.1:3118/game`（死端口）→ `fetch failed` → 浏览器随之关闭。
 
 - [ ] P210 （P1 工程死路，第40轮调度发现）`scripts/report.sh` 在全表模式下逐条执行 FEATURES 里每一条 verify（每条断言自起隔离实例、部分还要起 Playwright），实测运行 >50 分钟仍未写出报告文件，被调度器强行终止——于是「本轮汇报」这件必做事项在 15 分钟单轮预算内永远做不完，报告只能手工替写。要求：① 支持增量模式（`--changed` 取本轮合并区间涉及的 verify、或 `--since <ref>`），增量模式 3 分钟内产出报告；② 全表模式改为有界并发（默认并发 2，CPU>90% 时自动降到 1），单条失败不阻塞其余条目；③ 每条结果边跑边落盘（部分报告也要可用，进程被杀不丢已跑结果）；④ 增量模式与全表模式对同一批 FID 的 PASS/FAIL 结论必须一致（抽 5 条对照）。断言：`node scripts/assert/report-incremental.mjs` —— 在隔离仓库副本上跑 `--changed` 于 180s 内生成报告文件且含本轮 FID，杀掉进程后已跑行仍在文件里，再对同一批 FID 与全表模式结论逐条比对相等
   verify: node scripts/assert/report-incremental.mjs
@@ -653,4 +654,8 @@
   risk: low
 - [ ] F213 （P2 文本排版，第40轮真实玩家走查）开场正文是一堵 340 字的墙：`.stage p.narration` 把三个自然段（矿灯下的委托人 / 李珠熙的招呼 / 石殿与合拢的石门）塞进同一个 `<p>`，只用 `\n\n` 分隔，390 下一屏全是同字号同灰度，vision 两次把它读成"顶部文字被裁切/显示异常"。要求：① 服务端把开场这段（及同类 >200 字的长段）按自然段拆成多个 `p.narration`；② 390 下单段渲染高度 ≤ 视口 35%，段落间距沿用现有 `--line` 变量；③ 不删改任何原文句子（只拆段，不改字），`action-prose-by-chapter` / `no-placeholder-prose` 不得放宽；④ 日志条数与滚动行为不变。断言：`node scripts/assert/prose-paragraphs.mjs` —— 新档首屏断言 `.stage p.narration` 数量 ≥ 5、单段字数最大值 ≤ 200、单段渲染高度 ≤ 0.35×视口高；全文拼接后与拆分前逐字相同
   verify: node scripts/assert/prose-paragraphs.mjs
+  risk: low
+
+- [ ] P211 （P1 工程死路，第41轮调度验收发现）断言/单测被**调度 shell 泄漏的环境变量**打成假红：本机常驻 `DB_PATH=/tmp/sl-main38.db`、`E2E_BASE_URL=http://127.0.0.1:3118/game`（死端口）、`API_BASE=…/zhihucopy/api`。后果：① `combat-actions-ui.mjs` 先 `fetch failed`（打到死端口）→ 浏览器随之关闭 → 重试对已关浏览器 `newContext` 崩；② `server/db.test.js` 的 `raw()` 硬编码 `<repo>/data/game.db`，而 `server/db.js` 按 `DB_PATH` 打开另一个库 → 插进去的行读不回（`rows.length` 0，实测 2 条红），清掉变量后 3/3 全绿。`ci-deploy.sh` 已在入口 `unset`，`verify.sh`/`report.sh` 只清了 `API_BASE`。要求：① `verify.sh` 与 `report.sh` 入口统一 `unset E2E_BASE_URL API_BASE DB_PATH SL_GAME_DB SL_VERIFY_API_BASE`（`SL_VERIFY_API_BASE` 作为唯一显式覆盖口保留），并在报告里打印被清掉的值；② `server/db.test.js` 不再硬编码库路径，改为复用 `server/db.js` 导出的 `DB_FILE`（或 `db.name`），保证「应用打开的库 == 用例看到的库」；③ 不改任何断言语义与产品行为。断言：`node scripts/assert/env-leak-guard.mjs` —— 在 `DB_PATH=/tmp/x.db E2E_BASE_URL=http://127.0.0.1:3118/game` 的污染环境下跑 `scripts/verify.sh P209`，断言其内部已清理变量（打印清理日志）且断言通过；再断言 `node --test server/db.test.js` 在该污染环境下仍全绿
+  verify: node scripts/assert/env-leak-guard.mjs
   risk: low
