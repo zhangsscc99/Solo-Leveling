@@ -705,11 +705,49 @@ const OBSERVE_OVER_LINES_CHOOSE = [
   (entity, guide) => `蹲在这里只是重数旧痕——${guide}，定了心才有下一步。`,
 ];
 
+// F241 风险尾注措辞池：旧版可掷怪分支只剩两个固定变体（过/未过保底
+// 线各一），正文池 OBSERVE_OVER_LINES 在轮换、唯独尾注逐字复读——同
+// 档连点「观察」看到的除「动静 N/4」数字外一模一样。现改为确定性子
+// 轮换：种子用推进后的 encounter_clock（clockNext，复核区每次观察稳
+// 定 +1，与 OBSERVE_OVER_LINES 取 rawClock 同一本账，不用随机数，可
+// 复现）。语义口径不动：「动静 N/4」计数串一字不改；过保底线（
+// clockNext >= PITY_LIMIT-1，与 roll 的 c+1>=PITY_LIMIT 同一判定）仍
+// 写「已被惊动」。各变体的指路措辞刻意错开，免得和正文句尾撞句。
+const OBSERVE_OVER_RISK_WARN = [
+  (m) =>
+    `（这一带已经看熟——${m}，你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——说「前进」动身，或说「潜行」绕开。）`,
+  (m) =>
+    `（再翻也翻不出新东西了——${m}，你的响动正替暗处的东西指路——说「潜行」挪走，或说「前进」趁早动身。）`,
+  (m) =>
+    `（景物都记进心里了——${m}，逗留的动静一层叠一层，拖得越久越容易被盯上——说「前进」离开，或说「潜行」甩开它。）`,
+];
+const OBSERVE_OVER_RISK_ALERT = [
+  (m) =>
+    `（这一带已经看熟——${m}，逗留的动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上——说「前进」或「潜行」马上动身。）`,
+  (m) =>
+    `（这里已经搜得见底——${m}，响动早越过了线，黑暗里的东西已被惊动：下一刻多半就堵到面前——说「潜行」或「前进」立刻挪走。）`,
+  (m) =>
+    `（没什么可再看的了——${m}，动静攒得过了界，附近的东西已被惊动：再停留几乎必定撞上——说「前进」或「潜行」别再耽搁。）`,
+];
+// F240 must_choose 版：指路仍点名当前抉择（「前进/潜行」在必选场景必
+// 被门禁拒绝），轮换种子与「已被惊动」判定口径同上。
+const OBSERVE_OVER_RISK_WARN_CHOOSE = [
+  (m, g) => `（这一带已经看熟——${m}，你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——${g}。）`,
+  (m, g) => `（再翻也翻不出新东西了——${m}，你的响动正替暗处的东西指路——${g}，别再拖。）`,
+  (m, g) => `（景物都记进心里了——${m}，逗留的动静越叠越厚，迟早引来东西——${g}，越早定越好。）`,
+];
+const OBSERVE_OVER_RISK_ALERT_CHOOSE = [
+  (m, g) => `（这一带已经看熟——${m}，逗留的动静攒过了头，附近的东西已被惊动：再拖下去多半要正面撞上——${g}。）`,
+  (m, g) => `（这里已经搜得见底——${m}，响动早越过了线，黑暗里的东西已被惊动：再耗着多半躲不开——${g}，马上定。）`,
+  (m, g) => `（没什么可再看的了——${m}，动静攒得过了界，附近的东西已被惊动：下一刻多半撞上——${g}，别迟疑。）`,
+];
+
 // 复核区观察的风险尾注：只在掷点管线真的会在这里开火时才说「有东西靠
 // 近」——encounters:"none" 的现实世界/收束场景与终章永不掷怪，谎称危
-// 险是说假话，那里如实只剩「耗时间」。推进后的 encounter_clock 已跨过
-// 保底线时改口「已被惊动」（与 roll 的 c+1>=PITY_LIMIT 同一判定：下一
-// 次真实行动掷点必中）。
+// 险是说假话，那里如实只剩「耗时间」（口径固定不轮换，那两类场景本
+// 就不是复读投诉的落点）。推进后的 encounter_clock 已跨过保底线时改
+// 口「已被惊动」（与 roll 的 c+1>=PITY_LIMIT 同一判定：下一次真实行
+// 动掷点必中）。
 function observeOverRiskTail(scene, clockNext) {
   const rollable =
     scene &&
@@ -718,21 +756,20 @@ function observeOverRiskTail(scene, clockNext) {
   const meter = `动静 ${Math.min(Math.max(0, clockNext), encounterEngine.PITY_LIMIT)}/${
     encounterEngine.PITY_LIMIT
   }`;
+  const alerted = Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1;
   // F240：must_choose 场景「前进/潜行」指路同样必被必选门拦下——风险
   // 尾注改点名当前抉择；「动静 N/4」与「已被惊动」判定口径一字不动。
   if (scene && scene.must_choose === true) {
     const guide = mustChooseGuide(scene);
     if (!rollable)
       return `（这一带已经看熟——再蹲下去也只是耗时间。${meter}，${guide}。）`;
-    return Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1
-      ? `（这一带已经看熟——${meter}，逗留的动静攒过了头，附近的东西已被惊动：再拖下去多半要正面撞上——${guide}。）`
-      : `（这一带已经看熟——${meter}，你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——${guide}。）`;
+    const pool = alerted ? OBSERVE_OVER_RISK_ALERT_CHOOSE : OBSERVE_OVER_RISK_WARN_CHOOSE;
+    return pool[Math.max(0, clockNext) % pool.length](meter, guide);
   }
   if (!rollable)
     return `（这一带已经看熟——再蹲下去也只是耗时间。${meter}，说「前进」或「休息」都强过空耗。）`;
-  return Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1
-    ? `（这一带已经看熟——${meter}，逗留的动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上——说「前进」或「潜行」马上动身。）`
-    : `（这一带已经看熟——${meter}，你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——说「前进」动身，或说「潜行」绕开。）`;
+  const pool = alerted ? OBSERVE_OVER_RISK_ALERT : OBSERVE_OVER_RISK_WARN;
+  return pool[Math.max(0, clockNext) % pool.length](meter);
 }
 
 // P207 复核区观察（本场景第 OBSERVE_TOTAL+1 次起）：不再产出——不发物
