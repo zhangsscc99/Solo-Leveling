@@ -526,7 +526,15 @@ button {
   width: 100%;
   max-width: 72ch;
   margin: 0 auto;
-  padding: var(--sp-6) var(--sp-5) var(--sp-8);
+  /* F242 下缘渐隐：深度 == 下内边距（同一 var 单一事实源）。滚到底时
+     末行完整停在渐隐区之上（间距仍是原 padding-bottom）；首屏停顶/
+     中间滚动位时越过框缘的行在渐隐区里溶出，不再被裁剪缘铡成半行
+     （§9b frame 内不溢出，与 .status-nums 右缘渐隐、.sys-fade 同语言）。
+     mask 钉在元素盒底缘、不随内容滚动；滚动条随内容同规则淡化。 */
+  --edge-fade: var(--sp-8);
+  padding: var(--sp-6) var(--sp-5) var(--edge-fade);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--edge-fade)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--edge-fade)), transparent);
 }
 
 /* 旁白：衬线、缩进、更低对比、更宽行距 */
@@ -2062,7 +2070,9 @@ button {
   }
 
   .stage-col {
-    padding: var(--sp-4) var(--sp-3) var(--sp-6);
+    /* F242：下缘渐隐深随窄屏下内边距同步收缩（桌面口径同上）。 */
+    --edge-fade: var(--sp-6);
+    padding: var(--sp-4) var(--sp-3) var(--edge-fade);
   }
 
   .sidebar {
