@@ -736,5 +736,17 @@
   行数顶到 200 时才保留「加载更早」入口。服务端/存档结构/端口零改动，豁免白名单未扩大。
   新增 `scripts/e2e/resume-log-count.mjs`：旧码 82→80 FAIL（丢最旧 2 条）、新码 82→82 PASS，
   且断言以服务端日志条目数 >50 为覆盖前提（F167 一段拆多行会假绿）；F222 `reload-log-parity` 仍 PASS。
-- [ ] F228 双视口没有唯一主行动（P2 视觉，F223 复现）｜第47轮 vision：`walk-20261118T1110Z-m1-first.png`（390）判「四个探索键 + 两条剧情分支 + 页签三层同权重，不知道点哪」；`walk-20261118T1110Z-d1-first.png`（1440）判「多个入口竞争主次，右下大片暗色留白」。建议把续档页那条「先『观察』一次四周，看清线索后这一步才放得开」的引导前置到首屏主 CTA 位。verify: `node scripts/e2e/primary-cta.mjs` 断言 390 与 1440 下存在唯一 `.cta-primary`（或等效高亮类），且同权重可点按钮不含第二个描边高亮｜risk: low
-- [ ] F229 顶栏数值行贴边与字号（P2 排版）｜第47轮 vision 在 `m1-first` 与 `m16-resume` 两次把「攻20」读成「攻2」（疑似右边缘被裁），移动端「金币」字号过小 vision 读不出（桌面能读到「金币17」）。verify: 390 宽度下量 `.stat-row` 末项的 `getBoundingClientRect().right <= 容器 innerWidth - 8`，且正文字号≥11px、数值≥12px 的断言脚本｜risk: low
+- [ ] F228 双视口没有唯一主行动（P2 视觉，F223 复现）｜第47轮 vision：`walk-20261118T1110Z-m1-first.png`（390）判「四个探索键 + 两条剧情分支 + 页签三层同权重，不知道点哪」；`walk-20261118T1110Z-d1-first.png`（1440）判「多个入口竞争主次，右下大片暗色留白」。建议把续档页那条「先『观察』一次四周，看清线索后这一步才放得开」的引导前置到首屏主 CTA 位。
+  verify: node scripts/e2e/primary-cta.mjs
+  risk: low
+  断言 390 与 1440 下首屏存在唯一 `.cta-primary`（或等效高亮类），且同权重可点按钮不含第二个描边高亮
+- [ ] F229 顶栏数值行贴边与字号（P2 排版）｜第47轮 vision 在 `m1-first` 与 `m16-resume` 两次把「攻20」读成「攻2」（疑似右边缘被裁），移动端「金币」字号过小 vision 读不出（桌面能读到「金币17」）。
+  verify: node scripts/e2e/stat-row-fit.mjs
+  risk: low
+  390 宽度下量 `.status-nums .stat` 末项 `getBoundingClientRect().right <= innerWidth - 8`，且正文字号≥11px、数值≥12px（脚本待建）
+
+- [ ] F230 「动静」满格零后果——观察可无限白嫖（P0 零成本空转）｜第48轮实测：连点「观察」7 次 HP/MP/XP/金币全部 0 变化，第 7 次文案已写「动静 4/4，附近的东西已被惊动：再挪一步多半要正面撞上」，随后前进既没遭遇战也没扣血。`core-loop-designer` 的 Decision 缺失 + `game-balance-analyst` 的支配策略（观察零消耗，永远优于前进）｜verify: 状态满足 `动静>=4/4` 后，下一次「前进」必须返回遭遇战事件或 HP 扣减，断言 `/game/api/state` 的 `hp|mp|flags.danger` 与文案一致；脚本 `scripts/e2e/dwell-consequence.mjs`｜risk: med
+- [ ] F231 must_choose 未决时「前进」静默拒绝，且首次 6.41s 无回包（P0 无反馈）｜第48轮实测：3 次连点「前进」耗时 6.41s/1.1s/1.1s，日志行数恒定 12，无 toast、无按钮 shake、无任何可见提示，只有一行复述三个选项名的系统句。`game-detail-bar` §2「Every action answers at once in sight, sound and motion」｜verify: 拒绝路径必须在 300ms 内出现可见拒绝元素（`.toast, .deny-hint` 之一，`getBoundingClientRect().height>0`），且连点 3 次新增日志行数 ≤1｜risk: low
+- [ ] F232 「休息」按钮可点但完全无反馈（P1 死选项）｜第48轮实测：满状态连点「休息」3 次，每次 0.9s，0 新日志、HP/MP 不变、无提示、按钮不是 disabled。`intuitive-game-design` 的三层反馈（Immediate/Post 全缺）｜verify: 满状态点「休息」后 300ms 内出现「体力与魔力俱满，无需休息」提示，或按钮置 `disabled + aria-disabled="true"` 并在 DOM 有原因文案；`scripts/e2e/rest-feedback.mjs` 断言二者其一｜risk: low
+- [ ] F233 首次建档未写 save_id，刷新回落「觉醒协议」页（P1 续档摩擦）｜第48轮实测：觉醒后刷新 `localStorage` 为空、页面回到觉醒页需再点「继续这个存档」；点过之后才出现 `solo_leveling_save_id`。文案「存档绑定本机浏览器」与行为不符 ｜verify: 建档成功 1s 内 `localStorage.getItem('solo_leveling_save_id')` 非空；reload 后直接进主界面且不出现「继续这个存档」按钮｜risk: low
+- [ ] F234 首屏视觉三项：无唯一主行动（F228 修复未上线）、属性行字号过小、「攻20」被读成「攻2」（P2 视觉）｜第48轮 vision 对 `docs/runs/walk-20261118T1315Z-m1-first.png`（390）判「四个探索键 + 两条剧情按钮权重完全相等，不知道点哪」，且对 `m6-combat` 再次把「攻20」读成「攻2」；另 `> 左上还有 地图/任务/影子/战斗/存档` 这句说明书直接印在系统框内。注：仓库已有 `111ece0 merge feat/F228` 的 cta-primary 修复，但线上未生效，需确认部署 ｜verify: 线上 390 与 1440 下 `document.querySelectorAll('.cta-primary').length===1`；`.stat-row` 字号 ≥11px 且末项 `getBoundingClientRect().right <= 容器宽度-8`；系统框内不含「左上还有」文本｜risk: low
