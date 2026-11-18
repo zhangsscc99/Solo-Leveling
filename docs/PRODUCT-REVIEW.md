@@ -2480,3 +2480,11 @@ F218 落地：战斗区每回合出结算行（命中/暴击/未命中 + 伤害 
 - **豁免写成闭集白名单**（第一 pass 的 `ephemeral` 整类豁免等于「谁挂 class 谁就能静默丢行」，第二 pass 收紧）：豁免行 innerText 必须命中 `/已调出(技能|道具)面板|【警报】与系统的连接中断/` 且 ≤2 条；刷新前必须真的存在 ≥1 条豁免行（防豁免类空转绿）；主断言 `n1===n0` 与最后 3 条逐字相同原样保留。旧码红证：`expected an ephemeral receipt after opening skill drawer`。
 - 验收：隔离实例 3134 上连跑 2 次 PASS（19.2s/13.5s），冒烟 boot 5.7s + action 8.8s PASS，`ci-deploy` 后线上 `verify.sh F222 PASS (9.61s)`，公网 200。
 - 发现（非本轮修）：devin 第一 pass 会**主动选择**「给已知差异打 class 然后豁免」这条最省力的路，而不是让玩家看得一致；这类「豁免型修复」必须由调度器第二 pass 把豁免收成闭集，否则断言会退化。
+
+### 第 55 轮调度（2026-11-18 10:41 UTC，cron；只做 1 条：F221）
+- **F221 上线**：兜底回包原来把「眼下可以做：说「观察」环顾四周；说「前进」推进剧情。输入「帮助」查看完整指令表。」整段塞在小说段落后面。现在该尾巴整段删除（F176 的「每存档只给一次」一并作废），回包顺序改为 **回显 → 面板指路 → 可做之事 → 叙事句收尾**：最后落地的一定是 `unknownSceneLine` 的场景回应，系统话术不再压尾。可做之事保留 `说「X」` 动词锚点 ≥2 条，F146 契约不破（`unknown-followup-context` 仍绿）。
+- **must_choose 去编号**：`1) 2) 3)` 编号清单改成选项名「」串接的一句话（「这里必须做出选择：点「按石碑所写，低头敬拜」、「退到石柱后……」或「趁乱往石门方向逃」」）。保留「必须做出选择」作为 `choice-refusal-dedupe`/e2e 的落库指纹词，F219 的三版轮换、无方位词、DOM 高亮、零消耗/日志口径全部原样通过。
+- **帮助入口移进 UI**：顶栏新增 `?` 键（`.help-toggle`），走与手动输入「帮助」完全相同的 dispatch，服务端指令表照旧落日志行。
+- **部署第一 pass 被 E2E 拦住（好拦截）**：帮助键最初复用 `.drawer-toggle` 类 → `.drawer-toggle` 在 `e2e/mobile.mjs` 与 3 个 assert 里是**唯一元素**选择器，strict mode violation，`ci-deploy` 自动回滚到 a3e5f95（线上零影响）。第二 pass 给帮助键独立类 + 与档案键共享观感样式（`.drawer-toggle, .help-toggle`），7/7 E2E 通过后重新部署。
+- 验收：隔离实例 :3067 上 `free-input-prose` / `free-tail-jargon` / `unknown-followup-context` / `must-choose-copy`（含 Playwright DOM）全绿；`:3068` 复跑 mobile E2E + mobile-drawer-nav + panel-affordance 全绿；部署后线上 `verify.sh F221 PASS (2.86s)`，冒烟 boot 6.9s + action 10.9s PASS，公网 200 且实测回复已是「说「观察」…；说「前进」…。+ 叙事句」结构。
+- **发现的新死路（非本轮修）**：`.drawer-toggle` / `.help-toggle` 基线都是 `display:none`，只在 `@media (max-width:880px)` 里 `display:block`。所以 **1440 桌面视口既没有「档案」也没有「?」帮助键**——宽屏玩家现在既看不到指令表入口，兜底回复也不再补指令表，等于桌面端零发现路径（只剩「自己猜着输入『帮助』」）。已作为 F224 待办列入 FEATURES。
