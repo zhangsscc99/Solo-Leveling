@@ -888,3 +888,19 @@
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u DB_PATH -u E2E_BASE_URL -u API_BASE node scripts/e2e/rest-affordance.mjs
   risk: low
 - [ ] F254 390 宽底部动作区四排 10+ 按钮挤压、长选项被撑成两行（P1，视觉类）｜第52轮实测（`m7` 视觉分析）：底部依次为 前进/观察/潜行/休息 → 3 个剧情选项 → 战斗/背包/技能/属性/地图/任务/影子/存档 → 自由输入 + Enter，共 4 排；「退到石柱后，观察石像与石碑的对应」两行文字把按钮撑高，功能按钮字号低于 12px。`game-detail-bar` §9b「Phones get their own layout」+ §9a「never system fonts or plain rect bars」+ 44px 触控下限｜verify: 新增 `scripts/e2e/mobile-action-bar.mjs`——390×844 下断言所有 `.actions button` 的 `offsetHeight ≥ 44`、正文按钮内文字行数 = 1（`scrollHeight ≤ clientHeight*1.2`）、字号 ≥13px、整条 bar 无横向溢出（`scrollWidth ≤ clientWidth`）、功能类按钮折叠进「更多」；1440 下同样跑一遍｜risk: med
+
+- [ ] F255 手机端底部功能键（背包/技能/属性/地图/任务/影子）点了不打开抽屉，面板内容写进离屏 aside（P0，可负担性缺口）｜第53轮实测（390×844）：脱离交战后关闭抽屉，点底部「任务」→ `aside.sidebar` 类仍为 `sidebar`、`getBoundingClientRect().x=390`（宽 374，整块在屏幕右侧外）；再点「属性」同样停在 x=390，屏幕**零变化**（无滑出、无遮罩、无高亮）；只有右上「档案」会令类变 `sidebar open`、x=16、`.drawer-veil` opacity 1。决定性序列：`afterClose sidebar@16 → afterTask sidebar@390 → afterAttr sidebar@390`。玩家会认为按钮坏了，且完全查不到属性/任务/背包信息。`intuitive-game-design` Q2「优先改 Real，而不是靠提示补救」+ `game-detail-bar` §9b「Phones get their own layout」｜verify: 新增 `scripts/e2e/mobile-panel-open.mjs`——390×844 下依次点底部 背包/技能/属性/地图/任务/影子，每次断言 ① `aside.sidebar.classList.contains('open')` 为真、② `rect.left < innerWidth - 100`（真正进入视口）、③ 面板标题文本出现在可点区域内、④ 点 × 后类移除且 rect.left ≥ innerWidth-1；另断言点「档案」打开同一抽屉（对照组，防写死）。回退旧码应 FAIL 5/6 项｜risk: low
+  verify: 待实现 scripts/e2e/mobile-panel-open.mjs（落地后补命令）
+  risk: low
+- [ ] F256 正文机制括注/数值播报与三选项逐字复读（P1 文本质量 · 调试腔）｜第53轮：① 抉择后正文直接追加「（体力消耗 HP 100→97 · MP 20→18）」；② 连点观察 6 次，每次段落尾部都带「（探索 N/3 · …必须做出选择——说「按石碑所写，低头敬拜」、「退到石柱后，观察石像与石碑的对应」或「趁乱往石门方向逃」）」，同一串选项名 6 次逐字重复，第 5/6 次一行内「必须做出选择」出现 2 次；③ 自由输入回包混入元指令「说「观察」可以把四周再看一遍；说「前进」则是继续往里走」。`narrative-systems-designer` **Info Dump**（可删而不影响结果）+ `game-detail-bar` §5 Content that never repeats｜verify: 新增 `scripts/e2e/prose-hygiene.mjs`——落 must_choose 后连点观察 6 次，逐条断言 ① 单条正文中「必须做出选择」≤1、「按石碑所写」≤1；② 全文不出现 `（.*HP \d+→\d+.*）` 正则命中（机制括注归 HUD/战报，不入叙事）；③ 自由输入回包中不含「说「观察」」这类元指令；回退旧码应 FAIL 3/3｜risk: med
+  verify: 待实现 scripts/e2e/prose-hygiene.mjs（落地后补命令）
+  risk: med
+- [ ] F257 「动静 x/4」威胁计数不兑现：6 次观察停在 3/4，不触发遭遇也不扣血（P1 平衡 · 支配策略残留）｜第53轮：连点「环顾四周」6 次，正文从「动静 1/4」涨到「动静 3/4」，第 6 次文案已写「逗留的动静攒过了头，附近的东西已被惊动：再拖下去多半要正面撞上」，但 HP 100/100、MP 20/20、XP 0、金币 0 全程零变化，未进入遭遇，观察按钮始终 enabled 且每次仍产出 ~190 字。威胁只是纸面压力，最优解仍是「一直观察」。`game-balance-analyst` Dominant Strategy 检测 + `player-experience-modeler` 情绪曲线（该有的 tension peak 没到）｜verify: 新增 `scripts/e2e/observe-threat-pays.mjs`——同一 must_choose 场景连点观察至计数上限，断言 ① 第 4/4 次观察后 300ms 内出现【遭遇】或 HP/MP 下降（威胁必须兑现）；若设计为「不兑现」则断言 ② 计数达上限后观察按钮 `disabled=true` 且正文给出「此处已看尽」；旧码两者皆不满足应 FAIL｜risk: med
+  verify: 待实现 scripts/e2e/observe-threat-pays.mjs（落地后补命令）
+  risk: med
+- [ ] F258 点「逃跑」后仍停在交战态、无明确失败战报（P2 反馈真空）｜第53轮：交战中点底部「逃跑」按钮，等 2.5s 后底部仍显示「交战中无法写入存档、也无法推进剧情 · 先「逃跑」或打赢这一场」，战斗面板与六键原样保留，正文末尾没有任何「逃跑失败/被拦下/仍被缠住」的战报行；玩家无法判断这一下是否被系统收到（同样的静默也出现在满状态「休息」，见 F245）。`intuitive-game-design` Q5 三级反馈缺 **Post** 层（有输入、无结果评估）｜verify: 新增 `scripts/e2e/flee-feedback.mjs`——交战态点逃跑，断言 600ms 内 `.log` 增量 >0 且含「逃」字，并且断言状态二选一：要么脱离交战（`.combat` 消失），要么仍交战但出现失败原因文本；两者皆无则 FAIL｜risk: low
+  verify: 待实现 scripts/e2e/flee-feedback.mjs（落地后补命令）
+  risk: low
+- [ ] F259 数字变化无动效：HP/XP/金币/进度静默跳变，经验只给文字不给进度条（P2 成长可见性 · 视觉类）｜第53轮：HP 100→97、MP 20→18、XP 0→10、金币 0→10、进度 2/7→3/7、战斗 52→35/97→92 都是一次性字符替换，无 count-up、无 bar 残影（`game-detail-bar` §9c「a lost chunk flashes, holds about 0.3 s, then drains」/「Numbers pop in with an overshoot」）；属性面板「经验值 0% 0/70 距离 Lv.2 还需 70 经验」纯文字无进度条。截图 `docs/runs/walk-20261118-2109-m9-attack.png`｜verify: 新增 `scripts/e2e/num-feedback.mjs`——触发一次扣血与一次加钱，断言 ① 150ms 内存在带 `data-anim=count` 或过渡中的元素（采样 3 次中至少 1 次中间值与终值不同），② HP 条存在 `.ghost`/`[data-ghost]` 残影节点，③ 属性面板经验条元素存在且宽度随 XP 变化；回退旧码应 FAIL｜risk: low
+  verify: 待实现 scripts/e2e/num-feedback.mjs（落地后补命令）
+  risk: low
