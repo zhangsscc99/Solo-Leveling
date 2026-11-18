@@ -2225,21 +2225,10 @@ button {
     display: none;
   }
 
-  /* F212 左右缘渐隐：28px 实底渐出（hull 与 .actions-main 同底，末端
-     全遮、内端全透），opacity 由 .sys-scroll 的 data-at-start /
-     data-at-end 切换——起点只露右缘、末端只露左缘、两端都不需要时全隐。
-     未写 dataset（脚本未跑/不可滑）时默认按起点处理：右缘亮、左缘灭，
-     与旧 mask 的观感一致。 */
+  /* F255：渐隐条随横滑容器一并停用——系统键折行后不存在可滑动的溢出
+     边界，留渐隐只会盖住最右一列键的右缘，制造"这里还能滑"的假线索。 */
   .sys-fade {
-    display: block;
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 28px;
-    z-index: 2;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s ease;
+    display: none;
   }
 
   .sys-fade-r {
