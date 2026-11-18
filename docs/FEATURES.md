@@ -863,7 +863,7 @@
   verify: 待实现 scripts/e2e/observe-mustchoose-prose.mjs（落地后补命令）
   risk: med
 - [ ] F245 满 HP/MP 时点「休息」日志零增量、无 toast，只有常驻静态提示（P1 反馈真空）｜第51轮：HP 100/100 · MP 20/20 连点「休息」3 次，每次 `.stage-col` innerText 增量 0；100ms 采样 `.sys-toast` 为 null（同一条走查里「前进」被拒时 toast 80ms 内出现、存活约 1.5s，证明 toast 机制可用，是这条路径没接）。玩家无法判断这一下是否被系统收到。`game-detail-bar` §2「Every action answers at once」+ `intuitive-game-design` Q5 三级反馈缺 Immediate 层｜verify: 新增 `scripts/e2e/rest-full-feedback.mjs`——满状态点「休息」断言 200ms 内 `.sys-toast` 出现且文本含「体力」或「魔力」、可见时长 ≥1.2s（照 deny-feedback 的 80ms/时长写法）；反向：HP 降到 60 时点「休息」断言出现恢复文案而非拒绝文案｜risk: low
-  verify: 待实现 scripts/e2e/rest-full-feedback.mjs（落地后补命令）
+  verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/rest-full-feedback.mjs
   risk: low
 - [x] F246 ✅ (2026-11-18 devin) 做完抉择后章节进度 2/7 掉回 0/7（刷新后仍是 0/7）（P1 进度显示回退）｜第51轮：选「退到石柱后，观察石像与石碑的对应」前状态栏为 `第1章 双重地下城 2/7`，抉择落地、拿到线索 `read_the_law`、进入遭遇后变 `0/7`，`goto` 重载后依旧 `0/7`（HP 97/100、MP 18/20、XP 10、金币 10 均正确续档，故非渲染抖动）。`game-detail-bar` §6「Never take away earned progress」显示层违约｜verify: 新增 `scripts/e2e/chapter-progress-monotonic.mjs`——记录抉择前 `status` 里 `\d/7` 的分子，抉择并等遭遇出现后再读，断言后者 ≥ 前者；再 reload 断言等于抉择后的值｜risk: med
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/chapter-progress-monotonic.mjs

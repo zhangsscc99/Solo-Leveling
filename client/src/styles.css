@@ -3879,6 +3879,32 @@ button {
   color: var(--line-strong);
 }
 
+/* ── F245 禁用态「休息」的点击承接壳 ──
+   禁用键不吃真实点击（disabled 不收 pointer 回执），满状态/次数用尽时
+   点「休息」毫无反馈。承接壳只在 restBlocked 渲染：inline-flex 顶替原
+   按钮在 .btn-group flex 行里的槽位（尺寸由内部按钮撑开，零布局增量），
+   ::after 绝对定位覆盖全区域把点击收归壳上，onClick 点亮 .sys-toast。
+   透明无底、不改键帽尺寸；可用态整层不渲染，不拦真回血点击。 */
+.rest-tap-catcher {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.rest-tap-catcher::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.rest-tap-catcher:focus-visible {
+  outline: 1px solid var(--system-dim);
+  outline-offset: 2px;
+}
+
 /* ── F211 锁键原因的就地小字 ──
    与 .rest-hint 同一语气：服务端 locked_reason 原文透传，弱一级对比度，
    不是告警条。flex 整行落在选项组与系统 meta 行之间；单行不换行、窄屏

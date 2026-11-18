@@ -1768,7 +1768,7 @@ export default function App() {
                 // 折返换标（上面三个布尔）仍是合法出路，不在锁定列。
                 const choiceLocked =
                   b.input === "前进" && forwardChoiceLocked;
-                return (
+                const btn = (
                   <button
                     key={b.label}
                     className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked || obsBlocked ? " rest-dim" : ""}`}
@@ -1807,6 +1807,36 @@ export default function App() {
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
                     {!restBlocked && !obsBlocked && <kbd className="key-badge">{i + 1}</kbd>}
                   </button>
+                );
+                // F245：禁用态「休息」点了毫无回执（F236 之前连小字都没
+                // 有，现在只剩常驻 .rest-hint）——真实 pointer 点击落在
+                // disabled 键上没有任何反馈，玩家分不清「没点上」还是
+                // 「系统没理」。给禁用键外包一层透明承接壳：绝对定位覆盖
+                // 按钮全区域，真实点击/Enter/Space 点亮 .sys-toast，文案
+                // 透传服务端 save.rest.reason（满状态/次数用尽同一口径，
+                // 前端不硬编码）；原生 disabled 键不收 DOM .click()，F236
+                // 「禁用键零副作用」契约不破。可休息态整层不渲染，点击
+                // 照旧走 button onClick 真回血。
+                return restBlocked ? (
+                  <span
+                    key={b.label}
+                    className="rest-tap-catcher"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`休息（${restInfo?.reason || "暂时无法休息"}）`}
+                    title={restInfo?.reason || "暂时无法休息"}
+                    onClick={() => showToast(restInfo?.reason || "暂时无法休息")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        showToast(restInfo?.reason || "暂时无法休息");
+                      }
+                    }}
+                  >
+                    {btn}
+                  </span>
+                ) : (
+                  btn
                 );
               })}
               {/* F094/F113/F163 战斗五键：交战态整组展开（键帽 1–5），
