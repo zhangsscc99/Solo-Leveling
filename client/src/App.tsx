@@ -1764,8 +1764,9 @@ export default function App() {
                 return (
                   <button
                     key={b.label}
-                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}`}
+                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked ? " rest-dim" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
+                    data-rest-state={restInfo ? (restBlocked ? "blocked" : "available") : undefined}
                     disabled={busy || restBlocked || choiceLocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
@@ -1795,7 +1796,7 @@ export default function App() {
                       b.label
                     )}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
-                    <kbd className="key-badge">{i + 1}</kbd>
+                    {!restBlocked && <kbd className="key-badge">{i + 1}</kbd>}
                   </button>
                 );
               })}

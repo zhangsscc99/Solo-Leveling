@@ -4029,3 +4029,20 @@ button {
     width: 24px;
   }
 }
+
+/* F253：满状态「休息」降为次级文字态，不再以完整按钮体积占位 */
+.btn.rest-dim {
+  min-height: 0;
+  height: 20px;
+  padding: 0 10px;
+  font-size: 11px;
+  line-height: 1;
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(120, 170, 210, 0.28);
+  color: rgba(190, 215, 235, 0.62);
+  box-shadow: none;
+  opacity: 1; /* 用颜色降权，不用 opacity 以免看起来像「禁用提示」 */
+}
+.btn.rest-dim .key-badge { display: none; }
+.btn.rest-dim:hover { background: transparent; border-color: rgba(120, 170, 210, 0.28); }
