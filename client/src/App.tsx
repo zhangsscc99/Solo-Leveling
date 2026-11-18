@@ -37,6 +37,7 @@ import QuestPanel from "./panels/QuestPanel";
 import ShadowsPanel from "./panels/ShadowsPanel";
 import SkillsPanel from "./panels/SkillsPanel";
 import StatsPanel from "./panels/StatsPanel";
+import vocab from "../../shared/intents.json";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
@@ -125,15 +126,34 @@ const isNarrationInput = (text: string) => {
 // F231 must_choose 未决时「前进」的即时回执：这类输入服务端必返
 // refused（P204 门，结算/日志/去重口径照旧在服务端），但线上回包
 // ~1.1s 起步——拒绝提示先在点击当帧由 .sys-toast 槽位点亮，不等回包。
-// 预判口径镜像 server/ai/keywords.js（单一事实源在服务端词表）：
+// 预判口径镜像 server/ai/keywords.js；F235 起词表不再各自写字面量——
+// 三条正则全部由 shared/intents.json（前后端单一事实源）构造：
 // advance 词命中、非疑问句守卫、且不再命中排在 advance 之前的意图族
 // ——词表按表序取首个命中，被早位意图（观察/攻击/离开……）抢走的
 // 输入在服务端根本轮不到 must_choose 门，提前弹「先选一个」是谎报。
-const ADVANCE_INTENT_RE =
-  /前进|继续|探索|走|移动|进入|深入|前行|advance|explore|go|move|continue/i;
-const QUESTION_FORM_RE = /[？?]\s*$|还是|吗|要不要|是不是/;
-const PRE_ADVANCE_INTENT_RE =
-  /影子|编队|攻击|打击|砍|斩|刺|击杀|消灭|猎杀|叫阵|挑战|挥|打它|打你|揍|出手|砸|attack|strike|fight|技能|施放|咏唱|释放|skill|cast|防御|格挡|招架|防守|defend|block|guard|道具|使用|服用|喝|吃|use|drink|item|逃跑|逃离|撤退|逃走|离开|撤离|回到|回去|返回|往回|回头|退回|原路返回|脱战|溜|走人|flee|escape|retreat|状态|面板|属性|status|stat|帮助|指令|help|观察|查看|环顾|四周|环境|看|look|inspect/i;
+interface IntentRule {
+  intent: string;
+  pattern: string | null;
+  flags: string | null;
+  client_pattern?: string;
+}
+const INTENT_RULES = vocab.intents as IntentRule[];
+const ADVANCE_IDX = INTENT_RULES.findIndex((r) => r.intent === "advance");
+const ADVANCE_INTENT_RE = new RegExp(
+  INTENT_RULES[ADVANCE_IDX].pattern!,
+  INTENT_RULES[ADVANCE_IDX].flags || ""
+);
+const QUESTION_FORM_RE = new RegExp(vocab.question_form.pattern, vocab.question_form.flags);
+// 早位意图族：表序在 advance 之前的条目的并集——影子三条的真实正则
+// 句首锚定在服务端引擎（JSON 里 pattern=null），前端用 client_pattern
+// 宽口径近似遮住「影子/编队」输入，宁多不少。
+const PRE_ADVANCE_INTENT_RE = new RegExp(
+  INTENT_RULES.slice(0, ADVANCE_IDX)
+    .map((r) => r.client_pattern ?? r.pattern)
+    .filter((p): p is string => p != null)
+    .join("|"),
+  "i"
+);
 
 // 拒绝文案只指路不复述选项名——选项名在首条拒绝正文（.stage-col
 // 落库行）里，瞬时层只说清「先选一个」这一步要做的动作。
