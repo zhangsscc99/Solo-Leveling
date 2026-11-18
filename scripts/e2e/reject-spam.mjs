@@ -5,8 +5,9 @@
 //   直落 ch1_law（must_choose 场景，oracle 取自 chapters.json）：
 //     · 第 1 次「前进」＝首次拒绝：照旧 +2 行（user 原文 + system
 //       正文，服务端落库）；
-//     · 之后连点 6 次（按钮 ×5 + 输入框 Enter ×1，同一条 dispatch 路
-//       径）：.stage-col 子元素数零增长——乐观追加的 user 行被撤回、
+//     · 之后连发 6 次（F247 起按钮 disabled，全走输入框 Enter，同一
+//       条 dispatch 路径）：.stage-col 子元素数零增长——乐观追加的
+//       user 行被撤回、
 //       reply 行不追加；
 //     · 首条拒绝正文（「必须做出选择」+ 真实选项名）始终在页面上可见，
 //       重复拒绝的轻提示走 .sys-toast 瞬时层；
@@ -93,7 +94,8 @@ const API = `http://127.0.0.1:${port}/game/api`;
 
 // E2E_BASE_URL 须在 lib.mjs 求值前落定。
 process.env.E2E_BASE_URL = `http://127.0.0.1:${port}/game`;
-const { assert, run, createSave, stageCount, readVitals } = await import("./lib.mjs");
+const { assert, run, createSave, stageCount, readVitals, sendAdvance, advanceButton } =
+  await import("./lib.mjs");
 
 // 服务端存档快照（HP/MP/XP/金币口径独立于界面读数）。
 async function fetchSave(id) {
@@ -126,13 +128,22 @@ run("reject-spam", async ({ page }) => {
   await page.waitForSelector(".btn-group-choice");
   await page.waitForFunction(() => !document.querySelector(".pending"));
 
-  const advanceBtn = page.locator(".actions-main .btn", { hasText: "探索前进" }).first();
+  // F247：must_choose 下「探索前进」按钮 disabled——同一条必拒指令
+  // 全改走输入框 Enter（与 F231 dispatch 路径同口径）。
+  const advanceBtn = advanceButton(page);
   const stageKids = () => page.evaluate(() => document.querySelector(".stage-col").children.length);
   const waitIdle = () => page.waitForFunction(() => !document.querySelector(".pending"));
 
+  // 新合同钉死：must_choose 未决时该按钮 disabled===true。
+  assert(
+    (await advanceBtn.isDisabled()) === true,
+    "must_choose 下「探索前进」按钮未置灰（disabled!==true）"
+  );
+  console.log(`    [gate] 「探索前进」disabled=true`);
+
   // ── 首次拒绝：照旧 +2 行（user + system 完整正文），行为不变 ──
   const nFirst0 = await stageKids();
-  await advanceBtn.click();
+  await sendAdvance(page);
   await waitIdle();
   await page.waitForFunction((n) => document.querySelector(".stage-col").children.length >= n + 2, nFirst0);
   const nFirst1 = await stageKids();
@@ -146,19 +157,17 @@ run("reject-spam", async ({ page }) => {
   const save0 = await fetchSave(saveId);
   const n0 = await stageCount(page);
 
-  // ── 连点 6 次：.stage-col 零增长 ──────────────────────────────
+  // ── 连发 6 次（全走输入框 Enter，同一条 dispatch 路径）：.stage-col 零增长 ──
   for (let i = 0; i < 5; i++) {
-    await advanceBtn.click();
+    await sendAdvance(page);
     await waitIdle();
     const n = await stageKids();
     assert(
       n <= n0 + 1,
-      `连点第 ${i + 1}/5 次后 .stage-col ${n0} -> ${n}（>+1 即刷屏旧毛病）`
+      `连发第 ${i + 1}/5 次后 .stage-col ${n0} -> ${n}（>+1 即刷屏旧毛病）`
     );
   }
-  // 键盘 Enter 与按钮连点同一路径：输入框打「前进」回车，覆盖该入口。
-  await page.fill(".input-row input", "前进");
-  await page.press(".input-row input", "Enter");
+  await sendAdvance(page);
   await waitIdle();
   const nAfterEnter = await stageKids();
   assert(
