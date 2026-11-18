@@ -475,7 +475,7 @@ button {
   border-radius: 1px;
 }
 
-.drawer-toggle {
+.drawer-toggle, .help-toggle {
   display: none;
   min-height: 44px;
   padding: 0 var(--sp-4);
@@ -1974,7 +1974,9 @@ button {
   /* F221：「?」帮助键与「档案」同观感、同排布。auto 留白只让档案键吃
      （把两键一起顶到右缘）——帮助键若同样 margin-left:auto，两个 auto
      均分留白会把它甩离右缘。 */
-  .drawer-toggle.help-toggle {
+  .help-toggle {
+    display: block;
+    order: 1;
     margin-left: 0;
   }
 
