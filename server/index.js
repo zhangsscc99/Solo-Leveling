@@ -624,6 +624,56 @@ function observeClosing(save, scene, entity) {
   return { tail, clue };
 }
 
+// P207 观察经济上盖后的复核区正文池：封顶（本场景「探索 N/3」计满
+// OBSERVE_TOTAL 次）之后不再产出——不发物品、不挂【发现】、不写全新景
+// 物，正文一律如实改口「能翻的都翻过了」。轮换种子用推进前的
+// encounter_clock（每次复核区观察稳定 +1），同档连续两次不重文。
+const OBSERVE_OVER_LINES = [
+  (entity) =>
+    `这里能翻的都翻过了${entity ? `，连${entity}你也翻来覆去看了几遍` : ""}，再看不出新东西。`,
+  () => `四壁、地面、缝隙你都看熟了，再看也只是把旧痕迹重数一遍。`,
+  () => `能看的你都看遍了，再蹲下去只是把同一段记忆重放。`,
+];
+
+// 复核区观察的风险尾注：只在掷点管线真的会在这里开火时才说「有东西靠
+// 近」——encounters:"none" 的现实世界/收束场景与终章永不掷怪，谎称危
+// 险是说假话，那里如实只剩「耗时间」。推进后的 encounter_clock 已跨过
+// 保底线时改口「已被惊动」（与 roll 的 c+1>=PITY_LIMIT 同一判定：下一
+// 次真实行动掷点必中）。
+function observeOverRiskTail(scene, clockNext) {
+  const rollable =
+    scene &&
+    scene.encounters !== encounterEngine.ENCOUNTERS_NONE &&
+    scene.id !== endingEngine.EPILOGUE_SCENE_ID;
+  if (!rollable) return `（这一带已经看熟——再蹲下去也只是耗时间。）`;
+  return Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1
+    ? `（这一带已经看熟——逗留的动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上。）`
+    : `（这一带已经看熟——你逗留的动静越积越明显，黑暗里的东西迟早会循声找来。）`;
+}
+
+// P207 复核区观察（本场景第 OBSERVE_TOTAL+1 次起）：不再产出——不发物
+// 品、不挂【发现】、不写全新景物描写；点名已领走的发现物改回「已经查
+// 过」的复核视角。每次都必须付出可量化代价：把既有 encounter_clock 推
+// 进一格（与「前进」同一口径——负值 = 守关房再入冷却向 0 收一格，非负
+// = 保底计数 +1）。该字段就是 tryEncounter → encounterEngine.roll 与
+// rollRest 掷点读的同一个保底账，观察耗掉的每一格都被下一次真实行动
+// （前进落地 / 休息惊动）照单收下——连蹲数下之后保底必中，遇敌风险
+// 的上升既写进字段、也兑现在既有管线里（encounter.js 参数与 PITY 机制
+// 一律未动，观察接入的是同一本账）。
+function observeOverCap(save, scene, entity) {
+  const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
+  const clockNext = rawClock < 0 ? Math.min(0, rawClock + 1) : rawClock + 1;
+  const disc = entity ? sceneDiscoveryOf(scene, entity) : null;
+  const body =
+    disc && discoverySeen(save.id, disc.name)
+      ? `你凑近${entity}又看了一遍——这里你已经查过了，「${disc.name}」不会再有第二份收获。`
+      : OBSERVE_OVER_LINES[Math.max(0, rawClock) % OBSERVE_OVER_LINES.length](entity);
+  return {
+    patch: { encounter_clock: clockNext },
+    content: `「${sceneNarrName(scene)}」——${body}${observeOverRiskTail(scene, clockNext)}`,
+  };
+}
+
 const STARTER_KIT = [
   ["rusty_hunting_knife", 1],
   ["worn_leather_vest", 1],
@@ -3096,6 +3146,20 @@ const INTENTS = [
       if (!entity) {
         const present = entityDetail.entitiesIn(blob);
         if (present.length) entity = present[n % present.length];
+      }
+      // P207 观察经济上盖：本场景「有产出」观察封顶 OBSERVE_TOTAL 次——
+      // 与收束句「探索 N/3」同一口径（第 1 次免费观察即计入，计数标记是
+      // 收束句里的「探索」字样）。第 OBSERVE_TOTAL+1 次起进复核区：不再
+      // 产出、正文如实、每次推进 encounter_clock（observeOverCap）。封顶
+      // 口径与 observeClosing 的进度推导同源，前 OBSERVE_TOTAL 次的散文
+      // 池与语气一字不动。
+      const sceneN = Math.trunc(
+        Number(
+          (proseStmts.observeSceneCount.get(save.id, `「${sceneNarrName(scene)}」——`) || {}).n
+        ) || 0
+      );
+      if (sceneN >= OBSERVE_TOTAL) {
+        return observeOverCap(save, scene, entity);
       }
       const closing = observeClosing(save, scene, entity);
       // F193：命中带发现物的实体时第一眼回发现正文、奖励交 applyOutcome →
