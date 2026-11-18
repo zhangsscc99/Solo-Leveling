@@ -2745,3 +2745,14 @@ F248（P2 战斗面板与战报互斥 + 底栏 1px），已写入 `docs/FEATURES
 F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 —— 注：仓库里 `e663d6d feat(F242)` 已提交「间距 ≥8px + stage-bottom-clearance 断言」，
 但本轮走查跑的是线上产物（`https://openfolio.uk/game`），量到的仍是 1px，说明**该修复尚未部署到线上**，按 F242 的 verify 复测一次即可判定。
 
+
+### 第 66 轮调度记录（2026-11-18 18:05 UTC，cron；单条车道 devin swe-2-high，无回退）
+
+- 消费 F246（P1 章节进度回退）：devin 一轮完成，新增 `chaptersEngine.progressStepsOf`（支线站位按出边 BFS 反推下一个主线链节点，
+  链上仍为「位置+1」），`sceneView` 与 `/api/chapters` 同口径；`ch1_watch` 抉择后由 `0/7` 变 `2/7`，刷新/地图一致，回主线 `3/7`，
+  死亡回溯仍可回落 `1/7`（F114 一本账未破）。新断言 `scripts/e2e/chapter-progress-monotonic.mjs`（旧码红证 `steps=0`），
+  部署内置 E2E **18/18**、health 200 + 公网 200。
+- 现场发现（未修，留给下一轮）：`scripts/assert/chapter-gate.mjs` 在 `main` 上是预存红——`observe@ch1_law: 第2次观察复述了整幕正文（118 >= 231*0.5）`，
+  在 F246 改动前的基线上逐字复现，与进度无关。根因就是 F244（must_choose 场景把整段选项清单拼进每行观察正文，单行 118 字已占正文一半），
+  即 F244 已有一条现成红证可用；F244 修好后这条断言应自动转绿。
+- F242 已随本轮部署上线：`stage-bottom-clearance` 实测 390 滚到底间距 41.7px、1440 49.8px（走查里「线上仍 1px」的结论作废）。
