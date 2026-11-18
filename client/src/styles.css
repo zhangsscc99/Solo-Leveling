@@ -410,6 +410,30 @@ button {
   color: #e8c96a;
 }
 
+/* P208 顶栏 XP 极细进度条：2px 轨道 ≤48px，填充沿用 --system，
+   inline-block 垂直对齐，不撑行高、不换行。 */
+.stat-xp {
+  white-space: nowrap;
+}
+
+.xp-bar {
+  display: inline-block;
+  width: 48px;
+  height: 2px;
+  margin-left: var(--sp-1);
+  vertical-align: middle;
+  background: var(--line);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.xp-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--system);
+  border-radius: 1px;
+}
+
 .drawer-toggle {
   display: none;
   min-height: 44px;
