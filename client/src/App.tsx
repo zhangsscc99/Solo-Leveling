@@ -59,7 +59,11 @@ const SEG_SYS_TEACH_RE =
 
 // F118：/ai-action 降级回包（degraded:true）给该条气泡挂的渲染期标记——
 // 不落库不改字段，仅指示气泡尾部追加降级小字。
-type UiEntry = LogEntry & { degradedNote?: boolean };
+// F222：ephemeral 标记只活在内存态的本地回执行（技能/道具抽屉展开回执、
+// 断线警报）——服务端不落库，刷新后自然消失；挂 .holo-ephemeral 让
+// 「刷新前后 .stage-col 行数一致」的断言能把这类已知差异显式豁免，
+// 而不是把整条日志行吞掉装作没看见。
+type UiEntry = LogEntry & { degradedNote?: boolean; ephemeral?: boolean };
 
 function splitStageEntry(entry: UiEntry): UiEntry[] {
   if (entry.role === "user") return [entry];
@@ -437,7 +441,7 @@ function HoloWindow({ entry }: { entry: UiEntry }) {
   const body = m ? m[2].trim() : entry.content;
   const danger = /警|错误|失败|中断|危险|惩罚/.test(title);
   return (
-    <div className={`holo${danger ? " holo-danger" : ""}`}>
+    <div className={`holo${danger ? " holo-danger" : ""}${entry.ephemeral ? " holo-ephemeral" : ""}`}>
       <div className="holo-inner">
         <div className="holo-title">{title}</div>
         <div className="holo-body">
@@ -896,7 +900,12 @@ export default function App() {
       } catch {
         setLog((l) => [
           ...l,
-          { id: Date.now() + 1, role: "system", content: "【警报】与系统的连接中断。请检查网络后重试。" },
+          {
+            id: Date.now() + 1,
+            role: "system",
+            ephemeral: true,
+            content: "【警报】与系统的连接中断。请检查网络后重试。",
+          },
         ]);
         return false;
       } finally {
@@ -1000,6 +1009,7 @@ export default function App() {
       {
         id: Date.now(),
         role: "system",
+        ephemeral: true,
         content: `【系统】已调出技能面板 · 可用：${parts.join("/") || "无"}`,
       },
     ]);
@@ -1030,6 +1040,7 @@ export default function App() {
       {
         id: Date.now(),
         role: "system",
+        ephemeral: true,
         content: `【系统】已调出道具面板 · 可用：${parts.join("/") || "无"}`,
       },
     ]);
