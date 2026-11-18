@@ -746,10 +746,20 @@
   叫阵态「叫阵·攻击」同步降级。新断言 `scripts/e2e/primary-cta.mjs`（双视口 6 条，13 可点键仅 1 发光）。
   验收：隔离实例 verify PASS（390/1440 各 1 颗，点后仍 1 颗）、`repetition-and-jargon` / `combat-lock-hint`
   双绿（后者旧码基线本就红，主位落到分支键后 3 步直落守关房）、部署内置 E2E 11/11、线上 verify PASS。
-- [ ] F229 顶栏数值行贴边与字号（P2 排版）｜第47轮 vision 在 `m1-first` 与 `m16-resume` 两次把「攻20」读成「攻2」（疑似右边缘被裁），移动端「金币」字号过小 vision 读不出（桌面能读到「金币17」）。
+- [x] F229 顶栏数值行贴边与字号（P2 排版）｜第47轮 vision 在 `m1-first` 与 `m16-resume` 两次把「攻20」读成「攻2」（疑似右边缘被裁），移动端「金币」字号过小 vision 读不出（桌面能读到「金币17」）。
   verify: node scripts/e2e/stat-row-fit.mjs
   risk: low
   390 宽度下量 `.status-nums .stat` 末项 `getBoundingClientRect().right <= innerWidth - 8`，且正文字号≥11px、数值≥12px（脚本待建）
+  done(第62轮): devin swe-2-high 纯 CSS 24 行 + 新断言 `scripts/e2e/stat-row-fit.mjs`（自起隔离实例，照抄 deny-feedback.mjs 的起法）。
+  根因：≤880px 档 `.status-nums` 是 nowrap+横滚，390 下 scrollWidth 460 对槽宽 366——「防」「金币」整格落出视口、
+  「攻20」右缘压进 28px 右缘渐隐被读成「攻2」。修法：`.status-nums` 加 `padding-right:28px`（与渐隐等宽，
+  装得下时末项整格落在渐隐外）；≤640px 档并入 F214 媒体块——间距 sp-4→sp-2、label 13→11px(--fs-xs)、
+  数值 12px、`.xp-bar` 48→24px，桌面档零改动。实测 390：最右「金币0」right=350（限 382）、零横滚；
+  1440：right=1352（限 1432）。红证已实测（撕修复 → `防9 right=418 > 382`）并写进脚本头注释。
+  验收：verify F229 PASS、boot/action PASS、ci-deploy 内置 E2E 13/13（含 stat-row-fit 9.0s）、health 200 + 公网 200，
+  部署后线上直跑 stat-row-fit 复验 PASS。注意：`bash scripts/ci-deploy.sh` 自带 `flock -n`，外面再套 `flock .deploy.lock`
+  会被判「another deploy is running」，须直接执行脚本。
+
 
 - [ ] F230 「动静」满格零后果——观察可无限白嫖（P0 零成本空转）｜第48轮实测：连点「观察」7 次 HP/MP/XP/金币全部 0 变化，第 7 次文案已写「动静 4/4，附近的东西已被惊动：再挪一步多半要正面撞上」，随后前进既没遭遇战也没扣血。`core-loop-designer` 的 Decision 缺失 + `game-balance-analyst` 的支配策略（观察零消耗，永远优于前进）｜verify: 状态满足 `动静>=4/4` 后，下一次「前进」必须返回遭遇战事件或 HP 扣减，断言 `/game/api/state` 的 `hp|mp|flags.danger` 与文案一致；脚本 `scripts/e2e/dwell-consequence.mjs`｜risk: med
 - [x] F231 must_choose 未决时「前进」静默拒绝，且首次 6.41s 无回包（P0 无反馈）｜第48轮实测：3 次连点「前进」耗时 6.41s/1.1s/1.1s，日志行数恒定 12，无 toast、无按钮 shake、无任何可见提示，只有一行复述三个选项名的系统句。`game-detail-bar` §2「Every action answers at once in sight, sound and motion」｜verify: 拒绝路径必须在 300ms 内出现可见拒绝元素（`.toast, .deny-hint` 之一，`getBoundingClientRect().height>0`），且连点 3 次新增日志行数 ≤1｜risk: low
@@ -777,3 +787,5 @@
 - [ ] F234 首屏视觉三项：无唯一主行动（F228 修复未上线）、属性行字号过小、「攻20」被读成「攻2」（P2 视觉）｜第48轮 vision 对 `docs/runs/walk-20261118T1315Z-m1-first.png`（390）判「四个探索键 + 两条剧情按钮权重完全相等，不知道点哪」，且对 `m6-combat` 再次把「攻20」读成「攻2」；另 `> 左上还有 地图/任务/影子/战斗/存档` 这句说明书直接印在系统框内。注：仓库已有 `111ece0 merge feat/F228` 的 cta-primary 修复，但线上未生效，需确认部署 ｜verify: 线上 390 与 1440 下 `document.querySelectorAll('.cta-primary').length===1`；`.stat-row` 字号 ≥11px 且末项 `getBoundingClientRect().right <= 容器宽度-8`；系统框内不含「左上还有」文本｜risk: low
 
 - [ ] F235 前后端意图词表镜像漂移风险（P3 工程，第61轮 F231 遗留）｜F231 为了在「点击当帧」就能给出拒绝回执，在 `client/src/App.tsx` 里镜像了 `server/ai/keywords.js` 的 advance 词、疑问句守卫与早位意图族（观察/攻击/防御/道具/逃跑…）。服务端仍是唯一裁判，镜像错只会导致「提前弹提示」偶发不准，但两份词表一旦分叉就会长期无人发现。要求：把意图判定词表抽成单一 JSON（如 `shared/intents.json`），`server/ai/keywords.js` 与前端同引（前端走 Vite 的 JSON import），并把 advance/早位意图的顺序语义写进该文件的注释。断言：新增 `node scripts/assert/intent-vocab-single-source.mjs` —— 断言仓库内只有一份意图词表定义（在 `server/ai/**`、`client/src/**`、`scripts/**` 里 grep advance 正则字面量，命中数 ≤1 且指向 shared 文件），并断言 `deny-feedback.mjs` 与 `choice-refusal-dedupe.mjs` 仍 PASS｜risk: low
+
+- [ ] F236 （第62轮调度侦察）F232「休息无反馈」疑似已被 F177 覆盖，需现场证据而非再改一遍｜代码现状：`server/index.js` 的 `restStatus()` 在 hp/mp 俱满时返回 `available:false, reason:"体力与魔力俱满，无需休息"`；前端 `App.tsx` 已有 `disabled={busy||restBlocked}` + `.rest-hint` 可见文案；线上新档实测 `/api/saves/<id>` → `rest={"available":false,"remaining":3,"reason":"体力与魔力俱满，无需休息"}`。而第48轮走查报「按钮不是 disabled、每次 0.9s」。二者矛盾，说明真缺口可能在别处（rest 配额未耗尽且 hp<max 时点休息只回 HP 无可见日志？或当时旧 dist 未部署？）。要求：用 Playwright 现场复现三分支（新档满状态 / hp<max 可休息 / 配额用尽）并留截图，再决定 F232 是改代码还是判为已修。断言：`node scripts/e2e/rest-feedback.mjs` —— 三分支各自断言「有可见反馈」或「disabled + 原因文案」，不得把 hover/title 当反馈｜risk: low
