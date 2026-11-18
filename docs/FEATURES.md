@@ -796,9 +796,19 @@
 
 - [ ] F235 前后端意图词表镜像漂移风险（P3 工程，第61轮 F231 遗留）｜F231 为了在「点击当帧」就能给出拒绝回执，在 `client/src/App.tsx` 里镜像了 `server/ai/keywords.js` 的 advance 词、疑问句守卫与早位意图族（观察/攻击/防御/道具/逃跑…）。服务端仍是唯一裁判，镜像错只会导致「提前弹提示」偶发不准，但两份词表一旦分叉就会长期无人发现。要求：把意图判定词表抽成单一 JSON（如 `shared/intents.json`），`server/ai/keywords.js` 与前端同引（前端走 Vite 的 JSON import），并把 advance/早位意图的顺序语义写进该文件的注释。断言：新增 `node scripts/assert/intent-vocab-single-source.mjs` —— 断言仓库内只有一份意图词表定义（在 `server/ai/**`、`client/src/**`、`scripts/**` 里 grep advance 正则字面量，命中数 ≤1 且指向 shared 文件），并断言 `deny-feedback.mjs` 与 `choice-refusal-dedupe.mjs` 仍 PASS｜risk: low
 
-- [ ] F236 （第62轮调度侦察）F232「休息无反馈」疑似已被 F177 覆盖，需现场证据而非再改一遍｜代码现状：`server/index.js` 的 `restStatus()` 在 hp/mp 俱满时返回 `available:false, reason:"体力与魔力俱满，无需休息"`；前端 `App.tsx` 已有 `disabled={busy||restBlocked}` + `.rest-hint` 可见文案；线上新档实测 `footer.actions` 的「休息」按钮 `disabled="" aria-disabled="true"` 且 `.rest-hint` 显示「体力与魔力俱满，无需休息」。而第48轮走查报「按钮不是 disabled、每次 0.9s」。要求：用 Playwright 现场复现三分支（新档满状态 / hp<max 可休息 / 配额用尽）并留截图，再决定 F232 是改代码还是判为已修；反馈必须是玩家可感知的（常驻可见文案或日志增量），不得把 hover/title 当反馈
+- [x] F236 （第62轮调度侦察）F232「休息无反馈」疑似已被 F177 覆盖，需现场证据而非再改一遍｜代码现状：`server/index.js` 的 `restStatus()` 在 hp/mp 俱满时返回 `available:false, reason:"体力与魔力俱满，无需休息"`；前端 `App.tsx` 已有 `disabled={busy||restBlocked}` + `.rest-hint` 可见文案；线上新档实测 `footer.actions` 的「休息」按钮 `disabled="" aria-disabled="true"` 且 `.rest-hint` 显示「体力与魔力俱满，无需休息」。而第48轮走查报「按钮不是 disabled、每次 0.9s」。要求：用 Playwright 现场复现三分支（新档满状态 / hp<max 可休息 / 配额用尽）并留截图，再决定 F232 是改代码还是判为已修；反馈必须是玩家可感知的（常驻可见文案或日志增量），不得把 hover/title 当反馈
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/rest-feedback.mjs
   risk: low
+  done(第67轮): **F232 的 48 轮结论证伪，不改产品代码。** 新增 `scripts/e2e/rest-feedback.mjs`
+  （自起隔离实例 + 临时 DB_PATH + DB 直改存档，三分支各留截图）实测：
+  A 满状态 → `disabled=true aria-disabled=true`，`.rest-hint` 可见「体力与魔力俱满，无需休息」，
+  DOM click 后 `.stage-col` 子节点 10→10 零增量（禁用键不吃点击）；B `hp=50,max=100,rest_used=0`
+  → `disabled=false`、`.rest-hint` 不渲染，真点击 2 次日志 10→18 且存档 `hp 50→100` 真回满
+  （`rest_used=2`）；C `rest_used=3` → `disabled=true`，`.rest-hint`「本章休息次数已用完（0/3）」。
+  即「按钮不是 disabled / 点了无反馈」在现网不成立（F177 已覆盖），三分支均有玩家可感知反馈。
+  负向锁：B 分支断言 `disabled===false`，写死禁用会红。稳定性：调度器侧连跑 3 次 PASS（11.0/16.1/11.3s），
+  devin 侧 3 次 PASS；boot/action 冒烟 PASS；合入 main 后 `verify.sh F236` PASS（17.5s）。
+  备注：48 轮走查当时大概率为旧 dist 未部署；本条纯断言，无产品代码改动，故未触发部署。
 
 - [x] F240 观察见底后的指路文案把玩家推向被门禁锁死的「前进」（P1 指路冲突）｜第49轮实测：场景 `must_choose`（三个剧情选项）时，观察第 5、6 次的括号提示写「说「前进」或「潜行」马上动身」，但同屏「探索前进」必被拒（点击后 80ms 出 toast「抉择未定」，日志 0 增量）。玩家照提示操作会连续吃两次拒绝。`intuitive-game-design` Q2 Affordance gap（Perceived 与 Real 不一致）、`narrative-systems-designer` 的 Irrelevant Choice｜verify: 新增 `scripts/e2e/dwell-guidance.mjs`——在 `must_choose` 场景连点「环顾四周」6 次，断言每次新增正文里的指路句**不含**「前进/探索前进」且**必须**包含至少一个当前真实可点的选项键文案；同时断言该场景下「前进」仍返回 refused（门禁不被文案改动顺手打开）｜risk: low
   verify: env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/dwell-guidance.mjs
