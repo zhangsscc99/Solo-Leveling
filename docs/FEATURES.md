@@ -205,7 +205,7 @@
 - [x] F101 断言口径反向锁定缺陷：`chapter-gate.mjs` 的 `observeFree()` 断言「观察回复必须包含场景正文前 12 字」——等于把 F092 的「整幕复读」写成绿线；同理原「第 8 推过门进第 2 章」把软门+可绕过写成期望值（本轮已随 F096 改口径）。要求：观察断言改为「两次观察文本互不相同且 < 120 字、标题取 scene_title 而非敌人名」，并补一条负向断言（复读整幕时 FAIL） ✅ (2026-11-17 cron devin swe-2-high; `observeFree()` 补两条观察互不相同、各 <120 字、标题念 scene_title 且不得念敌人名、负向三连（含正文前 12 字 / 是正文逐字前缀 / ≥正文 50%）；新建 observe-short.mjs（3 次观察两两不同 + 非正文前缀，期望值从 chapters.json 独立推导），pre-F092 旧码红证成立，连跑 3 次全绿)
   verify: node scripts/assert/observe-short.mjs
   risk: med
-- [ ] F102 章节解锁口径三处不一致：地图 Ch.8 写死「需 Lv.70」、`chapter_unlock.level` 回包是 40、`chapters.json` 的 `unlock.level` 又是第三个值；玩家看到「锁定 · 需 Lv.70」却能直接走进去（F093 软门）。要求：地图/回包/数据单一事实源（`/api/chapters` 下发 `unlock.level` 与 `unlocked/blocked_reason`），前端不再写死数字；软门期间锁定态与「已开启」播报不得并存
+- [x] F102 ✅ (2026-11-18 devin) 章节解锁口径三处不一致：地图 Ch.8 写死「需 Lv.70」、`chapter_unlock.level` 回包是 40、`chapters.json` 的 `unlock.level` 又是第三个值；玩家看到「锁定 · 需 Lv.70」却能直接走进去（F093 软门）。要求：地图/回包/数据单一事实源（`/api/chapters` 下发 `unlock.level` 与 `unlocked/blocked_reason`），前端不再写死数字；软门期间锁定态与「已开启」播报不得并存
   verify: node scripts/assert/chapter-unlock-single-source.mjs
   risk: med
 - [x] F103 死亡回包自相矛盾：`你倒下了，战斗结束。` 紧跟 `【战斗】撤离失败，X 仍堵在面前——你寸步未移。`（交战中「前进」致死分支仍拼撤离失败文案）。要求：死亡即收束，不得再拼回合/撤离失败句；五条死亡日志统一形态 ✅ (2026-11-16 cron devin; `advanceWithEncounter` 对 `hp<=0` 直接返回死亡结算、`combatTurn` 致死回合清空战报，settleDeath 播报成唯一收尾；`death.mjs` 驱动改「交战中前进→撤离掷逃反击致死」并加负向词表（撤离失败/仍堵在面前/寸步未移），隔离实例 3 连跑全绿、stash 服务端修复后红证指向「撤离失败」)
