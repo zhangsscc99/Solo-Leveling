@@ -6,19 +6,19 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("path");
 
 const Database = require("better-sqlite3");
 const db = require("./db");
+const { DB_FILE } = require("./db");
 const shadow = require("./engine/shadow");
 const statsLib = require("./engine/stats");
 
-const DB_PATH = path.join(__dirname, "..", "data", "game.db");
-
 // 与 db.js 同库的第二个连接：用来插「老 schema 行」和清理测试数据。
+// 库路径必须复用 db.js 的 DB_FILE（DB_PATH 环境变量可能把应用指到别的库，
+// 硬编码 <repo>/data/game.db 会让插进去的行读不回）。
 // （better-sqlite3 默认不开外键，ON DELETE CASCADE 不会自动清理，需手动删。）
 function raw() {
-  return new Database(DB_PATH);
+  return new Database(DB_FILE);
 }
 
 function cleanup(saveIds) {

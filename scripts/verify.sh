@@ -12,6 +12,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FEATURES="$ROOT/docs/FEATURES.md"
 [ -f "$FEATURES" ] || { echo "FEATURES.md not found: $FEATURES" >&2; exit 2; }
 
+# 环境隔离：调度 shell 常驻泄漏的变量（DB_PATH/E2E_BASE_URL/API_BASE 打到
+# 死端口或错库）会让断言假红，入口统一清掉——必须在 case 之前，--list 也清。
+# SL_VERIFY_API_BASE 是唯一显式覆盖口，保留不清。
+for _k in E2E_BASE_URL DB_PATH SL_GAME_DB API_BASE; do
+  if [ -n "${!_k+x}" ]; then
+    printf '[verify] cleared env: %s=%s\n' "$_k" "${!_k}" >&2
+  fi
+done
+unset _k E2E_BASE_URL DB_PATH SL_GAME_DB API_BASE
+
 # Emit rows: FID RS checked(0/1) RS risk RS verify RS desc   (RS = \x1f)
 parse() {
   awk '

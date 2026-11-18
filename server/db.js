@@ -482,6 +482,7 @@ const transaction = (fn) => db.transaction(fn);
 
 module.exports = {
   db,
+  DB_FILE,
   transaction,
   createSave,
   getSave,
