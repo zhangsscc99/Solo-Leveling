@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-11-18 23:48 UTC（第74轮调度 · F245 满状态「休息」即时反馈）
+
+只做 **F245**（risk=low，P1 反馈真空）。玩家可见变化：HP/MP 满或本章休息次数用尽时点「休息」，
+此前只有按钮变灰 + 一条常驻小字，真实点击零回执（toast、日志、动效都没有），玩家分不清
+「没点上」还是「系统没理」。现在点上去 20ms 内点亮 `.sys-toast`：「体力与魔力俱满，无需休息」/
+「本章休息次数已用完（0/3）」，约 2.7s 后自动消失。
+
+**devin 通道**：swe-2-medium 两段，均未回退 OpenCode。
+① 实现 `.rest-tap-catcher` 透明承接壳（`restBlocked` 时包裹原生 disabled 键，`::after` 收点击，
+文案透传服务端 `save.rest.reason`；可用态整层不渲染，真回血路径不变）；
+② 修自身引入的回归——承接壳使「休息」键变孙节点，`desktop-layout` 的 `.btn-group > .btn`
+只数到 3（首轮 ci-deploy 因此 e2e 红并自动回滚），扩选择器 + 新增 `hitTestAction` 后恢复 4/4。
+
+**验收**：`verify F245` PASS(14.49s)、`rest-full-feedback` 连跑 2/2、`rest-feedback`/`action`/`boot`/
+`desktop-layout` 全 PASS、`ci-deploy` 25/25 E2E PASS、health 200 + 公网 `/game` 200。
+
+**遗留方向**：① 「禁用键是否都有点击回执」应在其它禁用路径上统一核一遍（本轮只覆盖休息）；
+② 承接壳多一层 DOM，今后 E2E 数按钮请用后代选择器，别用 `> .btn`；
+③ P210（`report.sh` 全表模式跑不完）仍是每轮汇报的硬依赖，未做。
+
+---
+
 ## 2026-11-18 08:21 UTC（第50轮调度 · F212 系统键横滑暗示）
 
 只做 **F212**（`risk=low`，产品级视觉/手势死路；risk=high 的 F078/F093 按规则跳过）。玩家可见变化：
