@@ -1487,6 +1487,19 @@ button {
   border-left: 1px solid var(--line);
 }
 
+/* F212 横滑暗示：.sys-scroll 桌面是 display:contents 透明包裹——
+   .btn-group-sys 仍是 .action-groups 的直接 flex 子项，布局/结构语义
+   零变化；≤880px 档内实体化为 flex 槽（见窄屏块）。
+   .sys-fade 是可测量宽度的装饰渐隐条（非 mask）：宽屏 display:none
+   不进命中树，窄屏由 .sys-scroll[data-at-*] 驱动显隐。 */
+.sys-scroll {
+  display: contents;
+}
+
+.sys-fade {
+  display: none;
+}
+
 .group-label {
   font-size: var(--fs-xs);
   color: var(--faint);
@@ -2049,9 +2062,18 @@ button {
   }
 
   /* F113/F119：系统组收成一条可横滑的 meta 行，与 .combat-entry
-     共享第二行——不再独占两行按钮把底栏撑高。右缘渐隐同 .status-nums，
-     暗示可滑；padding-top 与行动组同节奏（仍给探出上缘的
-     .rest-count 角标留位，纵向不裁）。 */
+     共享第二行——不再独占两行按钮把底栏撑高。padding-top 与行动组
+     同节奏（仍给探出上缘的 .rest-count 角标留位，纵向不裁）。
+     F212：右缘渐隐由 .sys-fade 装饰元素实现（原 mask-image 不能
+     「滑到末端换左缘」，已删）——渐隐条钉在 .sys-scroll 可视缘，
+     pointer-events:none 不拦 8 键 elementFromPoint 命中。 */
+  .sys-scroll {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    position: relative;
+  }
+
   .btn-group-sys {
     display: flex;
     flex-wrap: nowrap;
@@ -2063,12 +2085,84 @@ button {
     border-left: 0;
     overflow-x: auto;
     scrollbar-width: none;
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   }
 
   .btn-group-sys::-webkit-scrollbar {
     display: none;
+  }
+
+  /* F212 左右缘渐隐：28px 实底渐出（hull 与 .actions-main 同底，末端
+     全遮、内端全透），opacity 由 .sys-scroll 的 data-at-start /
+     data-at-end 切换——起点只露右缘、末端只露左缘、两端都不需要时全隐。
+     未写 dataset（脚本未跑/不可滑）时默认按起点处理：右缘亮、左缘灭，
+     与旧 mask 的观感一致。 */
+  .sys-fade {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 28px;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .sys-fade-r {
+    right: 0;
+    background: linear-gradient(to right, rgba(12, 21, 36, 0), var(--hull));
+  }
+
+  .sys-fade-l {
+    left: 0;
+    background: linear-gradient(to left, rgba(12, 21, 36, 0), var(--hull));
+  }
+
+  .sys-scroll:not([data-at-end="true"]) .sys-fade-r,
+  .sys-scroll:not([data-at-start="true"]) .sys-fade-l {
+    opacity: 1;
+  }
+
+  /* F212 首屏一次性横滑暗示：与 .save-blocked-hint 同位点同语气
+     （.actions 上缘居中、绝对定位不占行高、pointer-events:none），
+     但只点一次——1.8s 淡入淡出后 App 卸载节点；非交战/仅窄屏由
+     渲染条件兜底，交战态不与 .save-blocked-hint 叠加。 */
+  .sys-swipe-hint {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 1px);
+    transform: translateX(-50%);
+    z-index: 13;
+    width: max-content;
+    max-width: calc(100vw - 2 * var(--sp-5));
+    margin: 0;
+    padding: 2px var(--sp-3);
+    background: var(--hull);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    text-align: center;
+    white-space: nowrap;
+    color: var(--faint);
+    pointer-events: none;
+    opacity: 0;
+    animation: sys-swipe-hint 1.8s ease-out forwards;
+  }
+
+  @keyframes sys-swipe-hint {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, 3px);
+    }
+    14% {
+      opacity: 0.95;
+      transform: translate(-50%, 0);
+    }
+    72% {
+      opacity: 0.95;
+    }
+    100% {
+      opacity: 0;
+    }
   }
 
   .btn-group-sys .group-label,
