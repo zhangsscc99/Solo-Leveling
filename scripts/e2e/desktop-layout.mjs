@@ -49,6 +49,25 @@ async function hitTest(page, loc) {
   );
 }
 
+// 行动栏版本：允许命中落在键自身，或其 .rest-tap-catcher 承接壳（伪元素挡层的实际 DOM）
+async function hitTestAction(page, loc) {
+  await loc.scrollIntoViewIfNeeded();
+  const box = await loc.boundingBox();
+  assert(box, "按钮 boundingBox 可取");
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  return loc.evaluate(
+    (el, [x, y]) => {
+      const hit = document.elementFromPoint(x, y);
+      const ok =
+        Boolean(hit) &&
+        (el.contains(hit) || hit.closest(".rest-tap-catcher") === el.parentElement);
+      return { ok, hit: hit ? hit.className || hit.tagName : "null", x, y };
+    },
+    [cx, cy]
+  );
+}
+
 const t0 = Date.now();
 let browser = null;
 try {
@@ -129,11 +148,14 @@ try {
   });
 
   await check("390 行动栏四键可点（elementFromPoint 命中自身）", async () => {
-    const btns = page.locator(".action-groups .btn-group:not(.btn-group-sys):not(.btn-group-choice) > .btn");
+    const btns = page.locator(
+      ".action-groups .btn-group:not(.btn-group-sys):not(.btn-group-choice) > .btn, " +
+        ".action-groups .btn-group:not(.btn-group-sys):not(.btn-group-choice) > .rest-tap-catcher > .btn"
+    );
     const n = await btns.count();
     assert(n === 4, `行动键数量=${n} (!=4)`);
     for (let i = 0; i < n; i++) {
-      const h = await hitTest(page, btns.nth(i));
+      const h = await hitTestAction(page, btns.nth(i));
       const label = (await btns.nth(i).innerText()).trim().split("\n")[0];
       assert(h.ok, `「${label}」elementFromPoint(${h.x.toFixed(0)},${h.y.toFixed(0)}) 命中 ${h.hit}`);
     }
