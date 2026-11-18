@@ -1451,8 +1451,8 @@ function advanceOutcome(save, choice) {
   }
 
   // P204 必选门：场景标 must_choose 时，关键抉择不得被「探索前进」整屏
-  // 跳过——不带显式 choice 的推进一律零消耗拒绝，正文列出真实选项名
-  // （说「选择 序号」或报选项名）。与章节门/守关门同一 refused 短路：
+  // 跳过——不带显式 choice 的推进一律零消耗拒绝，正文点出真实选项名
+  // （报选项名或说「选择 <名称>」）。与章节门/守关门同一 refused 短路：
   // patch null、零位移、零 HP/MP、零事件、不计疾行。顺序排在守关门之后
   // ——守关者未死时显式选项同样走不通（choiceScene 越过 boss 一律折返），
   // 先给守关拒绝才不会把玩家指向一条同样被拒的路。显式「选择」不受影响，
@@ -1460,9 +1460,16 @@ function advanceOutcome(save, choice) {
   if (!choice) {
     const here = chaptersEngine.getScene(save.scene);
     if (here && here.must_choose === true) {
-      const opts = (Array.isArray(here.choices) ? here.choices : [])
-        .map((c, i) => `${i + 1}) ${c && c.label}`)
-        .join(" ");
+      // F221：选项不再按 1) 2) 3) 编号复述——编号清单像命令行回执，
+      // 玩家记的是选项名不是序号。label 原文用「」括起，按「、/或」
+      // 连成一句指认（「选择 <序号>」的解析仍在，只是不再回显编号）。
+      const names = (Array.isArray(here.choices) ? here.choices : [])
+        .map((c) => (c && c.label ? `「${c.label}」` : ""))
+        .filter(Boolean);
+      const opts =
+        names.length > 1
+          ? `${names.slice(0, -1).join("、")}或${names[names.length - 1]}`
+          : names.join("");
       // P206 拒绝正文去重：同一存档 + 同一场景 + 同一选项集合，完整
       // 拒绝正文只落一次日志——连点「前进」叠 N 条逐字相同的选项清单
       // 像报错刷屏（与 F183 守关门提示分级同一思路）。去重键 =
@@ -1472,12 +1479,12 @@ function advanceOutcome(save, choice) {
       // choice_refusal_repeat 让路由只回一条不落库的轻提示。
       const fp = `${save.scene}|${opts}`;
       if (save.choice_refusal_key === fp) {
-        // F219：重复拒绝文案两修——① 方位词删掉（选项组实际渲染在行动
-        //    行下方，「点上方选项」把玩家指向空地）；② 不再回同一句
-        //    常量——按 choice_refusal_count 取模在两版措辞间确定性
-        //    轮换（偶数计次再把真实选项清单列一遍，奇数计次换句式
-        //    指路），连点三次得到三条两两不同的文案。轮换不用随机数，
-        //    断言可复现。patch 只带计数字段（零消耗/零位移口径不变），
+        // F219/F221：重复拒绝文案——① 方位词删掉（选项组实际渲染在行动
+        //    行下方，方位指路把玩家指向空地）；② 不再回同一句常量——
+        //    按 choice_refusal_count 取模在两版措辞间确定性轮换（偶数
+        //    计次再把真实选项名点一遍，奇数计次换句式指路），连点三次
+        //    得到三条两两不同的文案。轮换不用随机数，断言可复现。
+        //    patch 只带计数字段（零消耗/零位移口径不变），
         //    choice_refusal_repeat 照旧不落库。
         const n = Number(save.choice_refusal_count) || 0;
         return {
@@ -1486,17 +1493,16 @@ function advanceOutcome(save, choice) {
           choice_refusal_repeat: true,
           content:
             n % 2 === 0
-              ? `【系统】仍要做完这道选择才能前进：${opts}` +
-                `（说「选择 序号」或直接点选项）。`
-              : "【系统】抉择未定，先点一个选项，或说「选择 序号」。",
+              ? `【系统】这道抉择没做完，前进不了：点${opts}。`
+              : "【系统】抉择未定——说出要做的选择，或直接点中意的选项。",
         };
       }
       return {
         patch: { choice_refusal_key: fp, choice_refusal_count: 0 },
         refused: true,
-        content:
-          `【系统】这里必须做出选择：${opts}` +
-          `（说「选择 序号」或报选项名）。`,
+        // 「必须做出选择」是 choice-refusal-dedupe / e2e action 的落库
+        // 指纹词，保留原句首；F221 只去掉编号、label 改「」串接。
+        content: `【系统】这里必须做出选择：点${opts}。`,
       };
     }
   }
@@ -3777,9 +3783,11 @@ function applyOutcome(saveId, outcome) {
 //      依赖（回显被删曾打红 F076 交战信号断言），不得改写；
 //   ② 命中面板操作词（加点/属性点/装备/卸下/技能……）先给一句具体指路
 //      ——这些动作在面板里有真实路径，笼统问「想干什么」是死路；
-//   ③ 收尾给 2–3 条与当前场景实况相关的可做之事（守关者封门指叫阵、
+//   ③ 指路之后给 2–3 条与当前场景实况相关的可做之事（守关者封门指叫阵、
 //      有自由点指属性、有伤且配额在指休息），不再固定追问
-//      「你是想攻击还是想离开」——与语境无关的死问句已删。
+//      「你是想攻击还是想离开」——与语境无关的死问句已删；
+//   ④ F221 排序：可做之事压在叙事句之前——回包一律以
+//      unknownSceneLine 的场景回应收尾，系统话术不再压尾。
 const UNKNOWN_GUIDES = [
   {
     match: /加点|属性点|自由属性/,
@@ -3904,11 +3912,10 @@ function dedupEcho(line) {
 }
 
 const unknownAckSeq = new Map();
-// F176：自由输入兜底回包的「眼下可以做…输入「帮助」」指令表尾巴按存档
-// 只给一次（与 bossGatePushes 同口径的进程内计数）——自然语言长句每句
-// 都复读操作说明会把叙事打断。指令形态输入走的也是这条兜底，首次命中
-// 照常带表；「帮助」指令本身在另一分支返回完整指令表，不受影响。
-const unknownTailShown = new Map();
+// F221：兜底回包的「眼下可以做…输入「帮助」查看完整指令表」指令表尾巴
+// 整段删除（F176 的「每档只给一次」亦一并作废）——指令表塞在小说段落里
+// 像调试回执，帮助入口已挪到顶栏「?」键。「帮助」指令本身在 help 意图
+// 分支返回完整指令表，不受影响。
 
 function unknownSceneLine(save, input) {
   const scene = chaptersEngine.currentScene(save);
@@ -3972,20 +3979,23 @@ function unknownSceneLine(save, input) {
 function unknownFallbackContent(save, input) {
   const guide = UNKNOWN_GUIDES.find((g) => g.match.test(input));
   const scene = chaptersEngine.currentScene(save);
-  const todo = [];
+  // F146：可做之事保留「说「X」」动词锚点（按 /说「[^」]+」/ 计数 ≥2 的
+  // 契约不变），语境项按实况排在通用的观察/前进之前，取前三条。F221：
+  // 措辞并入句内提示，不再单独起「眼下可以做：…」的命令行清单。
+  const hints = [];
   if (advanceMode(save) === "challenge_boss") {
-    todo.push("说「攻击」或「叫阵」逼守关者现形再战");
+    hints.push("说「攻击」或「叫阵」能逼守关者现形再战");
   } else if (scene && scene.escape_locked === true) {
-    todo.push("说「前进」硬闯守关者——击败它才能离开这里");
+    hints.push("说「前进」可以硬闯守关者——击败它才能离开这里");
   }
   if ((Number(save.free_points) || 0) > 0) {
-    todo.push("说「属性」打开面板分配自由属性点");
+    hints.push("说「属性」能打开面板分配自由属性点");
   }
   const rest = restStatus(save, null);
   if (rest.available && (save.hp < save.max_hp || save.mp < save.max_mp)) {
-    todo.push(`说「休息」恢复体力与魔力（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`);
+    hints.push(`说「休息」能恢复体力与魔力（本章还可休息 ${rest.remaining}/${REST_LIMIT} 次）`);
   }
-  todo.push("说「观察」环顾四周", "说「前进」推进剧情");
+  hints.push("说「观察」可以把四周再看一遍", "说「前进」则是继续往里走");
   // F166：自然语言长句不再回「系统未识别该指令：「X」」——玩家写的是
   // 一句行动描写，按解析报错打包退回会把「世界在回应我」打回「关键词
   // 表没匹配上」。指令形态（短词/信号词/数字键位）回显原样保留，
@@ -3993,20 +4003,13 @@ function unknownFallbackContent(save, input) {
   const echo = require("./ai/free-action").echoRequired(input)
     ? `【系统】系统未识别该指令：「${input}」。`
     : "【系统】";
-  const tailN = unknownTailShown.get(save.id) || 0;
-  // F146：短尾巴同样要给 ≥2 条「说「X」」形态的可做之事（F146 按
-  // /说「[^」]+」/ 计数）——「仍可：观察 · 前进」没有动词锚点会计数为 0，
-  // 两个动词必须各自带「说」。
-  const tail =
-    tailN >= 1
-      ? "仍可说「观察」或说「前进」。"
-      : `眼下可以做：${todo.slice(0, 3).join("；")}。输入「帮助」查看完整指令表。`;
-  if (tailN < 1) unknownTailShown.set(save.id, tailN + 1);
+  // F221 序：回显 → 面板指路 → 可做之事 → 叙事句收尾。最后一句话必须是
+  // unknownSceneLine 的场景回应——系统话术压尾读起来像命令回执。
   return (
     echo +
-    `${unknownSceneLine(save, input)}\n` +
     (guide ? `${guide.tip}\n` : "") +
-    tail
+    `${hints.slice(0, 3).join("；")}。\n` +
+    unknownSceneLine(save, input)
   );
 }
 

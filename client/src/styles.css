@@ -1971,6 +1971,13 @@ button {
     order: 1;
   }
 
+  /* F221：「?」帮助键与「档案」同观感、同排布。auto 留白只让档案键吃
+     （把两键一起顶到右缘）——帮助键若同样 margin-left:auto，两个 auto
+     均分留白会把它甩离右缘。 */
+  .drawer-toggle.help-toggle {
+    margin-left: 0;
+  }
+
   .status-gauges {
     order: 2;
   }
