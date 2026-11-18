@@ -51,6 +51,9 @@ const CASES = [
 //   mayMutate  — 该输入语义上允许改世界的意图落点（如「我要休息一下」
 //                判成 rest 时回血/耗次数是玩家所求，不是副作用）；
 //                其余落点一律要求 STATE_KEYS 零变化。
+//   allowFields— 仅在实际 intent === ruleIntent 时生效的字段级白名单：
+//                STATE_KEYS 中不在白名单内的字段仍必须零变化。与
+//                mayMutate 的整意图豁免不同，它只允许钉死的几个字段动。
 // /ai-action 上 AI 只挑 intent、判成哪个不保证，故 AI 侧不再写死
 // intent，统一钉「不得 unknown + 无占位 + 非空 + 未被面板路由吞掉 +
 // 零副作用（mayMutate 除外）」；status 落点（面板语境）还须正文带
@@ -59,11 +62,16 @@ const CASES = [
 // 依旧红。
 const PANEL_CONTEXT_RE = /属性|背包|行囊|状态|面板|力量|敏捷|体力|智力|感知/;
 const NEG_CASES = [
-  // 含「背包」：规则路径恒为 observe（「查看」命中）；AI 可能判成
-  // item/status——三者都是零副作用落点，全允许。
-  { input: "我查看背包，里面只剩一把断剑", ruleIntent: "observe", mayMutate: [] },
+  // 含「背包」/含「地图」：规则路径恒为 observe（「查看」「看看」命中）；
+  // AI 可能判成 item/status。P207 起观察在本场景「探索 3/3」封顶后不再
+  // 是零副作用落点——复核区每次观察推进 encounter_clock 一格（真实代价
+  // 账），故 observe 落点用字段级白名单放行 encounter_clock 一个字段；
+  // hp/mp/gold/scene/xp/level/deaths/rest_used/encounter_cd 仍必须零变化，
+  // 观察不得再被整条豁免（强度不降）。intent 不是 observe 时维持整组
+  // 零变化要求。
+  { input: "我查看背包，里面只剩一把断剑", ruleIntent: "observe", allowFields: ["encounter_clock"] },
   { input: "我要休息一下", ruleIntent: "rest", mayMutate: ["rest"] },
-  { input: "打开地图看看", ruleIntent: "observe", mayMutate: [] },
+  { input: "打开地图看看", ruleIntent: "observe", allowFields: ["encounter_clock"] },
 ];
 
 function fail(msg) {
@@ -104,6 +112,21 @@ async function getSave(saveId) {
 
 function stateSig(save) {
   return JSON.stringify(STATE_KEYS.map((k) => save[k]));
+}
+
+// 副作用判定（纯函数，供主流程与文件末尾负向自检共用）：
+//   实际 intent === c.ruleIntent 且给了 allowFields → 只比对 STATE_KEYS 中
+//     不在白名单里的字段，全等才算没动世界；
+//   其余情形保持原语义——intent 落在 mayMutate 里则放行，否则整组
+//     STATE_KEYS 必须零变化。
+// 返回违例说明字符串；无副作用返回 null。
+function mutationViolation(c, intent, before, after) {
+  const scoped = intent === c.ruleIntent && Array.isArray(c.allowFields);
+  if (!scoped && (c.mayMutate || []).includes(intent)) return null;
+  const keys = scoped ? STATE_KEYS.filter((k) => !c.allowFields.includes(k)) : STATE_KEYS;
+  const changed = keys.filter((k) => before[k] !== after[k]);
+  if (changed.length === 0) return null;
+  return `副作用字段 [${changed.join(",")}]：${JSON.stringify(keys.map((k) => before[k]))} → ${JSON.stringify(keys.map((k) => after[k]))}`;
 }
 
 // ── 建档 ──
@@ -188,12 +211,11 @@ for (const endpoint of ["/action", "/ai-action"]) {
       }
     }
     const after = await getSave(sid);
-    if (!(c.mayMutate || []).includes(body.intent)) {
-      assert(
-        stateSig(after) === stateSig(before),
-        `${endpoint}「${c.input}」(intent=${JSON.stringify(body.intent)}) 存在副作用：${stateSig(before)} → ${stateSig(after)}`
-      );
-    }
+    const violation = mutationViolation(c, body.intent, before, after);
+    assert(
+      violation === null,
+      `${endpoint}「${c.input}」(intent=${JSON.stringify(body.intent)}) ${violation}`
+    );
   }
   console.log(`[OK] ${endpoint} 含面板字眼的整句不被面板路由吞掉（AI 侧不依赖模型判别）`);
 }
@@ -240,6 +262,23 @@ if (!RUN_UI) {
   }
   await browser.close().catch(() => {});
   if (lastErr) fail(`UI 步骤 3 次尝试均失败：${lastErr.message}`);
+}
+
+// ── 负向自检（纯内存，不连服务器）──
+// 证明字段级判定真能红：observe 落点只放行 encounter_clock，偷改 hp
+// 必须被抓；仅推进 encounter_clock 必须放行。
+{
+  const obsCase = { ruleIntent: "observe", allowFields: ["encounter_clock"] };
+  const before = { hp: 100, mp: 20, encounter_clock: 2 };
+  assert(
+    mutationViolation(obsCase, "observe", before, { ...before, hp: 80, encounter_clock: 3 }) !== null,
+    "自检失败：observe 偷改 hp 未被字段级白名单抓出（判定过松）"
+  );
+  assert(
+    mutationViolation(obsCase, "observe", before, { ...before, encounter_clock: 3 }) === null,
+    "自检失败：observe 仅推进 encounter_clock 不应判副作用（判定过紧）"
+  );
+  console.log("[OK] 自检：observe 仅放行 encounter_clock，偷改 hp 会被抓");
 }
 
 console.log("OK");
