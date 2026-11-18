@@ -97,7 +97,7 @@ const API = `http://127.0.0.1:${port}/game/api`;
 
 // E2E_BASE_URL 须在 lib.mjs 求值前落定。
 process.env.E2E_BASE_URL = `http://127.0.0.1:${port}/game`;
-const { assert, run, createSave, readVitals } = await import("./lib.mjs");
+const { assert, run, createSave, readVitals, sendAdvance } = await import("./lib.mjs");
 
 // 服务端存档快照（HP/MP/XP/金币口径独立于界面读数）。
 async function fetchSave(id) {
@@ -132,10 +132,7 @@ run("deny-feedback", async ({ page }) => {
 
   // F247 起「探索前进」按钮在 must_choose 下 disabled——同一条必拒
   // 指令改由自由输入框发出（dispatch 的 F231 预判口径不变）。
-  const sendAdvance = async () => {
-    await page.fill(".input-row input", "前进");
-    await page.press(".input-row input", "Enter");
-  };
+  const sendIt = () => sendAdvance(page);
   const stageKids = () => page.evaluate(() => document.querySelector(".stage-col").children.length);
   const waitIdle = () => page.waitForFunction(() => !document.querySelector(".pending"));
   const DENY_SEL = ".sys-toast, .deny-hint";
@@ -189,7 +186,7 @@ run("deny-feedback", async ({ page }) => {
     { timeout: 8000 }
   );
   const clickT0 = Date.now();
-  await sendAdvance();
+  await sendIt();
   const resp = await respPromise;
   await resp.finished().catch(() => {});
   const responseMs = Date.now() - clickT0;
@@ -242,7 +239,7 @@ run("deny-feedback", async ({ page }) => {
   // ── (c) 连点 3 次：.stage-col 子节点数增量 ≤ 1 ─────────────────
   const n0 = await stageKids();
   for (let i = 0; i < 3; i++) {
-    await sendAdvance();
+    await sendIt();
     await waitIdle();
     const n = await stageKids();
     assert(
@@ -283,7 +280,7 @@ run("deny-feedback", async ({ page }) => {
 
   // ── (e) 390 视口：无横向溢出，拒绝元素完整落在视口内 ────────────
   await page.setViewportSize({ width: 390, height: 844 });
-  await sendAdvance();
+  await sendIt();
   const fit = await page.evaluate((sel) => {
     const de = document.documentElement;
     const el = document.querySelector(sel);

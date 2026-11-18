@@ -107,6 +107,18 @@ export async function createSave(page, name) {
   return name;
 }
 
+// F247：must_choose 下「探索前进」按钮 disabled——同一条指令改由
+// 自由输入框发出（与 dispatch 的 F231 路径同口径）。
+export async function sendAdvance(page) {
+  await page.fill(".input-row input", "前进");
+  await page.press(".input-row input", "Enter");
+}
+
+// 「探索前进」行动键 locator——用于断言其 disabled/可见状态，不要直接点。
+export function advanceButton(page) {
+  return page.locator(".actions-main .btn", { hasText: "探索前进" }).first();
+}
+
 export async function stageCount(page) {
   return page.locator(".stage-col > *").count();
 }

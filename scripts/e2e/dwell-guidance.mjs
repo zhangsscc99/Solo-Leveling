@@ -9,8 +9,9 @@
 //        断言每次新增正文的指路句都不含「前进/探索前进」；
 //     b) 这 6 次新增正文里至少一次点名当前场景真实可点的选项 label
 //        （期望集合取 view.next_choices[].label，命中任一即过）；
-//     c) 随后点「探索前进」仍 refused（正文含「必须做出选择」等拒绝
-//        文案）且 HP/MP 零变化——门禁不被文案改动顺手打开。
+//     c) 随后发「前进」仍 refused（正文含「必须做出选择」等拒绝
+//        文案）且 HP/MP 零变化——门禁不被文案改动顺手打开（F247 起
+//        按钮 disabled，改经输入框 Enter 发出）。
 //
 //   旧码红证：观察第 1/2/3 次收束句「或说「前进」」「说「前进」动
 //   身」、第 4–6 次复核区正文与风险尾注「说「前进」或「潜行」马上
@@ -93,7 +94,7 @@ const API = `http://127.0.0.1:${port}/game/api`;
 
 // E2E_BASE_URL 须在 lib.mjs 求值前落定。
 process.env.E2E_BASE_URL = `http://127.0.0.1:${port}/game`;
-const { assert, run, createSave } = await import("./lib.mjs");
+const { assert, run, createSave, sendAdvance, advanceButton } = await import("./lib.mjs");
 
 // 服务端存档快照（must_choose / next_choices / HP / MP 口径独立于界面）。
 async function fetchSave(id) {
@@ -176,10 +177,15 @@ run("dwell-guidance", async ({ page }) => {
   ).length;
   console.log(`    [guide] ${hitCount}/6 次指路点名了真实选项 label`);
 
-  // ── (c) 门禁未被打开：点「探索前进」仍 refused、HP/MP 零消耗 ─────────
+  // ── (c) 门禁未被打开：发「前进」仍 refused、HP/MP 零消耗 ──────────
+  // F247：must_choose 下按钮 disabled——同一条指令改由输入框 Enter 发出。
+  assert(
+    (await advanceButton(page).isDisabled()) === true,
+    "must_choose 下「探索前进」按钮未置灰（disabled!==true）"
+  );
   const saveBefore = await fetchSave(saveId);
   const respP = page.waitForResponse(ACTION_RESP, { timeout: 8000 });
-  await page.locator(".actions-main .btn", { hasText: "探索前进" }).first().click();
+  await sendAdvance(page);
   const resp = await respP;
   const body = await resp.json().catch(() => null);
   await waitIdle();

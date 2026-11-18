@@ -2,7 +2,7 @@
 // action.mjs: click 探索前进 -> a new narration entry is appended to the log.
 // F124：首推是章首铺陈步——有真实位移、追加叙事、零消耗；第二推才是
 // 正常推进，HP 或 MP 必须下降。
-import { assert, createSave, readVitals, run, stageCount } from "./lib.mjs";
+import { advanceButton, assert, createSave, readVitals, run, stageCount } from "./lib.mjs";
 
 const NAME = `e2e-act-${Date.now().toString(36)}`;
 
@@ -39,25 +39,29 @@ run("action", async ({ page }) => {
   // 选择：1) … 2) …」），此时按界面提示点第一个主线选项把这一步走完——
   // 断言口径不变：真实推进仍然要付体力。
   const n1 = await stageCount(page);
-  await page.locator(".actions-main .btn", { hasText: "探索前进" }).first().click();
-  await page.waitForFunction(
-    (n) =>
-      document.querySelectorAll(".stage-col > *").length >= n + 2 &&
-      !document.querySelector(".pending"),
-    n1
-  );
-
-  const refused = await page.evaluate(() =>
-    [...document.querySelectorAll(".stage-col > *")]
-      .slice(-3)
-      .some((e) => /必须做出选择/.test(e.textContent || ""))
-  );
-  if (refused) {
+  const advBtn = advanceButton(page);
+  assert((await advBtn.count()) > 0, "找不到「探索前进」行动键");
+  if (await advBtn.isDisabled()) {
+    // F247 must_choose 门：按钮已置灰——按界面提示点第一个主线选项把
+    // 这一步走完（口径同旧注释里「必须做出选择」分支）。
     const choice = page.locator(".btn-group-choice > .btn").first();
-    assert((await choice.count()) > 0, "must_choose refusal without any choice button");
+    assert((await choice.count()) > 0, "must_choose 置灰但没有任何可点选项");
+    console.log(`    [gate] 「探索前进」disabled=true，改点选项「${(await choice.innerText()).trim()}」`);
     await choice.click();
-    await page.waitForFunction(() => !document.querySelector(".pending"));
-    await page.waitForTimeout(300);
+    await page.waitForFunction(
+      (n) =>
+        document.querySelectorAll(".stage-col > *").length > n &&
+        !document.querySelector(".pending"),
+      n1
+    );
+  } else {
+    await advBtn.click();
+    await page.waitForFunction(
+      (n) =>
+        document.querySelectorAll(".stage-col > *").length >= n + 2 &&
+        !document.querySelector(".pending"),
+      n1
+    );
   }
 
   const after = await readVitals(page);
