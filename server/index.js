@@ -1101,8 +1101,12 @@ function chapterBossName(chapter, save) {
 function chapterGate(save, chapter, nextChapter) {
   const gate = chaptersEngine.unlockedFor(save, nextChapter);
   if (!gate.ok) {
+    // F102 单一事实源：拒绝文案与地图 unlock.hint / blocked_reasons 同出
+    // unlockView——两条腿都未达时逐项列出（旧口径只念等级腿，章前置不足
+    // 被静默吞掉，玩家看到的需求与地图不一致）。
     const need =
-      gate.level !== null ? `需 Lv.${gate.level}` : `需先抵达第${gate.chapter}章`;
+      chaptersEngine.unlockView(save, nextChapter).hint ||
+      `需先抵达第${gate.chapter}章`;
     return {
       patch: null,
       refused: true,
