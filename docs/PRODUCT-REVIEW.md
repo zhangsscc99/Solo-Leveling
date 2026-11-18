@@ -2160,3 +2160,19 @@
 ### 本轮新增 2 条，取 3 条本轮做
 - 新增：**P207**（观察零成本无限产出，P0）、**P208**（顶栏经验条，P2）。
 - 本轮做：P205（连击代价）、P206（拒绝去重）、P207（观察经济），三条都动 `server/index.js` 的不同函数区（战斗连击 / advanceOutcome 拒绝 / observe 构建器），App.tsx 只给 P205 一条车道；P208 下轮。
+
+### 第 38 轮验收与上线记录（2026-11-18 00:41–02:10 UTC）
+
+- **三车道全部 devin SWE-2，零回退**（P205 swe-2-high / P206 swe-2-medium / P207 swe-2-high）。三车道都动 `server/index.js` 但函数区互不重叠（`combatComboIntent` / `advanceOutcome` 的 must_choose 分支 / `observe` 意图构建器），git 自动合并零冲突；`App.tsx` 只给 P205。
+  - 首轮三车道同时被免费档限流打断（`Reached free model rate limit … reset at 01:01 UTC`），01:01:35 全部重派，产物有效，按 skill 规则不记为失败。
+  - P205 第二度被限流打断于全量 e2e 阶段，产物完整、由调度器接手跑验收。
+- **P205 连击代价**：`COMBO_MP_COST = 6`，整次一次性扣（发生在回合循环之前，不进回合种子）；MP<6 时 `refused` 并给「改点『攻击』零消耗，或先喝一瓶魔力药剂」；键面改「连击 ×3 · 6MP」、MP 不足即 `disabled` + `aria-label`/`title` 给完整理由，快捷键 5 也不绕门禁（就地 toast）。调试代码硬编码 6，前端注释写明数值唯一事实源在服务端。
+  - **验收**（隔离 3110，新档锻造 MP40 长战）：`combo-cost.mjs` PASS —— MP 40→34，随后「攻击」零消耗，三回合正文与 HP/MP 箭头同三连点逐项相等，MP5 时 refused 且战斗态不变；`combat-multi-round.mjs` 同步改成「终态 mp 恰少 6」（收紧而非放宽）。
+- **P206 拒绝去重**：`saves.choice_refusal_key`（新列，`db.js` 幂等 ALTER + MUTABLE_COLUMNS）存 `scene|选项标签串` 指纹；同键重复只回「【系统】仍需做出选择——点上方选项，或说「选择 序号」。」且**不落库**（负 id 瞬时回复，与终章短路同款），换场景/选项变化键失配后重新落完整正文。/action 与 /ai-action 两条路由同口径。
+  - **验收**（隔离 3111）：`choice-refusal-dedupe.mjs` PASS —— 6 连点只落 1 条、scene/hp/mp/xp 全冻结、「选择 1」仍落地 `ch1_worship`、换到 `ch1_statues` 后拒绝正文能再次落库。回归 `choice-gate` / `gate-refusal-hint-spam` / `choice-branching` / `free-input-intent` 全绿。
+- **P207 观察经济**：本场景「探索 N/3」计满后进复核区——不再产出发物品/【发现】，正文如实（三句轮换：能翻的都翻过了 / 四壁看熟了 / 同一段记忆重放），每次推进 `encounter_clock` 一格并入既有保底账（`encounters:"none"` 与终章不谎称危险，只如实说「耗时间」）。前 3 次观察散文池一字未动。
+  - **验收**（隔离 3112）：`observe-economy.mjs` PASS —— 12 连观察「获得/发现」仅 3 次，clock 0→9 严格单调，第 4 次起无产出且带风险尾注，连蹲后「前进」真撞上石像残兵（保底兑现）。回归 `action-prose-by-chapter` / `no-placeholder-prose` / `free-input-intent` 全绿。
+  - **评审驳回一处并让 devin 二次 pass 修掉**：第一版把 `no-placeholder-prose` 的 `mayMutate` 从 `[]` 改成 `["observe"]`（整条 observe 意图豁免零副作用检查 = 放宽）。第二 pass 改成字段级白名单 `allowFields: ["encounter_clock"]`，observe 落点仍逐字段比对另外 11 个 STATE_KEYS，并加自检「observe 偷改 hp 必被抓」。
+- **合入 main 后**：`npm --prefix client run build` OK；`node --test server/engine/*.test.js server/ai/*.test.js` **233/233**；隔离 3118 上 `verify.sh P205/P206/P207` 三条全 PASS；全量 `run-all.mjs` **7/7 两遍全绿**。
+- **发现的断头（新登记 P209）**：`combat-actions-ui.mjs` 连跑必崩 `browser.newContext … browser has been closed`（重试循环在 browser 已关闭后仍复用它），在 main、P205、P206 三个工作区与线上都红，属断言自身问题而非业务回归；`server/db.test.js` 三个用例在 main/P205/P207 全红（`stats_json 非法 JSON` 口径），同为既有环境问题。两条都不拦本轮合并，但会让 `report.sh` 常驻假红。
+- **未做/仍挂**：P208（顶栏经验条，本轮新增，下轮）、F078（降级横幅）、F102/F093（旧账）、P209（断言自毁）。

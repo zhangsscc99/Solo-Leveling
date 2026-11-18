@@ -618,7 +618,7 @@
   verify: node scripts/assert/choice-gate.mjs
   risk: high
 
-- [ ] P205 （P1 选择感，第37轮真实玩家走查）连击 ×3 完全没有代价：实测整场战斗 MP 停在 16/20，连击三回合的伤害（14 / 14 / 23）与逐回合点「攻击」逐项相同，于是「攻击」键成了纯冗余——战斗只剩一个按得最快的键，选择感归零。要求：① 给连击一个真实代价（每回合 MP 2，或整次固定 MP 6，取不到就拒绝并提示，不得静默降级为单次攻击）；② 单键「攻击」保持零消耗且不得削弱，让「省资源慢慢磨 vs 快打付代价」成为真选择；③ 不改伤害公式与 RNG 抽取顺序（同 seed 三回合伤害仍逐项等于逐次攻击）；④ 连击键上标出代价（如「连击 ×3 · 6MP」），资源不足时禁用并给出可见理由。断言：`node scripts/assert/combo-cost.mjs` —— 交战态点一次连击，断言 MP 恰好 -6 且三回合伤害与逐次攻击逐项相同；MP 不足时该键 disabled、有可见理由且不发请求
+- [x] P205 ✅ (2026-11-18 devin) （P1 选择感，第37轮真实玩家走查）连击 ×3 完全没有代价：实测整场战斗 MP 停在 16/20，连击三回合的伤害（14 / 14 / 23）与逐回合点「攻击」逐项相同，于是「攻击」键成了纯冗余——战斗只剩一个按得最快的键，选择感归零。要求：① 给连击一个真实代价（每回合 MP 2，或整次固定 MP 6，取不到就拒绝并提示，不得静默降级为单次攻击）；② 单键「攻击」保持零消耗且不得削弱，让「省资源慢慢磨 vs 快打付代价」成为真选择；③ 不改伤害公式与 RNG 抽取顺序（同 seed 三回合伤害仍逐项等于逐次攻击）；④ 连击键上标出代价（如「连击 ×3 · 6MP」），资源不足时禁用并给出可见理由。断言：`node scripts/assert/combo-cost.mjs` —— 交战态点一次连击，断言 MP 恰好 -6 且三回合伤害与逐次攻击逐项相同；MP 不足时该键 disabled、有可见理由且不发请求
   verify: node scripts/assert/combo-cost.mjs
   risk: medium
 
@@ -632,4 +632,8 @@
 
 - [ ] P208 （P2 成长可见性，第38轮真实玩家走查复读）顶栏只有 `XP28` 一个裸数字，看不到离下一级还有多远，得开「属性」面板才知道 28/70；而面板里那句「经验值 14% · 距离 Lv.2 还需 42 经验」写得很清楚，说明服务端数据齐备、只是顶栏没用上。要求：顶栏 XP 旁边加一条极细进度条（宽 ≤ 56px，复用现有 CSS 变量与配色，不新增行高、不挤压 390px 下的顶栏），`title` 与 `aria-label` 给「经验 28/70 · 距 Lv.2 还需 42」，数据只读 `save.xp` 与 `save.xp_to_next`，前端不自行换算；升级回包后立即更新，刷新后一致。
   verify: node scripts/assert/xp-bar-topbar.mjs
+  risk: low
+
+- [ ] P209 （P1 工程死路，第38轮验收发现）`scripts/assert/combat-actions-ui.mjs` 已自我失效：连跑必崩在 `browser.newContext: Target page, context or browser has been closed`（第 324 行）。根因是重试循环先失败一次（`fetch failed`）后浏览器已随之关闭，第二次仍对同一个已关闭的 browser 调 `newContext()`，异常直接抛到顶 → `report.sh` 里这条永远是红，而且红因与业务无关。同类：同一 worktree 里 `server/db.test.js` 三连（`stats_json 非法 JSON` / 道具）在 main、P205、P207 三个工作区全红，也属环境/用例自身问题，不是业务回归。要求：① 重试前显式关闭并按需重启 browser（每次 attempt 独立 launch，或 attempt 内 catch 后 `browser.close()` 再重建）；② 首败日志必须打印失败步骤与 URL（现在只有一句 `fetch failed`）；③ 用例名带随机后缀（F136 口径）；④ 修好后在隔离实例上连跑 3 次全绿，并在 `report.sh` 全表里确认由红转绿。
+  verify: node scripts/assert/combat-actions-ui.mjs
   risk: low
