@@ -8,9 +8,9 @@
 //      写一条独立战报——每条独立日志行里都有「第N回合 · …」正文行与
 //      「【战斗】X HP a→b · 你 HP c→d」箭头行；
 //   b) RNG 等价：把存档/交战行回滚到同一起点后连点三次「攻击」，逐回合
-//      正文行、HP/MP 箭头行、以及终态 hp/mp/敌 hp/turn 必须与连击结果
-//      逐项相等（回合种子 = 存档 + 开战盐 + 回合号，同档同起点两次驱动
-//      理当逐位一致）；
+//      正文行、HP/MP 箭头行、以及终态 hp/敌 hp/turn 必须与连击结果逐项
+//      相等；终态 mp 恰少 6（P205 连击整次固定代价，回合种子 =
+//      存档 + 开战盐 + 回合号，同档同起点两次驱动理当逐位一致）；
 //   c) 旧码必红：词表里没有「连击」→ 落 unknown、回合不推进 → (a) FAIL。
 //
 //   命中率封顶 0.98：双方同回合同时打空（≈0.04%/回合）的战报合法地没有
@@ -167,10 +167,12 @@ for (let i = 0; i < 3; i++) {
     `第${T0 + i}回合 HP/MP 箭头不一致：\n  连击「${c.vitalsLine}」\n  连点「${a.vitalsLine}」`
   );
 }
+// P205：连击整次固定代价 6 MP——终态 mp 恰少 6，其余逐项相等（代价在
+// 回合循环外一次性落账，不挤占回合种子，逐回合 RNG 流不变）。
 assert(
-  comboEnd.hp === attackEnd.hp && comboEnd.mp === attackEnd.mp &&
+  comboEnd.hp === attackEnd.hp && comboEnd.mp === attackEnd.mp - 6 &&
     comboEnd.enemyHp === attackEnd.enemyHp && comboEnd.turn === attackEnd.turn,
-  `终态不一致：连击 ${JSON.stringify(comboEnd)} vs 连点 ${JSON.stringify(attackEnd)}`
+  `终态不一致：连击 ${JSON.stringify(comboEnd)} vs 连点 ${JSON.stringify(attackEnd)}（mp 应恰少 6）`
 );
 
 db.close();

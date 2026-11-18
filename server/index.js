@@ -2861,11 +2861,32 @@ function combatIntent(save, input, action) {
 // 逐项一致。战斗提前结束（击杀/倒下/脱离）即停：只有最后一个已结算回合
 // 可能带收尾副作用，仍归 applyOutcome 统一收敛。每回合战报独立成条
 // （log_entries）——与连点「攻击」的日志形态一致，不揉进一条。
+// P205：「连击 ×3」的真实代价——整次固定 6 MP（不是每回合）。MP 不足
+// 一律门拒绝（refused 短路：零消耗、零事件；回执照常落日志），正文给
+// 可行动作，绝不静默降级为单次攻击、也不零消耗放行。通过则在连打前
+// 一次性扣满 6 MP：work.mp 先行落账再进回合循环——回合种子
+// （存档 + 开战盐 + 回合号）不含 mp、攻击动作的 RNG 抽取序列与 mp 无关，
+// 同 seed 下逐回合伤害仍与逐次「攻击」逐项一致（契约见
+// combat-multi-round / combo-cost 断言）；逐回合战报的 MP 箭头行因此
+// 也不多出一条（work.mp 已是扣后值，与连点「攻击」逐字同形）。
+const COMBO_MP_COST = 6;
+
 function combatComboIntent(save, input) {
   const cbt0 = store.getCombat(save.id);
-  // 非交战「连击」与「攻击」同义：叫阵/遭遇掷点，不白送回合。
+  // 非交战「连击」与「攻击」同义：叫阵/遭遇掷点，不白送回合——没有三回合
+  // 结算可付，6 MP 代价不适用于此路径（与「攻击」同口径零消耗）。
   if (!cbt0) return peacefulCombatIntent(save, input, "attack");
-  const work = { ...save };
+  if (save.mp < COMBO_MP_COST) {
+    return {
+      patch: null,
+      content:
+        `【系统】魔力不足：连击需要 ${COMBO_MP_COST} MP，当前 ${save.mp} MP。` +
+        `改点「攻击」（零消耗），或先喝一瓶魔力药剂。`,
+      events: [],
+      refused: true,
+    };
+  }
+  const work = { ...save, mp: Math.max(0, save.mp - COMBO_MP_COST) };
   let cbt = { ...cbt0, enemy: { ...(cbt0.enemy || {}) } };
   const merged = {
     patch: {},
@@ -2888,6 +2909,11 @@ function combatComboIntent(save, input) {
     if (!res.combat || res.combat.op !== "turn") break;
     cbt = { ...cbt, enemy: res.combat.enemy, turn: res.combat.turn };
   }
+  // P205：代价入账可见。扣 MP 发生在回合循环之前，逐回合战报的 MP 箭头
+  // 已按扣后口径记（与逐次「攻击」逐字同形）；代价本身单独一行挂在首条
+  // 战报前——「【连击】」前缀不撞「【战斗】第N回合 / HP→」行解析口径。
+  merged.log_entries[0] =
+    `【连击】连击 ×3 发动 · MP ${save.mp}→${work.mp}\n` + (merged.log_entries[0] || "");
   merged.content = merged.log_entries[merged.log_entries.length - 1] || "";
   return merged;
 }
