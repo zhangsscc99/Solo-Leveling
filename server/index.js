@@ -4595,7 +4595,10 @@ api.post("/action", (req, res) => {
   // （一条 user 原文、一条 system 拒绝文案），刷新后玩家回查有据；日志
   // 可见性不等于结算，数值口径不变。
   if (outcome.refused) {
-    store.appendLog(save.id, "user", input);
+    // F226：must_choose 重复拒绝连 user 行也不落库——前端收到
+    // choice_refusal_repeat 会撤回乐观追加的本地行，服务端若仍记账，
+    // 刷新后日志条数就与界面不一致。
+    if (!outcome.choice_refusal_repeat) store.appendLog(save.id, "user", input);
     const extra = applyOutcome(save.id, outcome);
     // P206：must_choose 重复拒绝只回一条轻提示、不落日志——正文去重
     // 在 advanceOutcome 按 scene+选项指纹判定，这里只负责不写库。
@@ -4618,6 +4621,9 @@ api.post("/action", (req, res) => {
       refused: true,
     };
     if (outcome.escape_locked) body.escape_locked = true;
+    // F226：must_choose 重复拒绝标记下发——前端凭它撤回乐观追加的
+    // user 行、不追加 reply 行（本次往来本就不落库），只原地轻提示。
+    if (outcome.choice_refusal_repeat) body.choice_refusal_repeat = true;
     return res.json(body);
   }
   store.appendLog(save.id, "user", input);
@@ -4774,7 +4780,8 @@ api.post("/ai-action", async (req, res) => {
     // F142：拒绝往来照旧落库两条日志（user 原文 + system 拒绝文案），
     // 数值结算口径不变。
     if (outcome.refused) {
-      store.appendLog(save.id, "user", input);
+      // F226：与 /action 同口径——重复拒绝的 user 行也不落库。
+      if (!outcome.choice_refusal_repeat) store.appendLog(save.id, "user", input);
       const extra = applyOutcome(save.id, outcome);
       // P206：与 /action 同口径——must_choose 重复拒绝不落库，回一条
       // 负 id 瞬时轻提示。
@@ -4794,6 +4801,8 @@ api.post("/ai-action", async (req, res) => {
       };
       // F137：副本封门拒绝与一般门禁拒绝同走 refused 短路，独立标记下发。
       if (outcome.escape_locked) body.escape_locked = true;
+      // F226：与 /action 同口径——must_choose 重复拒绝标记下发前端。
+      if (outcome.choice_refusal_repeat) body.choice_refusal_repeat = true;
       return res.json(body);
     }
     store.appendLog(save.id, "user", input);
