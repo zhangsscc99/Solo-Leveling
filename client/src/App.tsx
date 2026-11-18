@@ -892,7 +892,15 @@ export default function App() {
         const rows: UiEntry[] = replyList.map((rp, i) =>
           typeof rp.id === "number" ? rp : { ...rp, id: Date.now() + 1 + i }
         );
-        if (replyDegraded === true) {
+        if ((r as { choice_refusal_repeat?: boolean }).choice_refusal_repeat === true) {
+          // F226：must_choose 重复拒绝服务端本就不落库——撤回上面乐观
+          // 追加的 user 行、不追加 reply 行（连点拒绝一次 +2 行把正文
+          // 顶走）。首条拒绝正文仍在日志里；本次轻提示走 .sys-toast
+          // 瞬时层（actions 浮层，2.6s 自消，不动 .stage-col 子元素），
+          // 选项组闪光已由上方 refused 分支触发。
+          setLog((l) => l.slice(0, -1));
+          showToast(reply.content);
+        } else if (replyDegraded === true) {
           const firstDegraded = !degradedNoteRef.current;
           degradedNoteRef.current = true;
           setLog((l) => [
@@ -926,7 +934,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [save, busy, openTab, showSaveHint, flashChoices]
+    [save, busy, openTab, showSaveHint, showToast, flashChoices]
   );
 
   // F221：顶栏「?」帮助键——与玩家手动输入「帮助」走同一条 dispatch
