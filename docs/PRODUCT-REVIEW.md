@@ -2575,3 +2575,10 @@ F218 落地：战斗区每回合出结算行（命中/暴击/未命中 + 伤害 
 - **F232（P1，死按钮）**：满状态连点「休息」3 次，0 新日志、0 数值、0 动效，按钮既非 disabled 也不给理由。
 - **F233（P1，首访续档摩擦）**：首次建档成功后未写 `solo_leveling_save_id`，刷新回到「觉醒协议」页，必须再点一次「继续这个存档」（第 2 次加载后才写入 key，见实测 LS 键）。
 - **F234（P2，视觉）**：F228 的 `cta-primary` 修复**尚未上线**——本轮线上 `m1-first` 仍无唯一主行动；属性行字号过小、「攻20」连续两轮被读成「攻2」。
+
+### 第60轮调度（F228 唯一主行动）
+- 任务：F228（P2 视觉，F223 复现）。devin swe-2-high 一次通过，**无回退**。
+- 落地：`pickPrimaryCta()` 单一事实源（分支 > 交战 > 前进槽四态），`.btn.cta-primary` 实心系统青 + 微光，全屏同刻 1 颗；新断言 `scripts/e2e/primary-cta.mjs`。
+- 验收：隔离实例（PORT 3171 + 独立 DB）`verify.sh F228` PASS → 冒烟 boot/action PASS → merge → `ci-deploy.sh` DEPLOY OK（内置 E2E 11/11，含 primary-cta）→ 线上 3020 verify PASS、health/public 200。
+- 顺手修：`combat-lock-hint.mjs` 旧码基线本就红（must_choose 场景连点「探索前进」全被拒），主位落到分支键后转绿；F228/F229 的 FEATURES 条目改为多行 verify/risk 格式（verify.sh 可解析）。
+- 待办线索：F229（顶栏末项贴边 + 移动端字号）已在 FEATURES 中给出可跑 verify 路径（脚本待建）；F223 的 1440 右下留白仍无解，需专门一条。

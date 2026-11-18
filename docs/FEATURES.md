@@ -736,10 +736,16 @@
   行数顶到 200 时才保留「加载更早」入口。服务端/存档结构/端口零改动，豁免白名单未扩大。
   新增 `scripts/e2e/resume-log-count.mjs`：旧码 82→80 FAIL（丢最旧 2 条）、新码 82→82 PASS，
   且断言以服务端日志条目数 >50 为覆盖前提（F167 一段拆多行会假绿）；F222 `reload-log-parity` 仍 PASS。
-- [ ] F228 双视口没有唯一主行动（P2 视觉，F223 复现）｜第47轮 vision：`walk-20261118T1110Z-m1-first.png`（390）判「四个探索键 + 两条剧情分支 + 页签三层同权重，不知道点哪」；`walk-20261118T1110Z-d1-first.png`（1440）判「多个入口竞争主次，右下大片暗色留白」。建议把续档页那条「先『观察』一次四周，看清线索后这一步才放得开」的引导前置到首屏主 CTA 位。
+- [x] F228 双视口没有唯一主行动（P2 视觉，F223 复现）｜第47轮 vision：`walk-20261118T1110Z-m1-first.png`（390）判「四个探索键 + 两条剧情分支 + 页签三层同权重，不知道点哪」；`walk-20261118T1110Z-d1-first.png`（1440）判「多个入口竞争主次，右下大片暗色留白」。建议把续档页那条「先『观察』一次四周，看清线索后这一步才放得开」的引导前置到首屏主 CTA 位。
   verify: node scripts/e2e/primary-cta.mjs
   risk: low
   断言 390 与 1440 下首屏存在唯一 `.cta-primary`（或等效高亮类），且同权重可点按钮不含第二个描边高亮
+  done(第60轮): devin swe-2-high 落地 `pickPrimaryCta(save, liveCombat)` 单一事实源——分支组有未锁定项 →
+  第一条分支键接管主位（四探索键降回哑光 `.btn`）、交战 → 「攻击」、其余落在行动组「前进」槽（叫阵/
+  终章/下章/折返四态同槽）；实心系统青 + 微光 `.btn.cta-primary`，全屏同刻恰 1 颗，epilogue 横幅入口与
+  叫阵态「叫阵·攻击」同步降级。新断言 `scripts/e2e/primary-cta.mjs`（双视口 6 条，13 可点键仅 1 发光）。
+  验收：隔离实例 verify PASS（390/1440 各 1 颗，点后仍 1 颗）、`repetition-and-jargon` / `combat-lock-hint`
+  双绿（后者旧码基线本就红，主位落到分支键后 3 步直落守关房）、部署内置 E2E 11/11、线上 verify PASS。
 - [ ] F229 顶栏数值行贴边与字号（P2 排版）｜第47轮 vision 在 `m1-first` 与 `m16-resume` 两次把「攻20」读成「攻2」（疑似右边缘被裁），移动端「金币」字号过小 vision 读不出（桌面能读到「金币17」）。
   verify: node scripts/e2e/stat-row-fit.mjs
   risk: low
