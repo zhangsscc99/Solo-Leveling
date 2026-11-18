@@ -302,6 +302,7 @@ function StatusBar({
   saveHint,
   onDismissDegraded,
   onOpenDrawer,
+  onHelp,
   onFreePoints,
 }: {
   save: Save;
@@ -310,6 +311,7 @@ function StatusBar({
   saveHint: { id: number; text: string } | null;
   onDismissDegraded: () => void;
   onOpenDrawer: () => void;
+  onHelp: () => void;
   onFreePoints: () => void;
 }) {
   const s = save.stats;
@@ -405,6 +407,18 @@ function StatusBar({
       </div>
       <button className="drawer-toggle" onClick={onOpenDrawer} aria-label="打开档案面板">
         档案
+      </button>
+      {/* F221：帮助入口从兜底回包的指令表尾巴挪到顶栏「?」键——点击
+          走与手动输入「帮助」完全相同的 dispatch 通道，服务端返回的
+          完整指令表照旧落日志行。 */}
+      <button
+        type="button"
+        className="drawer-toggle help-toggle"
+        onClick={onHelp}
+        aria-label="查看可用指令"
+        title="可用指令"
+      >
+        ?
       </button>
       {/* F201「已记录」微提示：绝对定位锚在顶栏下缘右侧，不进文档流、
           不遮数值、不拦点击；1.8s 淡出后由 App 计时移除。 */}
@@ -915,6 +929,12 @@ export default function App() {
     [save, busy, openTab, showSaveHint, flashChoices]
   );
 
+  // F221：顶栏「?」帮助键——与玩家手动输入「帮助」走同一条 dispatch
+  // 通道（指令形态 → /action → help 意图 → 完整指令表落日志）。
+  const onHelpToggle = useCallback(() => {
+    void dispatch("帮助");
+  }, [dispatch]);
+
   // 真通关（save.cleared）后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
   // useMemo 稳定引用，避免 keydown effect 每次渲染都重挂监听。
   const cleared = Boolean(save && save.cleared);
@@ -1375,6 +1395,7 @@ export default function App() {
         saveHint={saveHint}
         onDismissDegraded={() => setDegradedDismissed(true)}
         onOpenDrawer={() => setDrawer(true)}
+        onHelp={onHelpToggle}
         onFreePoints={onFreePointsBadge}
       />
 

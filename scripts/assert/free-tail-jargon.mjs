@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 // F176 验收断言：自由输入兜底回包不再每句复读指令表；正文不出现机制术语。
+// F221 取代条款：F176 第 (3) 条「新存档第一句必须拿到指令表尾巴」已被
+// F221 推翻——指令表尾巴（眼下可以做/输入「帮助」/查看完整指令表）从
+// 兜底回包整段删除，帮助入口挪到顶栏「?」键。第 (3) 条相应改为反向断言。
 //
 //   1) 新存档连发 4 句自然语言长句（≥10 字、无数字、无信号词）：
 //      - 含「眼下可以做」的回包 ≤1；含「输入「帮助」」的回包 ≤1；
 //      - 4 条正文不得匹配 /遇敌率|机制|公式/；
 //      - 4 条都必须是具象否认或场景叙述（非「系统未识别该指令」、非空）。
 //   2) 正向锁：发「帮助」必须仍返回完整指令表（含「前进」与「帮助」）。
-//   3) 隔离性：另建新存档，第一句必须能拿到指令表（计数按存档，非全局）。
+//   3) F221 反向断言：另建新存档，第一句不得含「眼下可以做」/
+//      「输入「帮助」」，且仍给 ≥2 条「说「X」」锚点（F146 契约）。
 //   4) 全部 /action HTTP 状态必须为 200。
 //
 // 用法（API_BASE 由 E2E_BASE_URL 推导，默认线上 https://openfolio.uk/game）：
@@ -62,14 +66,16 @@ const { reply: helpReply } = await actRaw(idA, "帮助");
 const helpText = (helpReply && helpReply.content) || "";
 check(helpText.includes("前进") && helpText.includes("帮助"), `「帮助」回包缺指令表：${helpText}`);
 
-// --- 隔离性：新存档第一句仍能拿到指令表 ---
+// --- F221 反向断言：新存档第一句不再拿到指令表尾巴 ---
 const idB = await makeSave("ftj");
 const { reply: b1 } = await actRaw(idB, "我把手按在石碑上，试着辨认第三条刻痕");
 const b1Text = (b1 && b1.content) || "";
 check(
-  b1Text.includes("眼下可以做") && b1Text.includes("输入「帮助」"),
-  `存档B 第一句没拿到指令表尾巴：${b1Text}`
+  !b1Text.includes("眼下可以做") && !b1Text.includes("输入「帮助」"),
+  `存档B 第一句仍挂着指令表尾巴：${b1Text}`
 );
+const b1Verbs = b1Text.match(/说「[^」]+」/g) || [];
+check(b1Verbs.length >= 2, `存档B 第一句「说「X」」锚点 <2（F146 回归）：${b1Text}`);
 
 assert(fails === 0, `${fails} 项断言失败`);
 ok("free-tail-jargon: PASS");
