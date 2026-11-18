@@ -2176,3 +2176,10 @@
 - **合入 main 后**：`npm --prefix client run build` OK；`node --test server/engine/*.test.js server/ai/*.test.js` **233/233**；隔离 3118 上 `verify.sh P205/P206/P207` 三条全 PASS；全量 `run-all.mjs` **7/7 两遍全绿**。
 - **发现的断头（新登记 P209）**：`combat-actions-ui.mjs` 连跑必崩 `browser.newContext … browser has been closed`（重试循环在 browser 已关闭后仍复用它），在 main、P205、P206 三个工作区与线上都红，属断言自身问题而非业务回归；`server/db.test.js` 三个用例在 main/P205/P207 全红（`stats_json 非法 JSON` 口径），同为既有环境问题。两条都不拦本轮合并，但会让 `report.sh` 常驻假红。
 - **未做/仍挂**：P208（顶栏经验条，本轮新增，下轮）、F078（降级横幅）、F102/F093（旧账）、P209（断言自毁）。
+
+### 第 39 轮（2026-11-18 02:01 UTC，P208）
+
+- **P208 顶栏 XP 进度条**：`StatusBar` 的 XP 单元格改 `.stat-xp`，内嵌 `.xp-bar`(48px×2px, `--line`) / `.xp-bar-fill`(`--system`)，宽度 = `save.xp/save.xp_to_next`；`title` 与 `aria-label` 同文案「经验 28/70 · 距 Lv.2 还需 42」。只读服务端派生字段，前端零换算、无缓存副本。
+  - **验收**（隔离 3198 + 线上各一遍，非零经验档 xp=28/70）：轨道 48px、填充 40.0%、双文案一致、390 header 134px（≤142）、无横溢、与其它 `.stat` 同行、刷新后一致；`verify.sh P208` PASS；`boot/action` PASS；ci-deploy 内置全量 e2e 7/7。
+- **环境坑（未单独立项，与 P209 同族）**：本机 shell 常残留并行车道的 `E2E_BASE_URL=http://127.0.0.1:3118/game`；`verify.sh` 只清 `API_BASE`，UI 断言仍读 `E2E_BASE_URL` → 实例已关时得 `fetch failed` 假红。`ci-deploy.sh` 清得干净，`verify.sh`/`report.sh` 建议后续对齐。
+- **未做/仍挂**：P209（断言自毁）、F078、F102/F093（旧账）。
