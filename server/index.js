@@ -651,9 +651,10 @@ function observeClosing(save, scene, entity) {
 // encounter_clock（每次复核区观察稳定 +1），同档连续两次不重文。
 const OBSERVE_OVER_LINES = [
   (entity) =>
-    `这里能翻的都翻过了${entity ? `，连${entity}你也翻来覆去看了几遍` : ""}，再看不出新东西。`,
-  () => `四壁、地面、缝隙你都看熟了，再看也只是把旧痕迹重数一遍。`,
-  () => `能看的你都看遍了，再蹲下去只是把同一段记忆重放。`,
+    `翻查到此已经见底${entity ? `，${entity}也再挤不出新收获` : ""}，耗着只会把暗处的东西引来——说「前进」动身，或说「潜行」绕开。`,
+  () => `收获不会再多一分，体力却一直往下耗——说「休息」喘口气，比死盯墙角划算。`,
+  () => `景物没有新变化，黑暗里的动静却在逼近——说「潜行」挪个位置，别等它找上门。`,
+  () => `蹲在这里只是重数旧痕——说「前进」换一处瞧瞧，或说「休息」缓一缓再走。`,
 ];
 
 // 复核区观察的风险尾注：只在掷点管线真的会在这里开火时才说「有东西靠
@@ -666,10 +667,14 @@ function observeOverRiskTail(scene, clockNext) {
     scene &&
     scene.encounters !== encounterEngine.ENCOUNTERS_NONE &&
     scene.id !== endingEngine.EPILOGUE_SCENE_ID;
-  if (!rollable) return `（这一带已经看熟——再蹲下去也只是耗时间。）`;
+  const meter = `动静 ${Math.min(Math.max(0, clockNext), encounterEngine.PITY_LIMIT)}/${
+    encounterEngine.PITY_LIMIT
+  }`;
+  if (!rollable)
+    return `（这一带已经看熟——再蹲下去也只是耗时间。${meter}，说「前进」或「休息」都强过空耗。）`;
   return Math.max(0, clockNext) >= encounterEngine.PITY_LIMIT - 1
-    ? `（这一带已经看熟——逗留的动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上。）`
-    : `（这一带已经看熟——你逗留的动静越积越明显，黑暗里的东西迟早会循声找来。）`;
+    ? `（这一带已经看熟——${meter}，逗留的动静攒过了头，附近的东西已被惊动：再挪一步多半要正面撞上——说「前进」或「潜行」马上动身。）`
+    : `（这一带已经看熟——${meter}，你逗留的动静越积越明显，黑暗里的东西迟早会循声找来——说「前进」动身，或说「潜行」绕开。）`;
 }
 
 // P207 复核区观察（本场景第 OBSERVE_TOTAL+1 次起）：不再产出——不发物
