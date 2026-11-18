@@ -2926,3 +2926,12 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **F251（建档后背包遮屏）→ 第四次判为误报**：干净档 `aside.sidebar` 在 x=390、veil 0。建议直接删除该条，避免后续轮次反复复核。
 - **F252（日志增量视觉分层）→ 技术断言过了，视觉目标没达成**：`data-latest` + 3px `--system-dim` 左轨 + 5% 底色在 390 高 DPR 截图上看不出来（m7 图结论「基本不能分辨这一次新增了什么」），见 F261。
 - **F255 调度轮（第72轮）**：devin swe-2-medium 跑到修复前命中免费额度（22:01 重置）中断，已定位根因（390 下 `.btn-group-sys` nowrap+overflow-x，8 键排到 ~520px，地图/任务/影子整条在视口外，触点落不到键面且横滑容器吞 click）并写出 `scripts/e2e/mobile-panel-open.mjs`，但未落地修复、verify 必失败 → 按回退规则由调度器（OpenCode）在 worktree 内完成最小修复；同时 F212 的「系统组必须可横滑 + 渐隐条」断言与本条 P0 直接冲突，已把 `sys-keys-affordance.mjs` 契约翻转为「不许横滑、8 键全在视口内」，F212 的横滑暗示/渐隐条随之停用。
+
+## 第73轮调度（2026-11-18T22:31Z，F257）
+
+- **闸门**：绿色（parallel=2，本轮只做 1 条）。
+- **devin**：swe-2-high 主通道成功（未回退），改动 `server/index.js` / `client/src/App.tsx` / `client/src/api.ts` / `scripts/assert/observe-economy.mjs` + 新增 `scripts/e2e/observe-threat-pays.mjs`。
+- **F257 落地口径**：可掷怪场景 `encounter_clock` 推到 `PITY_LIMIT(4)` 的那次「观察」直接走 `tryEncounter` 开战（`combat:{op:"set"}`+`【遭遇】`+clock 清零，`动静 N/4` 尾注保留）；`encounters:"none"`/终章写【看尽】行并下发 `save.observe={available:false,reason}`，前端 `disabled`+`aria-disabled`+`title`+就地小字，日志行持久化即锁定标记（不加列）。
+- **验收**：`verify.sh F257` PASS（observe-threat-pays 两轮均第 7 次撞怪）；`observe-cost` / `observe-dedupe` / `observe-after-cap` / `observe-economy`（隔离实例）全绿；server 单测 243/243；`ci-deploy.sh` 全量 E2E 24/24 → 部署 OK，公网 200。
+- **产品影响**：「一直观察」不再是零成本支配策略——第 7 次观察必兑成真实遭遇。走查里 F249（观察无限刷内容）与 F257 同源，此修复后观察在不可掷怪场景也被「看尽」锁死，F249 可在下一轮复核后判定收敛或改判。
+- **遗留**：`scripts/report.sh` 全表模式仍属 P210 未修，本轮汇报手工写入（未跑 report.sh）。
