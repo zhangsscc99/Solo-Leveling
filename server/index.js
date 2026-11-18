@@ -1353,8 +1353,24 @@ function advanceOutcome(save, choice) {
       const opts = (Array.isArray(here.choices) ? here.choices : [])
         .map((c, i) => `${i + 1}) ${c && c.label}`)
         .join(" ");
+      // P206 拒绝正文去重：同一存档 + 同一场景 + 同一选项集合，完整
+      // 拒绝正文只落一次日志——连点「前进」叠 N 条逐字相同的选项清单
+      // 像报错刷屏（与 F183 守关门提示分级同一思路）。去重键 =
+      // scene + 选项标签指纹，存 saves.choice_refusal_key：换场景或
+      // 选项集合变化（选项被解锁/移除）后键失配，下一次拒绝照常落
+      // 完整正文。重复触发仍 refused、零消耗、不推进，回包挂
+      // choice_refusal_repeat 让路由只回一条不落库的轻提示。
+      const fp = `${save.scene}|${opts}`;
+      if (save.choice_refusal_key === fp) {
+        return {
+          patch: null,
+          refused: true,
+          choice_refusal_repeat: true,
+          content: "【系统】仍需做出选择——点上方选项，或说「选择 序号」。",
+        };
+      }
       return {
-        patch: null,
+        patch: { choice_refusal_key: fp },
         refused: true,
         content:
           `【系统】这里必须做出选择：${opts}` +
@@ -1917,6 +1933,8 @@ function advanceWithEncounter(save, choice) {
     rewards: out.rewards || null,
     grantMain: null,
     refused: out.refused === true,
+    // P206：must_choose 重复拒绝标记透传——路由凭它跳过落库。
+    choice_refusal_repeat: out.choice_refusal_repeat === true,
   };
   // F114 无位移零消耗：结算出参没把玩家挪到新场景（patch.scene 缺省或
   // 与原地相同）时，体力扣点必须剥掉、并把「（体力消耗…）」注脚改写为
@@ -3435,6 +3453,8 @@ function executeIntent(save, intentId, input) {
     // F138：遭遇来源标记（"rest" = 休憩惊动的杂兵）——意图层只在休息
     // 掷出遭遇时挂值，其余路径缺省不下发。
     encounter_source: built.encounter_source || null,
+    // P206：must_choose 重复拒绝标记透传（advanceOutcome → 路由）。
+    choice_refusal_repeat: built.choice_refusal_repeat === true,
   };
 }
 
@@ -4337,11 +4357,16 @@ api.post("/action", (req, res) => {
   if (outcome.refused) {
     store.appendLog(save.id, "user", input);
     const extra = applyOutcome(save.id, outcome);
-    const reply = store.appendLog(
-      save.id,
-      outcome.role || "system",
-      extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
-    );
+    // P206：must_choose 重复拒绝只回一条轻提示、不落日志——正文去重
+    // 在 advanceOutcome 按 scene+选项指纹判定，这里只负责不写库。
+    // 与终章短路同用负 id 瞬时回复（前端按 reply.content 就地播报）。
+    const reply = outcome.choice_refusal_repeat
+      ? { id: --epilogueReplySeq, role: outcome.role || "system", content: outcome.content }
+      : store.appendLog(
+          save.id,
+          outcome.role || "system",
+          extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
+        );
     const body = {
       reply,
       // F137：回包显式带解析出的 intent——与 /ai-action 同一口径，
@@ -4511,11 +4536,15 @@ api.post("/ai-action", async (req, res) => {
     if (outcome.refused) {
       store.appendLog(save.id, "user", input);
       const extra = applyOutcome(save.id, outcome);
-      const reply = store.appendLog(
-        save.id,
-        outcome.role || "system",
-        extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
-      );
+      // P206：与 /action 同口径——must_choose 重复拒绝不落库，回一条
+      // 负 id 瞬时轻提示。
+      const reply = outcome.choice_refusal_repeat
+        ? { id: --epilogueReplySeq, role: outcome.role || "system", content: outcome.content }
+        : store.appendLog(
+            save.id,
+            outcome.role || "system",
+            extra.length ? `${outcome.content}\n${extra.join("\n")}` : outcome.content
+          );
       const body = {
         reply,
         intent: outcome.intent,

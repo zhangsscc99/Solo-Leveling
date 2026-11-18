@@ -622,7 +622,7 @@
   verify: node scripts/assert/combo-cost.mjs
   risk: medium
 
-- [ ] P206 （P2 文本质量/去重，第37轮 P204 收尾）must_choose 场景的拒绝正文没有去重：在 `ch1_law` 连点 7 次「探索前进」，日志里叠了 7 条逐字相同的「【系统】这里必须做出选择：1) … 2) … 3) …」（实测 refusalCount=7），像报错刷屏；而章节门早就做过同档去重（见 `gate-refusal-hint-spam` 断言）。要求：① 同一场景、同一条拒绝文案在同一存档内只落一次；重复触发时改为极轻的就地提示（例如顶栏下缘「选择上面的一项继续」1.5–2s 淡出，参考 `.save-hint`）或干脆不再追加正文——界面选项键始终可见，玩家不会因此卡住；② 换场景或选项集合变化后必须能再落一次；③ 不改拒绝判定本身（零消耗、不推进口径不变）。断言：`node scripts/assert/choice-refusal-dedupe.mjs` —— 新档推到 `ch1_law`，连点 6 次「前进」，断言含「必须做出选择」的日志行数 ≤ 1，且 6 次点击后 `scene`/`hp`/`mp` 全不变、选项键仍 ≥ 2 且可点
+- [x] P206 ✅ (2026-11-18 devin) （P2 文本质量/去重，第37轮 P204 收尾）must_choose 场景的拒绝正文没有去重：在 `ch1_law` 连点 7 次「探索前进」，日志里叠了 7 条逐字相同的「【系统】这里必须做出选择：1) … 2) … 3) …」（实测 refusalCount=7），像报错刷屏；而章节门早就做过同档去重（见 `gate-refusal-hint-spam` 断言）。要求：① 同一场景、同一条拒绝文案在同一存档内只落一次；重复触发时改为极轻的就地提示（例如顶栏下缘「选择上面的一项继续」1.5–2s 淡出，参考 `.save-hint`）或干脆不再追加正文——界面选项键始终可见，玩家不会因此卡住；② 换场景或选项集合变化后必须能再落一次；③ 不改拒绝判定本身（零消耗、不推进口径不变）。断言：`node scripts/assert/choice-refusal-dedupe.mjs` —— 新档推到 `ch1_law`，连点 6 次「前进」，断言含「必须做出选择」的日志行数 ≤ 1，且 6 次点击后 `scene`/`hp`/`mp` 全不变、选项键仍 ≥ 2 且可点
   verify: node scripts/assert/choice-refusal-dedupe.mjs
   risk: low
 
