@@ -641,3 +641,16 @@
 - [ ] P210 （P1 工程死路，第40轮调度发现）`scripts/report.sh` 在全表模式下逐条执行 FEATURES 里每一条 verify（每条断言自起隔离实例、部分还要起 Playwright），实测运行 >50 分钟仍未写出报告文件，被调度器强行终止——于是「本轮汇报」这件必做事项在 15 分钟单轮预算内永远做不完，报告只能手工替写。要求：① 支持增量模式（`--changed` 取本轮合并区间涉及的 verify、或 `--since <ref>`），增量模式 3 分钟内产出报告；② 全表模式改为有界并发（默认并发 2，CPU>90% 时自动降到 1），单条失败不阻塞其余条目；③ 每条结果边跑边落盘（部分报告也要可用，进程被杀不丢已跑结果）；④ 增量模式与全表模式对同一批 FID 的 PASS/FAIL 结论必须一致（抽 5 条对照）。断言：`node scripts/assert/report-incremental.mjs` —— 在隔离仓库副本上跑 `--changed` 于 180s 内生成报告文件且含本轮 FID，杀掉进程后已跑行仍在文件里，再对同一批 FID 与全表模式结论逐条比对相等
   verify: node scripts/assert/report-incremental.mjs
   risk: medium
+
+- [ ] F210 （P1 视觉/可用性，第40轮真实玩家走查）390×844 下分支选项的文字**越过按钮边界**：`.btn-group-choice button` 固定 86×44（`clientWidth` 84）、`white-space: nowrap` + `overflow: visible`，实测文本宽 120–288px（首幕「先放慢脚步，绕墙观察那些石像」sw=204；`ch1_law`「退到石柱后，观察石像与石碑的对应」sw=232；`ch1_worship`「抬起头，盯住巨像的眼睛（需先观察过石像）」sw=288）。结果文字直接压在相邻按钮与背景网格上，截图 `docs/runs/walk-11180304-m16.png` 里出现裸文字选项（「爬向那把脱手的旧刀」没有边框）、相邻按钮互相叠字，玩家读不全就选不了——选项是本作唯一的决策入口。要求：① 390 下选项按钮按内容自适应（一行 1–2 枚、可换行 `white-space: normal`、`min-height 44`，最多 2 行后 ellipsis 且 `title` 给全文）；② 任何情况下 `scrollWidth ≤ clientWidth`（允许省略号，但不允许溢出可见区）或按钮边界包住文本；③ 相邻按钮矩形不得重叠；④ 不改变选项的 `choice.id`/顺序/服务端行为，桌面（≥900px）布局不回归。断言：`node scripts/assert/choice-buttons-fit.mjs` —— 新档分别走到 `ch1_double_gate` / `ch1_law` / `ch1_worship`，逐个断言每个 `.btn-group-choice button` 的 `scrollWidth ≤ clientWidth + 1`、按钮矩形两两不相交、文字可见高度 ≥ 1 行且 `footer.actions` 无横向溢出；旧码上必红（实测 sw−cw = 50–204px）
+  verify: node scripts/assert/choice-buttons-fit.mjs
+  risk: medium
+- [ ] F211 （P2 选择感/诚实，第40轮真实玩家走查）带前置条件的选项不置灰：全新档全程没观察过石像，`ch1_worship` 的「抬起头，盯住巨像的眼睛（需先观察过石像）」仍是 `disabled=false`，`title` 只是把同一句文案重复一遍。玩家点下去只会得到一句泛泛的拒绝（或被静默吞掉），无法判断是"条件不满足"还是"游戏坏了"；把条件写进选项名本身也像调试文本。要求：① 未满足前置时该键 `disabled=true`，并在按钮下方/`title` 给一条**可执行**的说明（如「先「观察」一次石像的眼睛」）；② 满足前置后同一键恢复可点且 `disabled=false`；③ 若产品选择"仍可点"，则点击必须回 `refused:true`、`scene`/HP/MP 不变，且正文明说缺哪一步——两种实现取其一，但不得静默；④ 不改 `chapters.json` 的主线拓扑与其它选项的条件。断言：`node scripts/assert/choice-precondition.mjs` —— 新档直推 `ch1_worship` 不观察：断言该键 disabled 且提示含「观察」，或点击后 `refused` 且正文含「观察」且 `save.scene` 不变；再观察一次后重进该场景，断言该键可点并能落地 `choice.next`
+  verify: node scripts/assert/choice-precondition.mjs
+  risk: medium
+- [ ] F212 （P2 视觉/手感，第40轮真实玩家走查）390 下底部系统键默认只露 3 个且无任何横滑暗示：`.btn-group-sys` 容器 183px、`scrollWidth` 472px（`overflow-x:auto`），首屏只看到 背包/技能/属性，地图/任务/影子/战斗/存档 全部在视口外（实测 x=375–667），没有裁切边渐隐、没有箭头、没有"左滑还有"的提示。第一次进游戏的玩家会以为没有地图/任务/存档。要求：① 容器右缘加渐隐遮罩（`mask-image` 或伪元素），滑到末端时左侧出现对称渐隐；② 首屏首次渲染时给一次极轻的横滑暗示（≤2s，不占行高、不进正文）；③ 保持 `.btn-group-sys` 元素与既有 `elementFromPoint` 8/8 断言口径不变（只加视觉层，不改结构）；④ 桌面（≥900px 全键可见）不渲染上述提示。断言：`node scripts/assert/sys-keys-affordance.mjs` —— 390 下断言 `.btn-group-sys` 存在右缘渐隐元素且其宽度 >0；横滑到末端后右缘渐隐消失/左侧出现；1440 下不存在任何渐隐元素；`.side-scroll` 结构不变且 8 键仍各自命中自身
+  verify: node scripts/assert/sys-keys-affordance.mjs
+  risk: low
+- [ ] F213 （P2 文本排版，第40轮真实玩家走查）开场正文是一堵 340 字的墙：`.stage p.narration` 把三个自然段（矿灯下的委托人 / 李珠熙的招呼 / 石殿与合拢的石门）塞进同一个 `<p>`，只用 `\n\n` 分隔，390 下一屏全是同字号同灰度，vision 两次把它读成"顶部文字被裁切/显示异常"。要求：① 服务端把开场这段（及同类 >200 字的长段）按自然段拆成多个 `p.narration`；② 390 下单段渲染高度 ≤ 视口 35%，段落间距沿用现有 `--line` 变量；③ 不删改任何原文句子（只拆段，不改字），`action-prose-by-chapter` / `no-placeholder-prose` 不得放宽；④ 日志条数与滚动行为不变。断言：`node scripts/assert/prose-paragraphs.mjs` —— 新档首屏断言 `.stage p.narration` 数量 ≥ 5、单段字数最大值 ≤ 200、单段渲染高度 ≤ 0.35×视口高；全文拼接后与拆分前逐字相同
+  verify: node scripts/assert/prose-paragraphs.mjs
+  risk: low
