@@ -596,6 +596,11 @@ export default function App() {
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches
   );
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // F219：must_choose 拒绝时选项组一次性描边高亮——拒绝文案不再含
+  // 方位指代，可点选项的位置由这次闪光直接指给玩家。值为触发时刻的
+  // 时间戳（同一槽位 key 翻新可重播动画），计时自动归零。
+  const [choiceAttn, setChoiceAttn] = useState(0);
+  const choiceAttnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // F201「已记录」微提示：每个 /action 成功回包都意味着服务端已落库
   // （刷新后 Lv./HP/战报逐项保留），但此前只有手动「存档」有完成播报，
   // 玩家在刷新前会怀疑进度白打。顶栏下缘挂一条 1.8s 淡出的细字——
@@ -708,6 +713,14 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }, []);
 
+  // 连续拒绝只重置计时——同一组选项键槽位不换元素，key 翻新让动画
+  // 从头播，避免连点「前进」时第二次闪光被第一次吃掉。
+  const flashChoices = useCallback(() => {
+    setChoiceAttn(Date.now());
+    if (choiceAttnTimer.current) clearTimeout(choiceAttnTimer.current);
+    choiceAttnTimer.current = setTimeout(() => setChoiceAttn(0), 1400);
+  }, []);
+
   // 连续动作只重置计时与文案——同一 .save-hint 槽位不换元素；key 翻
   // 新让淡出动画从头播，避免「闪一下看不清」。
   const showSaveHint = useCallback((inCombat: boolean) => {
@@ -744,6 +757,14 @@ export default function App() {
           : await sendAction(save.id, trimmed, choiceId);
         const { reply, save: updated, degraded: replyDegraded } = r;
         if (updated) setSave(updated);
+        // F219：被拒且场上还有选项组（must_choose 门）时给选项组一次
+        // 描边闪光——文案不再说「上方/下方」，可点位置由这次高亮指认。
+        if (
+          (r as { refused?: boolean }).refused === true &&
+          ((updated ?? save).next_choices?.length ?? 0) >= 2
+        ) {
+          flashChoices();
+        }
         showSaveHint(Boolean((updated ?? save).combat));
         // F200 连击：一次动作可能带回多条战报（replies），逐条入日志；
         // 单条动作仍只有 reply 一条。回包 reply.id 缺失时补本地 id
@@ -785,7 +806,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [save, busy, openTab, showSaveHint]
+    [save, busy, openTab, showSaveHint, flashChoices]
   );
 
   // 真通关（save.cleared）后追加「结算」tab；快捷键位仍只覆盖常驻 5 个。
@@ -1139,6 +1160,8 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEY);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     if (saveHintTimer.current) clearTimeout(saveHintTimer.current);
+    if (choiceAttnTimer.current) clearTimeout(choiceAttnTimer.current);
+    setChoiceAttn(0);
     setToast(null);
     setSaveHint(null);
     setSave(null);
@@ -1581,7 +1604,10 @@ export default function App() {
                 结算路径），不暴露给玩家。选项带 effects 时代价小字随
                 save 下发的 cost 字段渲染（「体力 −5」），前端不自算。 */}
             {!liveCombat && save.next_choices && save.next_choices.length >= 2 && (
-              <div className="btn-group btn-group-choice">
+              <div
+                key={choiceAttn || "choice"}
+                className={`btn-group btn-group-choice${choiceAttn ? " attn" : ""}`}
+              >
                 <span className="group-label">选择</span>
                 {save.next_choices.map((c) => {
                   // F211：requires 前置未达的选项置灰——disabled +
