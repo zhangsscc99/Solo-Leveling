@@ -115,7 +115,11 @@ run(
 
     let engaged = (await atkBtn(page).count()) > 0;
     for (let i = 0; i < 8 && !engaged; i++) {
-      await send(page, "前进");
+      const r0 = await send(page, "前进");
+      // P204：must_choose 场景裸「前进」被拒——补发首个主线选项续推。
+      if (r0 && r0.refused === true && /必须做出选择/.test((r0.reply && r0.reply.content) || "")) {
+        await send(page, "选择 1");
+      }
       await settle(page, 700);
       engaged = (await atkBtn(page).count()) > 0;
     }
@@ -178,6 +182,10 @@ run(
         }
         // 脱战（击杀/被拦空窗）：补「前进」再逼下一场。
         const r = await send(page, "前进");
+        // P204：must_choose 场景裸「前进」被拒——补发首个主线选项续推。
+        if (r && r.refused === true && /必须做出选择/.test((r.reply && r.reply.content) || "")) {
+          await send(page, "选择 1");
+        }
         await settle(page, 700);
         if (r && r.save && r.save.combat && r.save.combat.enemy) {
           enemyName = r.save.combat.enemy.name;

@@ -28,7 +28,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, makeSave, act } from "./_http.mjs";
+import { assert, ok, makeSave, act, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -60,7 +60,8 @@ const RISE_RE = /撑起身|撑起全身|站稳|站直|站了起来|站稳脚跟/
 const id = await makeSave("p202-rise");
 let hit = null;
 for (let i = 1; i <= 12 && !hit; i++) {
-  const r = await act(id, "前进");
+  // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+  const r = await advanceStep(id);
   const enemy = r.save && r.save.combat && r.save.combat.enemy;
   if (r.reply.content.includes("【遭遇】") || enemy) {
     hit = { reply: r.reply.content, enemy, press: i };

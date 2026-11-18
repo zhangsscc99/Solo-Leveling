@@ -15,7 +15,7 @@
 //   旧码红证：旧文案只有「HP/MP 上限提升」不含任何数字 → b) FAIL。
 //
 //   API_BASE 默认 http://127.0.0.1:3020/game/api，可用环境变量覆盖。
-import { assert, ok, makeSave, act, fetchSaveView, post } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, post, advanceStep } from "./_http.mjs";
 
 const id = await makeSave("f194-levelup");
 // 新手装备先穿上，降低驱动中途阵亡的概率（与 _http 驱动同口径）。
@@ -37,7 +37,9 @@ for (let i = 0; i < 300 && !levelReply; i++) {
     assert(attacks <= 200, `累计 ${attacks} 次攻击仍未升级，驱动异常`);
     r = await act(id, "攻击");
   } else {
-    r = await act(id, "前进");
+    // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线
+    // 选项；其余门拒（守关者/叫阵/现形）照旧升级处理。
+    r = await advanceStep(id);
     if (r.refused === true) {
       // 守关房门拒：「攻击」= 叫阵真开战（boss-refusal-affordance 同口径）。
       r = await act(id, "攻击");

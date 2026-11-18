@@ -37,7 +37,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, fail, get, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, fail, get, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -231,7 +231,8 @@ for (const c of CHAPTERS.chapters) {
   // 即使小怪掷点全空，≤2 步必在守关房撞上【遭遇】，循环有确定上界。
   let hit = null;
   for (let i = 0; i < 6 && !hit; i++) {
-    const r = await act(id, "前进");
+    // P204：ch1_law 标了 must_choose——advanceStep 自动补发主线选项。
+    const r = await advanceStep(id);
     if (r.save.combat || r.reply.content.includes(ENCOUNTER_MARK)) hit = r;
   }
   assert(hit, `(c) dungeon scene never spawned an encounter within 6 advances (rolls globally off?)`);

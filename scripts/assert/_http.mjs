@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 // Shared tiny helpers for scripts/assert/*.mjs. No third-party deps.
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 export const API = (process.env.API_BASE || "http://127.0.0.1:3020/game/api").replace(/\/+$/, "");
 
 export function fail(msg) {
@@ -63,6 +67,65 @@ export async function fetchSaveView(id) {
   const { status, body } = await get(`/saves/${id}`);
   assert(status === 200 && body && body.save, `GET save failed (HTTP ${status})`);
   return body;
+}
+
+// ---------------------------------------------------------------------------
+// P204 must_choose：被标场景拒绝无显式选项的「前进」（关键抉择不许被
+// 「探索前进」整屏跳过）。穿越驱动的职责是沿主线推进——被拒时改发显式
+// 「选择」，只挑落点仍在本章主线链上的选项（支线分支绝不代选，那是被测
+// 断言自己的事）。数据直读 chapters.json 作独立 oracle，不经被测引擎；
+// 旧码（数据无 must_choose 字段 / 服务端不拒绝）下本函数恒返回 null，
+// 驱动行为与旧版逐字一致。
+// ---------------------------------------------------------------------------
+const _require = createRequire(import.meta.url);
+const _ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const _CHAPTERS = _require(path.join(_ROOT, "server", "data", "chapters.json"));
+const _sceneById = new Map();
+const _chainOf = new Map(); // sceneId -> Set(本章主线链 sceneIds)
+for (const c of _CHAPTERS.chapters || []) {
+  const scenes = Array.isArray(c.scenes) ? c.scenes : [];
+  for (const s of scenes) _sceneById.set(s && s.id, s);
+  const byId = new Map(scenes.map((s) => [s && s.id, s]));
+  const chain = new Set();
+  const seen = new Set();
+  let cur = scenes[0] || null;
+  while (cur && !seen.has(cur.id)) {
+    chain.add(cur.id);
+    seen.add(cur.id);
+    let nxt =
+      typeof cur.next_scene === "string" && byId.has(cur.next_scene) && !seen.has(cur.next_scene)
+        ? cur.next_scene
+        : null;
+    if (!nxt) {
+      const pick = (cur.choices || []).find(
+        (x) => x && typeof x.next === "string" && byId.has(x.next) && !seen.has(x.next)
+      );
+      nxt = pick ? pick.next : null;
+    }
+    cur = nxt ? byId.get(nxt) : null;
+  }
+  for (const sid of chain) _chainOf.set(sid, chain);
+}
+
+// 当前场景若被标 must_choose，返回落点仍在主线链上的首个选项；否则 null。
+export function mustChoosePick(sceneId) {
+  const scene = _sceneById.get(sceneId);
+  if (!scene || scene.must_choose !== true) return null;
+  const chain = _chainOf.get(sceneId);
+  const choices = Array.isArray(scene.choices) ? scene.choices : [];
+  return choices.find((x) => x && chain && chain.has(x.next)) || null;
+}
+
+// 「前进」一次：被 must_choose 场景 refused 时自动补发「选择 <主线选项>」。
+// 返回最后一次动作的回包——推进语义 = 回包里 scene/chapter 变化的那次
+// （选项落地即推进；选项也被拒则把选项回包交还调用方的停摆侦测）。
+export async function advanceStep(id) {
+  const r = await act(id, "前进");
+  if (r.refused !== true) return r;
+  const pick = mustChoosePick(r.save && r.save.scene);
+  if (!pick) return r;
+  const rc = await act(id, `选择 ${pick.id}`);
+  return rc.refused === true ? r : rc;
 }
 
 const HEAL_ITEM_IDS = new Set(["low_heal_potion", "mid_heal_potion", "elixir_of_life"]);
@@ -138,7 +201,7 @@ export async function advanceOnce(id, { fight = "mobs", restAt = 0.45, max = 400
     if (restAt > 0 && s.hp > 0 && s.hp < s.max_hp * restAt && (await tryHeal(id, s, inventory))) {
       continue;
     }
-    return await act(id, "前进");
+    return await advanceStep(id);
   }
   fail(`advanceOnce: ${max} actions without a scene change`);
 }
@@ -185,7 +248,7 @@ export async function advanceTraverse(id, { fightCap = 8, max = 600 } = {}) {
     if (s.hp > 0 && s.hp < s.max_hp * 0.9 && (await tryHeal(id, s, inventory))) {
       continue;
     }
-    return await act(id, "前进");
+    return await advanceStep(id);
   }
   fail(`advanceTraverse: ${max} actions without a scene change`);
 }

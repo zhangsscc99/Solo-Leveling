@@ -1340,6 +1340,29 @@ function advanceOutcome(save, choice) {
     };
   }
 
+  // P204 必选门：场景标 must_choose 时，关键抉择不得被「探索前进」整屏
+  // 跳过——不带显式 choice 的推进一律零消耗拒绝，正文列出真实选项名
+  // （说「选择 序号」或报选项名）。与章节门/守关门同一 refused 短路：
+  // patch null、零位移、零 HP/MP、零事件、不计疾行。顺序排在守关门之后
+  // ——守关者未死时显式选项同样走不通（choiceScene 越过 boss 一律折返），
+  // 先给守关拒绝才不会把玩家指向一条同样被拒的路。显式「选择」不受影响，
+  // 照走上方 choiceScene 分支。
+  if (!choice) {
+    const here = chaptersEngine.getScene(save.scene);
+    if (here && here.must_choose === true) {
+      const opts = (Array.isArray(here.choices) ? here.choices : [])
+        .map((c, i) => `${i + 1}) ${c && c.label}`)
+        .join(" ");
+      return {
+        patch: null,
+        refused: true,
+        content:
+          `【系统】这里必须做出选择：${opts}` +
+          `（说「选择 序号」或报选项名）。`,
+      };
+    }
+  }
+
   // 已站在主线链尾：再前进即过门穿章；没有下一章 = 全篇终点。
   // F089：终章拒绝推进——零体力消耗、零落点改动；正常入口在路由层短路
   // （连日志都不写），这里只是 ai-action 非常规输入映射到 advance 时的

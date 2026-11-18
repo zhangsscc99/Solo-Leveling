@@ -44,6 +44,19 @@ async function tap(page, label) {
   return resp.json().catch(() => null);
 }
 
+// P204：must_choose 场景裸「探索前进」被拒——选项键（.btn-group-choice）是
+// 真实出路，点第 1 项续推（各必选场景第 1 项都落主线链）。
+async function tapChoice(page) {
+  const btn = page.locator(".btn-group-choice .btn").first();
+  const [resp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/action") && r.request().method() === "POST"),
+    btn.click(),
+  ]);
+  await resp.finished().catch(() => {});
+  await page.waitForTimeout(300);
+  return resp.json().catch(() => null);
+}
+
 run("combat-enemy-phases", async ({ page }) => {
   await createSave(page, NAME);
   const saveId = await page.evaluate(() => Number(localStorage.getItem("solo_leveling_save_id")));
@@ -92,6 +105,11 @@ run("combat-enemy-phases", async ({ page }) => {
       const j = await tap(page, "探索前进");
       note(j);
       scan(j);
+      if (j && j.refused === true && /必须做出选择/.test((j.reply && j.reply.content) || "")) {
+        const j2 = await tapChoice(page);
+        note(j2);
+        scan(j2);
+      }
     }
     assert(inCombat, `battle ${battle}: 60 次「探索前进」仍未交战`);
     // ── 反复点「攻击」到战斗结束（击杀/阵亡/脱战都算收束）──

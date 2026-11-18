@@ -20,7 +20,7 @@
 //   「每次 MP-5 都有收益」契约由 2 次成交完整覆盖，不再连潜第 3 次。
 //
 //   API_BASE 默认 http://127.0.0.1:3020/game/api，可用环境变量覆盖。
-import { assert, ok, post, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, post, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const PAYOFF_WORD = /更难被发现|不易被发现|潜行增益|未被察觉/;
 
@@ -82,7 +82,8 @@ let unnoticed = 0;
 let progressed = 0;
 let chargesDropped = false;
 for (let i = 0; i < 3; i++) {
-  const r = await act(id, "前进");
+  // P204：must_choose 场景裸「前进」被拒——advanceStep 自动补发主线选项。
+  const r = await advanceStep(id);
   const c = r.reply.content;
   console.log(`(c) advance#${i + 1} 正文前120字: ${c.slice(0, 120)}`);
   if (c.includes("没有被察觉")) unnoticed++;

@@ -22,7 +22,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, ok, makeSave, act, fetchSaveView } from "./_http.mjs";
+import { assert, ok, makeSave, act, fetchSaveView, advanceStep } from "./_http.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -147,7 +147,9 @@ db.prepare("UPDATE saves SET encounter_cd = 9 WHERE id = ?").run(id);
 let prevSteps = view.chapter_steps;
 let prevScene = view.scene;
 for (let i = 0; i < 3; i++) {
-  const r = await act(id, "前进");
+  // P204：must_choose 场景（ch1_law）裸「前进」被拒——advanceStep 自动
+  // 补发首个主线选项（kneel→worship），步数口径与推进语义不变。
+  const r = await advanceStep(id);
   const s = r.save;
   checkLedger(s, `(b) push ${i + 1}`);
   assert(

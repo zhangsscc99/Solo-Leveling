@@ -209,6 +209,10 @@ async function collectEncounters(id, moves) {
     done++;
     if (r.refused && /守关者|叫阵|现形/.test((r.reply && r.reply.content) || "")) {
       await act(id, "攻击"); // 叫阵 → 守关战当面成形
+    } else if (r.refused === true && /必须做出选择/.test((r.reply && r.reply.content) || "")) {
+      // P204：must_choose 场景裸「前进」被拒——补发首个主线选项（数据上
+      // 各必选场景第 1 项都落主线链），采集步数口径不变。
+      await act(id, "选择 1");
     }
   }
   if (done < moves) failAll(`collectEncounters: ${moves} 次「前进」未完成（仅 ${done}）`);
