@@ -1553,7 +1553,7 @@ export default function App() {
                     key={c.id}
                     className="btn"
                     disabled={busy}
-                    title={c.cost ? `代价：${c.cost}` : c.label}
+                    title={c.cost ? `${c.label} · 代价：${c.cost}` : c.label}
                     onClick={() => dispatch(c.label, c.id)}
                   >
                     {c.label}

@@ -2018,6 +2018,40 @@ button {
     white-space: nowrap;
   }
 
+  /* F210 分支选项长文案：行动组 72px 栅格 + nowrap 把长选项推出
+     按钮边界（实测 sw−cw 最大 204px），裸文字压住相邻键——选项组
+     改用更宽的 auto-fit 列（390px 下每行 1–2 键），文字允许折行、
+     至多两行后收省略号，全文走按钮 title。
+     选择器写 .btn-group.btn-group-choice（0-3-0）：既要压过本块的
+     .btn{white-space:nowrap}，也要压过追加段的全局
+     .btn-group .btn{white-space:nowrap}（F117 章尾 CTA 那条）。 */
+  .btn-group.btn-group-choice {
+    grid-template-columns: repeat(
+      auto-fit,
+      minmax(min(140px, 100%), 1fr)
+    );
+  }
+
+  .btn-group.btn-group-choice .btn {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-box-pack: center;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow: hidden;
+    min-height: 44px;
+    padding: 2px var(--sp-3);
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  /* 上行 overflow:hidden 会裁掉探出上缘的 .rest-count 代价角标
+     （F196 键面可见代价契约）——选项组里把它收回按钮内左上角。 */
+  .btn-group.btn-group-choice .btn .rest-count {
+    top: 2px;
+    left: 2px;
+  }
+
   /* F094：战斗提示在按钮栅格里独占一行，技能列表按钮同为 ≥44px 触控。 */
   .btn-group .bar-combat-hint {
     grid-column: 1 / -1;
