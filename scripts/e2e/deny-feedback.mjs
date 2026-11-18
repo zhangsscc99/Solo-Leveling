@@ -4,7 +4,8 @@
 //
 //   自起隔离实例（空闲端口 + 临时 DB_PATH，AI key 置空），新档由 DB
 //   直落 ch1_law（must_choose 场景，oracle 取自 chapters.json）：
-//     a) 点「探索前进」后 300ms 内页面出现可见拒绝元素
+//     a) 发出「前进」指令后 300ms 内页面出现可见拒绝元素
+//        （F247 起按钮在 must_choose 下 disabled，改经输入框发送）
 //        （.sys-toast 或 .deny-hint：height>0 且文本非空）——页面内
 //        MutationObserver 记首个可见时刻，不靠轮询猜；文案须说清
 //        「先选一个」而不是复述三个选项名；
@@ -129,7 +130,12 @@ run("deny-feedback", async ({ page }) => {
   await page.waitForSelector(".btn-group-choice");
   await page.waitForFunction(() => !document.querySelector(".pending"));
 
-  const advanceBtn = page.locator(".actions-main .btn", { hasText: "探索前进" }).first();
+  // F247 起「探索前进」按钮在 must_choose 下 disabled——同一条必拒
+  // 指令改由自由输入框发出（dispatch 的 F231 预判口径不变）。
+  const sendAdvance = async () => {
+    await page.fill(".input-row input", "前进");
+    await page.press(".input-row input", "Enter");
+  };
   const stageKids = () => page.evaluate(() => document.querySelector(".stage-col").children.length);
   const waitIdle = () => page.waitForFunction(() => !document.querySelector(".pending"));
   const DENY_SEL = ".sys-toast, .deny-hint";
@@ -148,10 +154,9 @@ run("deny-feedback", async ({ page }) => {
     window.__respAt = null;
     window.__denyT0 = performance.now();
     document.addEventListener(
-      "click",
+      "submit",
       (e) => {
-        const b = e.target.closest(".btn");
-        if (b && /探索前进/.test(b.textContent || "")) window.__clickAt = performance.now();
+        if (e.target.closest(".input-row")) window.__clickAt = performance.now();
       },
       true
     );
@@ -184,7 +189,7 @@ run("deny-feedback", async ({ page }) => {
     { timeout: 8000 }
   );
   const clickT0 = Date.now();
-  await advanceBtn.click();
+  await sendAdvance();
   const resp = await respPromise;
   await resp.finished().catch(() => {});
   const responseMs = Date.now() - clickT0;
@@ -237,7 +242,7 @@ run("deny-feedback", async ({ page }) => {
   // ── (c) 连点 3 次：.stage-col 子节点数增量 ≤ 1 ─────────────────
   const n0 = await stageKids();
   for (let i = 0; i < 3; i++) {
-    await advanceBtn.click();
+    await sendAdvance();
     await waitIdle();
     const n = await stageKids();
     assert(
@@ -278,7 +283,7 @@ run("deny-feedback", async ({ page }) => {
 
   // ── (e) 390 视口：无横向溢出，拒绝元素完整落在视口内 ────────────
   await page.setViewportSize({ width: 390, height: 844 });
-  await advanceBtn.click();
+  await sendAdvance();
   const fit = await page.evaluate((sel) => {
     const de = document.documentElement;
     const el = document.querySelector(sel);

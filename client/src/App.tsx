@@ -845,6 +845,20 @@ export default function App() {
   // 服务端 advance_mode 下发 "challenge_boss"，主按钮换标「叫阵守关者」
   // （点击发起「攻击」开战），行动栏「攻击」同步解禁。
   const challengeBoss = Boolean(save && save.advance_mode === "challenge_boss");
+  // F247：must_choose 未决时「探索前进」是服务端必拒的死选项——
+  // 置灰为不可点（disabled + 视觉转暗），不再「看得见、按得动、永远
+  // 无效」。换标形态不在本列：at_epilogue 查看结算 / challenge_boss
+  // 叫阵 / next_chapter 过章 / retreat_to_boss 折返仍是合法出路，
+  // 不得顺带锁死。交战态「前进」是撤离掷逃，同样不禁。
+  const forwardChoiceLocked = Boolean(
+    save &&
+      !liveCombat &&
+      sceneMustChoose(save) &&
+      !save.at_epilogue &&
+      save.advance_mode !== "challenge_boss" &&
+      save.advance_mode !== "next_chapter" &&
+      save.advance_mode !== "retreat_to_boss"
+  );
   // F228：当前屏唯一主行动——分支/交战/叫阵/终章/下章/探索按优先级
   // 解析成一颗，JSX 只按结果挂 primary cta-primary + data-primary-cta。
   const primaryCta = save ? pickPrimaryCta(save, liveCombat) : null;
@@ -1251,12 +1265,17 @@ export default function App() {
         // 守关房叫阵态快捷键 1 与「叫阵守关者」同义：发「攻击」就地开战。
         if (b.input === "前进" && cleared) openTab("ending");
         else if (b.input === "前进" && challengeBoss) dispatch("攻击");
-        else dispatch(b.input);
+        // F247：must_choose 未决时快捷键 1 与按钮同口径——不发这条
+        // 必拒的「前进」请求，就地弹指路提示（不静默）。
+        else if (b.input === "前进" && forwardChoiceLocked) {
+          showToast(DENY_CHOICE_TEXT);
+          flashChoices();
+        } else dispatch(b.input);
       } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, toggleBarSkills, toggleBarItems, save, showToast]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, forwardChoiceLocked, flashChoices, toggleBarSkills, toggleBarItems, save, showToast]);
 
   // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
   // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
@@ -1738,14 +1757,20 @@ export default function App() {
                 // F228：主位由 pickPrimaryCta 裁定——分支/交战态接管时
                 // 「前进」槽（含叫阵/下章/折返换标）降为普通 .btn。
                 const isCta = b.input === "前进" && primaryCta?.kind === "advance";
+                // F247：must_choose 未决只锁「探索前进」原形——叫阵/下章/
+                // 折返换标（上面三个布尔）仍是合法出路，不在锁定列。
+                const choiceLocked =
+                  b.input === "前进" && forwardChoiceLocked;
                 return (
                   <button
                     key={b.label}
                     className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
-                    disabled={busy || restBlocked}
+                    disabled={busy || restBlocked || choiceLocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
+                      (choiceLocked &&
+                        "先做出选择——点选项键，或输入「选择 <选项名>」") ||
                       (restBlocked && (restInfo?.reason || "暂时无法休息")) ||
                       (challenge
                         ? `守关者就在面前 · 叫阵开战 · 快捷键 ${i + 1}`
@@ -1755,7 +1780,7 @@ export default function App() {
                             ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
                             : `快捷键 ${i + 1}`)
                     }
-                    aria-disabled={busy || restBlocked}
+                    aria-disabled={busy || restBlocked || choiceLocked}
                   >
                     {challenge ? (
                       "叫阵守关者"
