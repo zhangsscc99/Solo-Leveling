@@ -15,6 +15,16 @@ OUT="$RUNS_DIR/$TS.md"
 HEALTH_URL="http://127.0.0.1:3020/game/api/health"
 PUBLIC_URL="https://openfolio.uk/game"
 
+# 环境隔离（与 verify.sh 同口径）：调度 shell 常驻泄漏的变量会让断言/单测
+# 打到死端口或错库。SL_VERIFY_API_BASE 作为唯一显式覆盖口保留不清。
+ENV_CLEARED=""
+for _k in E2E_BASE_URL DB_PATH SL_GAME_DB API_BASE; do
+  if [ -n "${!_k+x}" ]; then
+    ENV_CLEARED="${ENV_CLEARED:+${ENV_CLEARED}, }${_k}=${!_k}"
+  fi
+done
+unset _k E2E_BASE_URL DB_PATH SL_GAME_DB API_BASE
+
 # F127: verify 执行器可用环境变量替换（断言/测试用桩注入，不改对外契约）。
 VERIFY_BIN="${REPORT_VERIFY_BIN:-./scripts/verify.sh}"
 
@@ -176,6 +186,7 @@ risk_stats="$(awk '
   echo
   echo "## 部署状态"
   echo
+  echo "- 环境清理: ${ENV_CLEARED:-无}"
   echo "- pm2 solo-leveling: $pm2_state"
   echo "- health: \`$health\`"
   echo "- 公网 $PUBLIC_URL → HTTP $pub_code"
