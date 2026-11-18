@@ -2467,3 +2467,10 @@ F218 落地：战斗区每回合出结算行（命中/暴击/未命中 + 伤害 
 - **F217 修复上线**：新档首屏不再自动沉底（`relTop -946 → +16`，scrollTop=0），老档仍沉底；断言 `first-entry-scroll.mjs` 旧码必红、新码连跑 PASS。
 - **调度死路（新发现，未建 FEATURES 条目）**：调度手册里的部署命令 `flock .deploy.lock -c 'bash scripts/ci-deploy.sh'` **永远失败**——`ci-deploy.sh` 自己在第 19–20 行 `exec 9>.deploy.lock; flock -n 9`，外层 flock 已持锁后内层非重入直接打印 `another deploy is running` 并 `exit 3`（实测两次都如此，`fuser .deploy.lock` 无持有者）。正解：直接 `bash scripts/ci-deploy.sh`（它自带锁），或给脚本加 `CI_DEPLOY_LOCKED=1` 跳过内层锁。建议下一轮把手册命令改掉，或建条目加断言。
 - **并发写 main**：本轮 worktree 基于 25ce7c3，期间 walkthrough 任务提交 f4a1e5a（F220–F223）推进了 main；已 rebase 后再 ff 合并，F220–F223 未丢。合并前必须 `git rebase main`。
+
+### 第 52 轮调度（2026-11-18 09:11 UTC，cron；F220 已上线）
+- **F220 修复上线**：`CHAPTER_ENTRY_NOTES` 四条注脚全部换成「向前推进」口径（石门里抬步迈入 / 按墙缘向前探步 / 放轻脚步穿过影子 / 顶着风又踏进一段），旧码里的「立在原地听风」「未耗一丝力气」「站稳了脚跟」「没有出手」全部清除；池长度与按章轮换不变，数值/推进/存档零改动。线上首点前进的正文从「你没动」变成「你动了，代价在下一步」。
+- **新增断言** `advance-copy-consistency.mjs`：新档连点前进到 must_choose + 逐章进入链首各点一次（自然循环只覆盖 ch1 那一版，必须逐章锻造存档才能覆盖 4 条变体），断言禁词与 stage 单调。旧文案回填实测必红。
+- **部署死路复现（第 3 次）**：`flock .deploy.lock -c 'bash scripts/ci-deploy.sh'` 仍打印 `another deploy is running`（内层 `flock -n 9` 不可重入）。本轮直接 `bash scripts/ci-deploy.sh` 一次成功（E2E 7/7）。**建议调度手册同步改掉这条命令**，否则每轮都要多花一次调用并可能误判「部署被人占用」。
+- **worktree 冒烟坑**：git worktree 不带 `scripts/e2e/node_modules`，被调度器忽略（未跟踪不显示），冒烟档会报 `playwright-core not found`。需 `ln -s /www/Solo-Leveling/scripts/e2e/node_modules scripts/e2e/node_modules` 后再跑，否则会误判 devin 失败。
+- 剩余 P1：**F220 已清**，P0 级 F216（观察 3/3 后无限空转）仍在待办首位。
