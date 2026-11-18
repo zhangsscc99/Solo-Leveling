@@ -476,7 +476,7 @@ button {
 }
 
 .drawer-toggle, .help-toggle {
-  display: none;
+  min-width: 44px;
   min-height: 44px;
   padding: 0 var(--sp-4);
   background: var(--hull-2);
@@ -485,6 +485,19 @@ button {
   color: var(--text);
   font-size: var(--fs-sm);
   cursor: pointer;
+}
+
+/* 抽屉键只在窄屏出现：宽屏右侧常驻档案栏，桌面不需要抽屉入口。 */
+.drawer-toggle {
+  display: none;
+}
+
+/* F224：「?」帮助键提升到桌面基线——F221 删除兜底回包的指令表尾巴
+   后，宽屏没有任何发现指令表的路径。桌面上它跟在 .status-nums
+   （margin-left:auto 已吸干行内留白）之后随 stat 组贴右缘；
+   窄屏的排布顺序仍由 max-width:880px 媒体查询给 order 决定。 */
+.help-toggle {
+  display: block;
 }
 
 /* ── ② 主舞台 ─────────────────────────────── */
@@ -1973,9 +1986,9 @@ button {
 
   /* F221：「?」帮助键与「档案」同观感、同排布。auto 留白只让档案键吃
      （把两键一起顶到右缘）——帮助键若同样 margin-left:auto，两个 auto
-     均分留白会把它甩离右缘。 */
+     均分留白会把它甩离右缘。F224：可见性已上提桌面基线，这里只管窄屏
+     排布顺序。 */
   .help-toggle {
-    display: block;
     order: 1;
     margin-left: 0;
   }
