@@ -2199,26 +2199,29 @@ button {
      「滑到末端换左缘」，已删）——渐隐条钉在 .sys-scroll 可视缘，
      pointer-events:none 不拦 8 键 elementFromPoint 命中。 */
   .sys-scroll {
-    display: flex;
-    flex: 1 1 0;
-    min-width: 0;
-    position: relative;
+    display: contents;
   }
 
+  /* F255：系统组折行平铺（与 F085 行动组同契约）——旧版 nowrap +
+     overflow-x:auto 让 390px 下「地图」只露 15px、「任务/影子/战斗/
+     存档」整条在视口外，真实手指落不到键面，横滑容器还会把微位移
+     判成滚动手势吞掉 click；玩家侧表现为底栏系统键全坏。改为等宽
+     栅格折行，8 键全部落在视口内，不再横滑（F212 渐隐条与横滑暗示
+     随之停用）。 */
   .btn-group-sys {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    flex: 1 1 0;
-    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    flex: 0 0 100%;
+    align-items: stretch;
+    gap: var(--sp-2);
     margin-left: 0;
     padding-left: 0;
+    padding-top: var(--sp-2);
     border-left: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
+    overflow: visible;
   }
 
-  .btn-group-sys::-webkit-scrollbar {
+  .sys-fade {
     display: none;
   }
 

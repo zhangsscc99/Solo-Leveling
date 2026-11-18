@@ -744,14 +744,11 @@ export default function App() {
   // F141 日志基线：整页回灌/接入存档时已有的行是「旧行」——历史战报
   // 不得重新点亮战斗面板；只有此后新写入的行才算日志侧交战信号。
   const logBaseRef = useRef(0);
-  // F212 系统 meta 行横滑暗示：.sys-scroll 是 .btn-group-sys 的透明包裹
-  // （桌面 display:contents），两枚 .sys-fade 渐隐条的显隐由容器
-  // data-at-start / data-at-end 驱动；sysSwipeHint 是首屏一次性浮层
-  // （组件 state，同一会话只出现一次，不落 localStorage）。
+  // F255：系统组不再横滑（见 styles.css 窄屏块），.sys-scroll 退化为透明
+  // 包裹（display:contents），refs 仅为结构对齐保留；F212 的横滑暗示与
+  // .sys-fade 渐隐条已停用——横滑容器会让视口外的键真实手指按不到。
   const sysScrollRef = useRef<HTMLDivElement>(null);
   const sysGroupRef = useRef<HTMLDivElement>(null);
-  const [sysSwipeHint, setSysSwipeHint] = useState(false);
-  const sysSwipeShownRef = useRef(false);
 
   useEffect(() => {
     getItems()
@@ -773,44 +770,8 @@ export default function App() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // F212：系统组横滚状态 → .sys-scroll 的 data-at-start / data-at-end，
-  // 驱动左右两枚 .sys-fade 渐隐条（滚到末端右缘收、左缘出）。scroll
-  // 事件 + ResizeObserver 只写 dataset，不 setState、无 rAF 循环。
-  // 依赖 Boolean(save)：refs 指向的节点随游戏屏挂载（gate 期不存在）。
-  useEffect(() => {
-    const wrap = sysScrollRef.current;
-    const el = sysGroupRef.current;
-    if (!wrap || !el) return;
-    const update = () => {
-      wrap.dataset.atStart = String(el.scrollLeft <= 2);
-      wrap.dataset.atEnd = String(el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
-    };
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", update);
-      ro.disconnect();
-    };
-  }, [Boolean(save)]);
-
-  // F212 首屏一次性横滑暗示：仅 ≤880px 窄屏 + save 首次就位（首次进入
-  // 游戏）时点亮；sysSwipeShownRef 保证同一会话不重复，交战态/桌面由
-  // 渲染条件直接不挂这个节点。点亮与计时拆成两个幂等 effect——
-  // StrictMode 双跑下计时器依旧能被正确清理与重挂。
-  useEffect(() => {
-    if (!save || sysSwipeShownRef.current) return;
-    if (!window.matchMedia("(max-width: 880px)").matches) return;
-    sysSwipeShownRef.current = true;
-    setSysSwipeHint(true);
-  }, [Boolean(save)]);
-
-  useEffect(() => {
-    if (!sysSwipeHint) return;
-    const t = setTimeout(() => setSysSwipeHint(false), 1800);
-    return () => clearTimeout(t);
-  }, [sysSwipeHint]);
+  // F212 横滚状态 effect 已随 F255 停用：系统组折行平铺后无横滚，
+  // data-at-* 恒为两端满足，留这段只会空转 ResizeObserver。
 
   // F227 续档回灌整窗：直接取到服务端硬上限 LOG_CAP——旧码只灌末 50
   // 条，刷新前内存里累积超窗的战斗/叙述行回灌后凭空少行。回灌行数
@@ -1723,16 +1684,8 @@ export default function App() {
             {toast.text}
           </div>
         )}
-        {/* F212 首屏一次性横滑暗示：.actions 上缘居中浮层（与 .sys-toast /
-            .save-blocked-hint 同一位点，但只在非交战态渲染，不与
-            save-blocked-hint 叠加），绝对定位不占行高、不推挤
-            .actions-main/.input-row、pointer-events:none 不拦点击；
-            1.8s 后由 App 计时卸载，DOM 不残留；桌面/交战不渲染。 */}
-        {sysSwipeHint && narrow && !liveCombat && (
-          <div className="sys-swipe-hint" role="note">
-            ◂ 左滑还有 地图 / 任务 / 影子 / 战斗 / 存档
-          </div>
-        )}
+        {/* F255：F212 的首屏「左滑还有 地图/任务/影子…」暗示随横滑容器一并
+            停用——系统键改为折行平铺后全部落在视口内，横滑暗示既失真也占位。 */}
         <div className={`actions-main${liveCombat ? " actions-combat" : ""}`}>
           <div className="action-groups">
             <div className="btn-group">

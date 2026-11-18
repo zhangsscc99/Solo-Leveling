@@ -40,86 +40,44 @@ run(
   async ({ page }) => {
     await createSave(page, NAME);
 
-    // ── ④ 首屏一次性暗示：≤1.5s 内出现 ──
-    await page.waitForSelector(".sys-swipe-hint", { timeout: 1500 }).catch(() => {
-      throw new Error("首屏 1.5s 内未出现 .sys-swipe-hint 横滑暗示");
-    });
-    const hintBox = await page.locator(".sys-swipe-hint").boundingBox();
-    const mainBox = await page.locator(".actions-main").boundingBox();
-    assert(hintBox && mainBox, "sys-swipe-hint / actions-main boundingBox 可取");
-    const overlap = !(
-      hintBox.x + hintBox.width <= mainBox.x ||
-      mainBox.x + mainBox.width <= hintBox.x ||
-      hintBox.y + hintBox.height <= mainBox.y ||
-      mainBox.y + mainBox.height <= hintBox.y
-    );
-    assert(
-      !overlap,
-      `.sys-swipe-hint 与 .actions-main 相交 hint=${JSON.stringify(hintBox)} main=${JSON.stringify(mainBox)}`
-    );
-    // ≤2.5s 内消失（淡出后布局零位移 → 节点卸载）
-    await page.waitForSelector(".sys-swipe-hint", { state: "detached", timeout: 2500 }).catch(() => {
-      throw new Error(".sys-swipe-hint 2.5s 内未消失");
-    });
-
-    // ── ① 需要横滑 + 首屏右缘渐隐可见、左缘隐藏 ──
+    // ── ④ F255 契约：系统组折行平铺，全部键落在视口内、无横滑无渐隐 ──
+    //   第 53 轮走查把「横滑 meta 行」本身判成 P0 缺陷：390 下 8 键排到
+    //   ~520px，地图只露 15px、任务/影子/战斗/存档整条在视口外，真实手指
+    //   按不到（横滑容器还会把微位移判成滚动手势吞掉 click）。故本条断言
+    //   由「必须可横滑 + 渐隐提示」翻转为「不许横滑、8 键全在视口内」。
     const dims = await page.locator(".btn-group-sys").evaluate((el) => ({
       sw: el.scrollWidth,
       cw: el.clientWidth,
     }));
     assert(
-      dims.sw > dims.cw + 40,
-      `.btn-group-sys 不需要横滑 scrollWidth=${dims.sw} clientWidth=${dims.cw}`
+      dims.sw <= dims.cw + 2,
+      `.btn-group-sys 仍在横滑：scrollWidth=${dims.sw} clientWidth=${dims.cw}（F255：横滑容器会让视口外的键按不到）`
     );
-    let st = await fadeState(page);
-    assert(st.r !== null, ".sys-fade-r 元素不存在（渐隐必须是可测量元素）");
-    assert(st.r.w > 0, `.sys-fade-r 宽度=${st.r.w} 未 >0`);
-    assert(st.r.op > 0, `首屏 .sys-fade-r opacity=${st.r.op}（应可见右缘渐隐）`);
-    assert(st.l === null || st.l.w === 0 || st.l.op === 0, "首屏 .sys-fade-l 应隐藏（在滚动起点）");
-
-    // ── ② 滚到末端：右缘隐、左缘现；滚回起点恢复 ──
-    await page.locator(".btn-group-sys").evaluate((el) => {
-      el.scrollLeft = el.scrollWidth;
-    });
-    await page.waitForFunction(
-      () => document.querySelector(".sys-scroll")?.dataset.atEnd === "true"
+    const visibleFades = await page.evaluate(
+      () =>
+        [...document.querySelectorAll(".sys-fade")].filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && parseFloat(getComputedStyle(el).opacity) > 0;
+        }).length
     );
-    await page.waitForTimeout(300); // opacity 0.2s 过渡
-    st = await fadeState(page);
+    assert(visibleFades === 0, `390 下仍存在 ${visibleFades} 个可见 .sys-fade（横滑终止后无渐隐可言）`);
     assert(
-      st.r === null || st.r.w === 0 || st.r.op < 0.05,
-      `滚到末端后 .sys-fade-r 仍可见 op=${st.r && st.r.op}`
+      (await page.locator(".sys-swipe-hint").count()) === 0,
+      "390 下仍渲染 .sys-swipe-hint（F255 已停用横滑暗示）"
     );
-    assert(st.l !== null && st.l.w > 0 && st.l.op > 0.5, `滚到末端后 .sys-fade-l 不可见 ${JSON.stringify(st.l)}`);
 
-    await page.locator(".btn-group-sys").evaluate((el) => {
-      el.scrollLeft = 0;
-    });
-    await page.waitForFunction(
-      () => document.querySelector(".sys-scroll")?.dataset.atStart === "true"
-    );
-    await page.waitForTimeout(300);
-    st = await fadeState(page);
-    assert(st.r !== null && st.r.w > 0 && st.r.op > 0.5, `滚回起点 .sys-fade-r 未恢复 ${JSON.stringify(st.r)}`);
-    assert(st.l === null || st.l.w === 0 || st.l.op < 0.05, `滚回起点 .sys-fade-l 仍可见 ${JSON.stringify(st.l)}`);
-
-    // ── ③ 8 键各自滚入视口后 elementFromPoint 命中自身/后代 ──
+    // ── ③ 8 键各自完整落在视口内，elementFromPoint(中心) 命中自身/后代 ──
     for (const label of SYS_KEYS) {
       const btn = page.locator(".btn-group-sys > .btn", { hasText: label }).first();
       assert((await btn.count()) === 1, `系统键「${label}」不存在`);
       const res = await btn.evaluate((el) => {
-        const sc = el.closest(".btn-group-sys");
-        if (sc) {
-          const r = el.getBoundingClientRect();
-          const sr = sc.getBoundingClientRect();
-          sc.scrollLeft += r.x + r.width / 2 - (sr.x + sr.width / 2);
+        const r = el.getBoundingClientRect();
+        const cx = r.x + r.width / 2;
+        const cy = r.y + r.height / 2;
+        if (r.x < -0.5 || r.right > window.innerWidth + 0.5) {
+          return { ok: false, why: `键面越出视口 x=${r.x.toFixed(1)}..${r.right.toFixed(1)}`, cx, cy };
         }
-        const r2 = el.getBoundingClientRect();
-        const cx = r2.x + r2.width / 2;
-        const cy = r2.y + r2.height / 2;
-        if (cx < -0.5 || cx > window.innerWidth + 0.5) {
-          return { ok: false, why: `滚入后中心仍在视口外 cx=${cx.toFixed(1)}`, cx, cy };
-        }
+        if (r.height < 40) return { ok: false, why: `触控高度 ${r.height.toFixed(1)}px < 40px`, cx, cy };
         const hit = document.elementFromPoint(cx, cy);
         return {
           ok: Boolean(hit) && (hit === el || el.contains(hit)),
@@ -130,7 +88,7 @@ run(
       });
       assert(
         res.ok,
-        `「${label}」滚入后 elementFromPoint(${(res.cx || 0).toFixed(0)},${(res.cy || 0).toFixed(0)}) 命中 ${res.hit || res.why}`
+        `「${label}」未落在视口内或命中被挡：${res.why || `elementFromPoint(${(res.cx || 0).toFixed(0)},${(res.cy || 0).toFixed(0)}) 命中 ${res.hit}`}`
       );
     }
 
