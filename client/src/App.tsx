@@ -426,6 +426,11 @@ function StatusBar({
   const chapterName = CHAPTERS[save.chapter - 1] ?? `第${save.chapter}章`;
   const freePoints = Math.max(0, Number(save.free_points) || 0);
   const inCombat = Boolean(save.combat);
+  // F290「动静」HUD：cur/max 全部照 save.observe.noise 下发口径渲染，
+  // 前端不推导不硬编码；cur>=max-1 挂 warn 预警（再看一次就要遇敌）。
+  // 交战态不渲染——那时观察键整组已下场，计量条随之退场不报错。
+  const noise = save.observe && save.observe.noise ? save.observe.noise : null;
+  const noiseWarn = Boolean(noise && noise.max > 0 && noise.cur >= noise.max - 1);
   // P208：顶栏 XP 极细进度条。真值只读 save.xp / save.xp_to_next，
   // 前端不推算等级曲线；xp_to_next 缺失/异常时退化为空轨道。
   const xpNeed = Number(save.xp_to_next) || 0;
@@ -464,6 +469,34 @@ function StatusBar({
       <div className="status-gauges">
         <Gauge label="HP" value={save.hp} max={save.max_hp} kind="hp" delta={hpDelta} />
         <Gauge label="MP" value={save.mp} max={save.max_mp} kind="mp" delta={mpDelta} />
+        {!inCombat && noise && (
+          <div
+            className={`noise-meter${noiseWarn ? " warn" : ""}`}
+            data-noise="1"
+            role="meter"
+            aria-label={`动静 ${noise.cur}/${noise.max}`}
+            aria-valuemin={0}
+            aria-valuemax={noise.max}
+            aria-valuenow={noise.cur}
+            title={
+              noiseWarn
+                ? `动静 ${noise.cur}/${noise.max}——再看一次就要遇敌`
+                : `动静 ${noise.cur}/${noise.max}`
+            }
+          >
+            <span className="gauge-label noise-label">动静</span>
+            <span className="noise-cells" aria-hidden="true">
+              {Array.from({ length: Math.max(0, noise.max) }, (_, i) => (
+                <i key={i} className={`noise-cell${i < noise.cur ? " on" : ""}`} />
+              ))}
+            </span>
+            <span className="gauge-num noise-num" aria-hidden="true">
+              {noise.cur}
+              <i>/</i>
+              {noise.max}
+            </span>
+          </div>
+        )}
       </div>
       <div className="status-nums">
         {/* F164 属性点徽标：free_points>0 时钉在属性组首位——可点直达
