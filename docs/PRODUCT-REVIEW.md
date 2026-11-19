@@ -3056,3 +3056,8 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **F265 devin 半程中断（免费额度），收尾由 OpenCode 完成**：`swe-2-medium` 完成 App.tsx/styles.css/断言三处改动并自测「连跑 2 次 PASS + 旧码 FAIL」，随后在跑全量冒烟档时命中 `Reached free model rate limit … reset at 02:01 UTC` 退出。主模型仅在 worktree 内做最小修补（去掉键面角标里的 emoji 🔒，改为纯文字「需先选择」——符合产品 UI 去 emoji 口径），并补跑冒烟档与 deploy 全量 E2E。
 - F265 落地：锁定态「探索前进」→ 键面左上 `[data-locked]`「需先选择」角标（与 `.rest-count` 同位点、绝对定位不增行高）+ `.choice-locked` `grayscale(.6)/brightness(.82)`；disabled 键外包 `.lock-tap-catcher` 透明壳（F245 同构），真实点击点亮 `.sys-toast`「先做出选择——点选项键，或输入「选择 <选项名>」」并闪选项组。390/1440 双视口断言通过，deploy `run-all` 27/27 PASS。
 - 顺带发现（本轮未修，留作待办候选）：`scripts/ci-deploy.sh` 内部已 `flock -n .deploy.lock`，调度口径再套一层 `flock .deploy.lock -c` 会自锁 → 脚本恒返回 `another deploy is running` 并以 0 退出（假成功）。直接 `bash scripts/ci-deploy.sh` 正确。
+
+## 第79轮调度（2026-11-19 01:31Z，单条 F267）
+- **F267 devin 失败 → 已回退 OpenCode**：`devin -p --model swe-2-medium` 首次调用即 `Reached free model rate limit … reset at 02:01 UTC`（退出码 1），worktree 零改动，按回退规则由主模型在 `feat/F267` 内实现。
+- F267 落地：键位收口为单一事实源 `actionHotkey / combatHotkey / sysHotkey`（键帽文案、`data-hotkey`、keydown 派发同源）；交战态 1–6 全归战斗组，系统页签在该态**无键位**（不显键帽也不派发），消除「按 5 落道具还是背包」；`.rest-count` 加 `data-rest-count`，不再与键帽数字混淆。断言 `scripts/e2e/hotkey-unique.mjs`：非交战 9 键唯一（1–9）、交战 6 键唯一（1–6）、按一次键恰好 1 次 `/api/action` 且动作与键帽一致。
+- 旧码红证局限：旧码无任何 `data-hotkey`，基线跑出的 FAIL 是「键帽只找到 0 个」——即旧实现根本没有机器可读的键位来源，属真实的「显示与派发不同源」证据，但不是「数字重复」这一条的逐项复现；重复问题由交战态系统页签同屏占 5/6 的代码路径直接判据（本轮已收掉）。

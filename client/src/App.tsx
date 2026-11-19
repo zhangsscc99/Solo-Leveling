@@ -227,6 +227,23 @@ const ACTION_BUTTONS: { label: string; input: string; combatBlock?: boolean }[] 
 // 理由（移动端无 hover，可见文字落键面而非只挂 title）。
 const COMBO_MP_COST = 6;
 
+// F267：键位是「显示 = 派发」的同一份事实源——键帽文案、data-hotkey 与
+// keydown 派发全部从这里取序号，不再一处 i+1、一处 i+5 各自算（旧码
+// 系统页签写死 5–9，交战态战斗组也用 1–6，5/6 两套语义叠在一起，且
+// 「休息」键面上的剩余次数与键帽数字在同一次 DOM 读取里无法区分）。
+// 交战态 1–COMBAT_BUTTONS.length 全归战斗组：系统页签在该态没有键位，
+// 既不显示键帽也不派发——键面上不出现按不动的数字。
+const SYS_HOTKEY_BASE = 5;
+const SYS_HOTKEY_MAX = 9;
+const actionHotkey = (i: number) => i + 1;
+const combatHotkey = (i: number) => i + 1;
+const sysHotkey = (i: number, liveCombat: boolean): number | null => {
+  const k = SYS_HOTKEY_BASE + i;
+  if (liveCombat) return null;
+  return k <= SYS_HOTKEY_MAX ? k : null;
+};
+
+
 const COMBAT_BUTTONS: {
   label: string;
   input: string | null;
@@ -1286,7 +1303,15 @@ export default function App() {
         else if (b.input === "观察" && observeLocked)
           showToast(save?.observe?.reason || "此处已看尽");
         else dispatch(b.input);
-      } else if (n >= 5 && n < 5 + tabs.length && tabs[n - 5]) openTab(tabs[n - 5].key);
+      } else if (
+        // F267：系统页签键位只在脱战态成立——交战态 1–6 全归战斗组，
+        // 键面上也不再出现系统数字（显示与派发同源）。
+        !liveCombat &&
+        n >= SYS_HOTKEY_BASE &&
+        n <= SYS_HOTKEY_MAX &&
+        tabs[n - SYS_HOTKEY_BASE]
+      )
+        openTab(tabs[n - SYS_HOTKEY_BASE].key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1783,9 +1808,11 @@ export default function App() {
                       data-primary-cta={isCta ? "1" : undefined}
                       onClick={() => openTab("ending")}
                       title="快捷键 1"
+                      data-act="前进"
+                      data-hotkey={actionHotkey(i)}
                     >
                       查看结算
-                      <kbd className="key-badge">{i + 1}</kbd>
+                      <kbd className="key-badge">{actionHotkey(i)}</kbd>
                     </button>
                   );
                 }
@@ -1803,6 +1830,8 @@ export default function App() {
                     data-primary-cta={isCta ? "1" : undefined}
                     data-rest-state={restInfo ? (restBlocked ? "blocked" : "available") : undefined}
                     data-observe-state={obsInfo ? (obsBlocked ? "locked" : "available") : undefined}
+                    data-act={challenge ? "攻击" : b.input}
+                    data-hotkey={actionHotkey(i)}
                     disabled={busy || restBlocked || choiceLocked || obsBlocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
@@ -1832,13 +1861,17 @@ export default function App() {
                     ) : (
                       b.label
                     )}
-                    {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
+                    {restInfo ? (
+                      <span className="rest-count" data-rest-count="1" title="剩余休息次数">
+                        {restInfo.remaining}
+                      </span>
+                    ) : null}
                     {choiceLocked ? (
                       <span className="lock-badge" data-locked="1" aria-hidden="true">
                         需先选择
                       </span>
                     ) : null}
-                    {!restBlocked && !obsBlocked && <kbd className="key-badge">{i + 1}</kbd>}
+                    {!restBlocked && !obsBlocked && <kbd className="key-badge">{actionHotkey(i)}</kbd>}
                   </button>
                 );
                 // F245：禁用态「休息」点了毫无回执（F236 之前连小字都没
@@ -1911,6 +1944,8 @@ export default function App() {
                       b.expand && barList === b.expand ? " on" : ""
                     }${b.cls ? ` ${b.cls}` : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
+                    data-act={b.input ?? b.expand}
+                    data-hotkey={liveCombat ? combatHotkey(i) : undefined}
                     disabled={disabled}
                     aria-disabled={disabled}
                     aria-expanded={b.expand ? barList === b.expand : undefined}
@@ -1941,7 +1976,7 @@ export default function App() {
                     }
                   >
                     {challengeable ? "叫阵 · 攻击" : comboShort ? `${b.label}（不足）` : b.label}
-                    {liveCombat && <kbd className="key-badge">{i + 1}</kbd>}
+                    {liveCombat && <kbd className="key-badge">{combatHotkey(i)}</kbd>}
                   </button>
                 );
               })}
@@ -2051,26 +2086,26 @@ export default function App() {
             <div className="sys-scroll" ref={sysScrollRef}>
               <div className="btn-group btn-group-sys" ref={sysGroupRef}>
                 <span className="group-label">系统</span>
-                {tabs.map((t, i) => (
+                {tabs.map((t, i) => {
+                  // F267：键位来自 sysHotkey 单一事实源（交战态为 null）。
+                  const hk = sysHotkey(i, liveCombat);
+                  return (
                   <button
                     key={t.key}
                     className="btn"
                     onClick={() => openTab(t.key)}
-                    title={
-                      i + 5 < 10 && !(liveCombat && i + 5 <= COMBAT_BUTTONS.length)
-                        ? `快捷键 ${i + 5}`
-                        : undefined
-                    }
+                    data-act={t.key}
+                    data-hotkey={hk ?? undefined}
+                    title={hk !== null ? `快捷键 ${hk}` : undefined}
                   >
                     {t.label}
-                    {/* F163：交战态 1–5 槽位归战斗组——「背包」的 kbd「5」
-                        在交战时是假提示（按下实为逃跑），交战期摘下；6–9
-                        仍然有效，照常显示。 */}
-                    {i + 5 < 10 && !(liveCombat && i + 5 <= COMBAT_BUTTONS.length) && (
-                      <kbd className="key-badge">{i + 5}</kbd>
-                    )}
+                    {/* F267：键帽只在该态真有键位时渲染——交战态 1–6 全归
+                        战斗组，系统页签既无键位也无键帽（不再出现按 5 落
+                        「背包」还是「道具」的两套语义）。 */}
+                    {hk !== null && <kbd className="key-badge">{hk}</kbd>}
                   </button>
-                ))}
+                  );
+                })}
                 <button
                   className="btn"
                   onClick={() => {
