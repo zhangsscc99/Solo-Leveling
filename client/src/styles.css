@@ -24,6 +24,13 @@
   --tick: rgba(160, 215, 255, 0.55);
   --tick-danger: rgba(255, 130, 150, 0.55);
 
+  /* F303 己方 HP 填充单一事实源：顶栏与战斗浮层 .combat [data-side="player"]
+     共用同一变量，同一含义全游戏同一语言（game-detail-bar §9d）。色值沿用
+     F286 浮层既有青绿渐变，与 MP 蓝、敌方红+斜纹在色相/纹理双通道上区分。 */
+  --hp-player-deep: #0e5f74;
+  --hp-player: #2fbfae;
+  --hp-player-fill: linear-gradient(90deg, var(--hp-player-deep), var(--hp-player));
+
   /* type scale（六级阶梯） */
   --fs-xs: 11px;
   --fs-sm: 13px;
@@ -365,7 +372,7 @@ button {
 }
 
 .gauge-hp .gauge-fill {
-  background: linear-gradient(90deg, #8f1f36, var(--blood));
+  background: var(--hp-player-fill);
 }
 
 .gauge-mp .gauge-fill {
@@ -3160,11 +3167,12 @@ button {
 }
 
 /* F286 敌我血条分色 + 纹理双通道（game-detail-bar §9d：不得只靠颜色）。
-   己方 HP 改青绿系纯色填充，与 MP 的蓝、敌方的红都不重；敌方保留红色系
-   但叠加 45° 斜纹——色相、明度、纹理三重差异，灰度/色盲下凭纹理仍可
-   分辨。只作用于交战浮层内的 data-side 容器，顶栏血条不受影响。 */
+   己方 HP 为青绿系纯色填充（F303 起与顶栏共用 --hp-player-fill，玩家不必
+   再按场景重学「哪种颜色是我」），与 MP 的蓝、敌方的红都不重；敌方保留
+   红色系但叠加 45° 斜纹——色相、明度、纹理三重差异，灰度/色盲下凭纹理
+   仍可分辨。 */
 .combat [data-side="player"] .gauge-hp .gauge-fill {
-  background: linear-gradient(90deg, #0e5f74, #2fbfae);
+  background: var(--hp-player-fill);
 }
 
 .combat [data-side="enemy"] .gauge-hp .gauge-fill {
