@@ -3191,3 +3191,10 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 取舍：连击欠蓝 / 交战存档 / 锁定选项**不用外包壳**——`.btn-group-sys > .btn`、`.btn-group-choice > .btn`、交战 3+2 栅格的 `nth-of-type` 都是既有断言/布局锚点，外包节点会打乱直接子项与栅格判位；改为 `aria-disabled` + 键内拒绝（`combo-short`/`is-locked` 压暗），点击仍给同一回执，DOM 结构零变化。
 - 验收：新增 `scripts/e2e/disabled-denied-feedback.mjs`（隔离实例 + DB 直落 must_choose、DB 直落 combat 行 + MP=2）：must_choose 下前进/休息、交战态连击/存档四个死键逐个真实坐标点击，均 400ms 内出回执；断言日志条目、HP/MP/XP/金币不变、零 `/api/` 请求、键位矩形点击前后一致、390 无横向溢出。`verify.sh F279` PASS（15.3s），回归 boot / action / deny-feedback / rest-full-feedback / forward-locked-in-choice 全 PASS（本轮 action.mjs 未抖）。
 - 未做：观察看尽态（`save.observe.available=false`）的专项断言只在代码层覆盖（该状态需把复核区看尽，成本高于本轮预算），由后续 product-walkthrough 复核。
+
+## 第85轮调度（2026-11-19 05:21Z，单条 F244）
+- 选条：F244（P1 文本复读：must_choose 场景连点「环顾四周」，每行行尾逐字复读整串选项名，第 4 次单行内叠两遍）。闸门 green（CPU 33%，parallel=2），按「单轮只做 1 条」口径只开一条车道。
+- devin swe-2-medium 一次成功（未遇限流），worktree `feat/F244` 内提交 391ee7f；我方只做验收/收尾。
+- 修法：新增 `MUST_CHOOSE_GUIDE_VAGUE`（「仍须在眼前这几条路中选定」）——整串点名只保留在本场景**第一次**观察的收束句（`dwell-guidance` 的「至少一次点名」契约由这一次承担），其后收束句、`OBSERVE_OVER_LINES_CHOOSE` 与复核区风险尾注改挂不点名措辞；`mustChooseGuide()` 本体不动（前进拒绝、自由输入回包、「看尽」拒绝行照旧点名）。「探索 N/N」「【看尽】」等锚点一字未改。
+- 验收：新增 `scripts/e2e/observe-mustchoose-prose.mjs`（隔离实例 + DB 直落 `ch1_law`，连点 6 次逐行断言）→ main 上 `verify.sh F244` PASS（19.9s，①②③④全绿，去重描述句 7 句）；本地隔离实例冒烟 boot PASS、dwell-guidance PASS、prose-hygiene PASS；`action.mjs` 3 跑 2 过 1 红，红项仍是既有抖动 GE2E-20261119（`second advance must cost vitals`，单跑即过），与本条无因果关系。
+- 工程口径：devin 落库的 FEATURES 行把 verify 写成反引号包裹的续行 → `verify.sh` 解析出反引号后实测 `OBS1: command not found` 假红；已在 main 上改正为无引号续行（`--list` 现显示 `[block]` 正常命令）。
