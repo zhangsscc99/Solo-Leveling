@@ -1448,6 +1448,14 @@ function chapterEntryNote(chapterId, hpCost, mpCost) {
 // 场景选项的显式匹配：序号（1 起）、id、或与 label 逐字相同——只认精确
 // 命中，绝不按 label 子串猜测（F075 旧坑：label 含「观察」字样就把玩家
 // 误送进支线场景）。
+// F271：玩家照着按钮文案开口（「选择 按石碑所写，低头敬拜」）也是合法
+// 诉求，所以额外接受「唯一前缀」「唯一包含」；短词（<3 / <6 字）不参与，
+// 保住 F075 的反例（「选择 观察」仍落到 observe 而不是被吞进抉择）。
+const normChoiceText = (s) =>
+  String(s || "")
+    .replace(/[\s\u3000]/g, "")
+    .replace(/[。！？!?.]+$/, "");
+
 function matchSceneChoice(choices, sel) {
   const s = String(sel || "").trim();
   if (!s) return null;
@@ -1458,11 +1466,33 @@ function matchSceneChoice(choices, sel) {
   return choices.find((c) => c && c.id === s) || choices.find((c) => c && c.label === s) || null;
 }
 
-// 「选择 <选择子>」「选 <选择子>」整句锚定——叙述句（「我选了半天」）
-// 与句中词（「要不要选择」）都不命中。
+// F271：文案形态解析。返回 { choice } 或 { ambiguous: [labels] } 或 null。
+function resolveSceneChoice(choices, sel) {
+  const exact = matchSceneChoice(choices, sel);
+  if (exact) return { choice: exact };
+  const s = normChoiceText(sel);
+  if (!s) return null;
+  const byLabel = choices.filter((c) => c && normChoiceText(c.label) === s);
+  if (byLabel.length === 1) return { choice: byLabel[0] };
+  const pools = [];
+  if (s.length >= 3) pools.push(choices.filter((c) => c && normChoiceText(c.label).startsWith(s)));
+  if (!pools.length || !pools[0].length) {
+    if (s.length >= 6) pools.push(choices.filter((c) => c && normChoiceText(c.label).includes(s)));
+  }
+  const hits = pools.length ? pools[0] : [];
+  if (hits.length === 1) return { choice: hits[0] };
+  if (hits.length > 1) return { ambiguous: hits.map((c) => c.label) };
+  return null;
+}
+
+// 「选择 <选择子>」「选 <选择子>」整句锚定——叙述句（「我选了半天」）与会
+// 中词都不命中。F271：载荷放宽到 80 字并允许标点/空格（按钮文案本身带
+// 「，」），去尾标点；匹配规则本身仍由 resolveSceneChoice 把关。
 function choiceSelFromInput(input) {
-  const m = /^(?:选择|选)\s*([^\s，。！？]{1,24})\s*$/.exec(String(input || "").trim());
-  return m ? m[1] : null;
+  const m = /^(?:选择|选)\s*([\s\S]{1,80})$/.exec(String(input || "").trim());
+  if (!m) return null;
+  const sel = m[1].trim().replace(/[。！？!?.\s]+$/, "");
+  return sel || null;
 }
 
 // 线索旗标读账与【发现·名字】同一口径：日志行里的「【线索·flag】」即
@@ -3637,7 +3667,18 @@ const INTENTS = [
         };
       }
       const sel = String(input || "").trim();
-      const choice = matchSceneChoice(choices, sel);
+      const resolved = resolveSceneChoice(choices, sel);
+      if (resolved && resolved.ambiguous) {
+        const list = resolved.ambiguous
+          .map((label) => `「${label}」`)
+          .join("、");
+        return {
+          patch: null,
+          refused: true,
+          content: `【系统】「${sel}」对得上不止一条路：${list}。点名一条再走——说「选择 序号」或把选项名说全。`,
+        };
+      }
+      const choice = resolved ? resolved.choice : null;
       if (!choice) {
         const list = choices
           .map((c, i) => `${i + 1}. ${c.label}`)
