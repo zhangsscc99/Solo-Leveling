@@ -718,12 +718,15 @@ button {
    一条日志经 splitStageEntry 可拆多段、单段正文再按自然段拆多个
    <p.narration>——.log-entry 把「一段」收成独立结构单元。条目间距
    sp-5 大于段内段落间距 sp-4，同色长文因此出现分组节奏而非一堵
-   字墙；最新一条 3px 左轨（--system-dim）+ 极淡系统色底指认增量，
-   非最新条以 padding 预留同宽边位，高亮随新段下移时正文列不左右
-   跳。入场淡入 240ms，transform/opacity 双通道，不引发布局抖动。 */
+   字墙；最新一条 6px 左轨（F261：3px --system-dim 在 390 高 DPR
+   屏上实测不可辨，抬到 6px 纯色 --system 同色系亮轨）+ 系统色
+   薄纱底（--system-veil 8%，与上一条 ΔRGB≈40 ≥ 18 门禁口径）指认
+   增量，非最新条以 padding 预留同宽边位，高亮随新段下移时正文列
+   不左右跳。入场淡入 240ms，transform/opacity 双通道，不引发布局
+   抖动。 */
 .log-entry {
   margin: 0 0 var(--sp-5);
-  padding-left: calc(var(--sp-3) + 3px);
+  padding-left: calc(var(--sp-3) + 6px);
   border-left: 0 solid transparent;
   animation: log-entry-in 0.24s ease-out both;
   /* F262：将来 scrollIntoView({block:'end'}) 定位最新条时，底缘在
@@ -733,9 +736,9 @@ button {
 
 .log-entry[data-latest="1"] {
   padding-left: var(--sp-3);
-  border-left-width: 3px;
-  border-left-color: var(--system-dim);
-  background: rgba(79, 200, 255, 0.05);
+  border-left-width: 6px;
+  border-left-color: var(--system);
+  background: var(--system-veil);
 }
 
 @keyframes log-entry-in {
