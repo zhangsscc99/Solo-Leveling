@@ -3261,3 +3261,13 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 合入后复跑冒烟档（本地隔离实例 3412）三脚本全 PASS；全量 E2E 交给 full-e2e 任务。
 - 部署：`bash scripts/ci-deploy.sh`（按 P211 不套外层 flock）。
 - 相邻死路（留给后续轮）：F286（敌我血条同色 + 己方 HP 顶栏/浮层重复）与 F281（无独立敌方血条/飘伤数字层）都在同一块 `CombatPanel` 上，且该面板已存在 `enemyHp/enemyMaxHp` 字段与 `.combat-float` 飘字——F281 的「我方血条缺失」判断已被 F088 部分消化，下一轮应先实测再决定是补 `[data-enemy-hp]`/`.dmg-num` 选择器还是修真实缺口，避免重复劳动。
+
+## 第90轮调度（2026-11-19 08:31Z，单条 F286）
+- 闸门：首次 `agent-gate.sh check` 返回 red（cpu_98pct，探测进程自身占用）→ 20s 后复测 orange（load 6.01、cpu 30%）→ parallel=1，按「单轮只做 1 条」开一条车道。
+- 选条：F286（P2 视觉/无障碍：交战浮层敌我血条同为红色、阵营只能靠名字分辨，己方 HP 又同时出现在顶栏与浮层）。同块 `CombatPanel` 的 F281 已在既有 `enemyHp/enemyMaxHp` 字段与 `.combat-float` 飘字上部分落地，故本轮只补「色+纹双通道」与「己方 HP 数字去重」，不重做敌血条。
+- devin swe-2-medium 一次成功（未遇限流，无需回退 OpenCode），worktree `feat/F286` 提交 92853ce；我方只做验收/合入/部署。
+- 落地（3 文件，最小改动）：`CombatPanel.tsx` 给两侧容器加 `data-side="player"` / `data-side="enemy"`（敌方另带 `data-side-role`），`CombatGauge` 增 `hideNum`——己方 HP 条保留可视化但不再渲染 `97/100` 数字，数值改由 `role="meter"` + `aria-valuenow/min/max` 承载；`styles.css` 己方 HP 填充改青绿渐变 `#0e5f74→#2fbfae`，敌方保留红色系并叠 45° 斜纹（`repeating-linear-gradient`），色相/明度/纹理三通道区分，且只作用于 `.combat [data-side]` 容器，顶栏血条不受影响。未动 HP/MP 计算、服务端、依赖、端口。
+- 验收：新增 `scripts/e2e/combat-hp-distinct.mjs`（自起隔离实例 + 临时 DB，1440×900 与 390×844 双视口，断言敌我填充不同 / 敌侧有非颜色标识 / 己方 `100/100` 全文仅 1 次 / 无横向溢出），脚本头附旧码红证（缺 `[data-side="enemy"]`，exit=1）。`verify.sh F286` 连跑 2 次均 PASS（7.04s / 6.94s）；冒烟档 `boot.mjs`+`action.mjs` PASS（合入 main 后复跑同样 PASS）。
+- 部署：直接 `bash scripts/ci-deploy.sh`（按 P211 不套外层 flock）→ 全量 37/37 PASS → `DEPLOY OK`，`.deployed-ref=53b58f6`；health 200、https://openfolio.uk/game 200，公网 CSS 换包为 `index-DcaIbndA.css`（含 `0e5f74` 与 `repeating-linear-gradient(45deg`）。
+- 未跑 `scripts/report.sh`（P210：全表模式 >50 分钟，单轮预算内不可行），本轮汇报按本文件手写。
+- 相邻死路（留给后续轮）：F287（1440 无专用排版、正文行宽近 1000px、底部大片空档）与 F269（桌面大屏利用率、日志首条从半句开始）同属「桌面版式预算」；两者都只需 CSS 行宽/间距约束，可合并成一条桌面版式条目一次做完，别再分两轮。
