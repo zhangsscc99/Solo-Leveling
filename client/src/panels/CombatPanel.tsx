@@ -159,28 +159,26 @@ function CombatGauge({
   hp,
   maxHp,
   kind,
-  hideNum = false,
 }: {
   label: string;
   hp: number | null;
   maxHp: number | null;
   kind: "hp" | "mp";
-  // F286：hideNum 时不渲染「97/100」可见数字——顶栏状态区已独占该读数
-  // （§9b 保留 HUD 区不重复占位），数值改由 role=meter 语义属性承载。
-  hideNum?: boolean;
 }) {
   const known = hp !== null && maxHp !== null && maxHp > 0;
   const pct = hp !== null && maxHp !== null && maxHp > 0 ? Math.min(100, (hp / maxHp) * 100) : 0;
-  const meter =
-    hideNum && known
-      ? {
-          role: "meter" as const,
-          "aria-label": label,
-          "aria-valuemin": 0,
-          "aria-valuemax": maxHp,
-          "aria-valuenow": hp,
-        }
-      : {};
+  // F313：可见「87/100」数字回到面板渲染——交战态下顶栏与面板同读
+  // save.hp / save.combat（同一事实源的两个活读数，不是重复占位）；
+  // role=meter + aria-valuenow 同步承载语义值，门禁与读屏同一口径。
+  const meter = known
+    ? {
+        role: "meter" as const,
+        "aria-label": label,
+        "aria-valuemin": 0,
+        "aria-valuemax": maxHp,
+        "aria-valuenow": hp,
+      }
+    : {};
   return (
     <div
       className={`gauge combat-gauge gauge-${kind}${known && pct <= 30 ? " gauge-low" : ""}`}
@@ -193,21 +191,19 @@ function CombatGauge({
           style={{ width: known ? `${pct}%` : "100%" }}
         />
       </div>
-      {!hideNum && (
-        <span className="gauge-num">
-          {known ? (
-            <>
-              {hp}
-              <i>/</i>
-              {maxHp}
-            </>
-          ) : (
-            <>
-              —<i>/</i>—
-            </>
-          )}
-        </span>
-      )}
+      <span className="gauge-num">
+        {known ? (
+          <>
+            {hp}
+            <i>/</i>
+            {maxHp}
+          </>
+        ) : (
+          <>
+            —<i>/</i>—
+          </>
+        )}
+      </span>
     </div>
   );
 }
@@ -294,7 +290,7 @@ export default function CombatPanel({
             <span className="combatant-lv">Lv.{save.level}</span>
           </div>
           <div className="combatant-gauge">
-            <CombatGauge label="HP" hp={save.hp} maxHp={save.max_hp} kind="hp" hideNum />
+            <CombatGauge label="HP" hp={save.hp} maxHp={save.max_hp} kind="hp" />
             <div className="combat-floats" aria-hidden="true">
               {floatsFor("player").map((f) => (
                 <span key={f.id} className={`combat-float cf-${f.kind}`}>
