@@ -3762,3 +3762,14 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 ### 本轮新增待办（4 条，其中视觉类 3 条）
 
 F313（P1｜战斗数值口径不一致）、F314（P1｜观察空转刷日志）、F315（P2｜锁定选项长文案截断）、F316（P2｜桌面主列左偏）。
+
+## 第108轮调度（2026-11-19T20:01Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 7%、load1 0.74、mem 44%、swap 85%、disk_root 62%），parallel=2；按规模只做 1 条。
+- 选条理由：F308 是第 105 轮走查点名的信任级矛盾（按钮自称「不耗体力魔力 · 免费×3」，同屏正文却印「（体力消耗 HP 100→97 · MP 20→18）」），也是第 106/107 轮两次遗留观察里都被排到第一位的下一件。
+- 执行者：**devin CLI `swe-2-high`**（首选通道一次成功，无回退 / 无限流），commit `e384cd7`，合并 `07a0365`，推送后 CI 部署 `c96d5e3`。耗时约 13 分钟。
+- 诊断（devin 实跑 Playwright 隔离实例，调度器复核）：**观察本身确实零消耗** —— 连点 4 次「环顾四周」`hp/mp` 恒 100/20、`patch:null`，仅第 4 次（过盖）`encounter_clock 0→1`。那句扣点括注来自 `vitalsCost()`（HP-3/MP-2）与 advanceOutcome 选择分支，是**上一条「前进/选择」推进**的代价，但作为无主语末行紧跟「观察」回显与常驻「不耗体力魔力」提示，玩家第一眼必然误归因到观察。
+- 修法：两处 `（体力消耗 X→Y）` → `（体力消耗 X→Y——这一步推进的代价）`，让扣点自带动作主语；「（体力消耗 」前缀一字不动，F114 无位移剥离正则与既有门禁照常认账。新增门禁 `scripts/e2e/observe-cost-claim.mjs`（双视口：A 免费区内 hp/mp 恒等且观察新增条目零机制括注、B 宣称免费×N 与实际次数一致且用尽后换口径、C 含扣点括注的条目必须含 前进/推进/下一幕/过门 归属词）。
+- 验收（调度器亲自复跑，node24 ABI137 PATH）：`verify.sh F308` **PASS 10.9s**（旧码红证：C 断言抓出「（体力消耗 HP 100→97 · MP 20→18）」落在无归属叙事条目上）；冒烟 `boot` 5.4s / `action` 7.0s PASS（合并 main 后复跑）；部署 `bash scripts/ci-deploy.sh` → **47/47 E2E PASS、DEPLOY OK**，`.deployed-ref=c96d5e3`，`/game/health` 200、`/game/api/health {"ok":true}`、公网 `https://openfolio.uk/game` 200。
+- 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 遗留观察：① 本轮只是给括注补主语，**机制播报仍在叙事正文里**（F278/F256/F263 同族）——真正解法是把 HP/MP 变化交给 HUD 数字动效与独立战报行，下一轮可直接做 F278；② `encounter-split-log.mjs` 在改动前后都因 must_choose 态「探索前进」disabled 发不出请求而超时（前置性断裂，与本轮无关，需单独立条修 fixture）；③ 调度器环境跑 verify 必须先把 node24 放 PATH（`/www/moved/nvm/versions/node/v24.5.0/bin`），否则 better-sqlite3 ABI137 直接 ERR_DLOPEN_FAILED——这仍是 P213 的同一根因，建议尽快落 P213 的 ABI 自检。
