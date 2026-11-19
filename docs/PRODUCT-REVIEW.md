@@ -3528,3 +3528,6 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 拒绝刷屏：`must_choose` 下「前进」被拒且带常驻原因，没有重复同一句正文（F289）。
 - 敌我血条分色（F286）。
 - 续档一致（1 次 reload，未复现 F288）。
+
+⚠️ 全量 E2E 失败：`forward-locked-in-choice`（commit 6791b26，390 视口锁定键 opacity=1）
+⚠️ 全量 E2E 失败：`num-feedback`（commit 6791b26，count-up 采样不足 150ms 内仅 1 次）
