@@ -64,6 +64,27 @@ run("action", async ({ page }) => {
     );
   }
 
+  // 顶栏数值与日志不是同一帧落的：回包先追加日志，React 状态再把 HP/MP
+  // 写进 .gauge-num。原为「日志落地即读」→ 与渲染竞态，稳定读到旧值
+  // （GE2E-20261119：「HP 100->100」其实是这一帧之差，真机上体力确已扣）。
+  // 改为有界等待数值变化：读到变化或 3s 超时后再断言——真实零消耗仍 FAIL。
+  await page
+    .waitForFunction(
+      ({ hp, mp }) => {
+        const num = (sel) => {
+          const m = (document.querySelector(sel)?.textContent || "").match(/(\d+)/);
+          return m ? Number(m[1]) : -1;
+        };
+        return (
+          num(".status .gauge-hp .gauge-num") !== hp ||
+          num(".status .gauge-mp .gauge-num") !== mp
+        );
+      },
+      { hp: before.hp.v, mp: before.mp.v },
+      { timeout: 3000 }
+    )
+    .catch(() => {});
+
   const after = await readVitals(page);
   assert(
     after.hp.v !== before.hp.v || after.mp.v !== before.mp.v,
