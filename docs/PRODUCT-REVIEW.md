@@ -3168,3 +3168,10 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **F277（末行裁切）/ F278（数值括注）/ F269（桌面留白）→ 均在**，有本轮截图证据。
 - **F270（战斗收益未披露 → 攻击支配）→ 仍在**，本轮拿到更硬的数值：17 伤 vs 3 伤承伤、3 回合结束。
 - **本轮新增 5 条**：F279（disabled 键零反馈，P1）、F280（观察空转 + 选项文案三重复，P0 文本）、F281（战斗无敌方血条/伤害数字层，P2 视觉）、F282（刷新不预填代号，P2）、F283（属性面板移动端内滚 + 数值贴边，P2 视觉）。
+
+## 第82轮调度（2026-11-19 03:31Z，单条 F273）
+- 选条：F273（P0 线索内部 id `read_the_law` 进正文）。**本条 devin 失败：`Reached free model rate limit`（swe-2-medium，退出码 1，03:01 重置后额度又被其它车道吃满，下次 04:01 才恢复）→ 已回退 OpenCode 执行**，worktree 内手工落地。
+- 修法取舍：服务端 `choiceEffects()` 的 `【线索·<flag>】` 同时是旗标账本（`flagSeen` 扫日志行、`requires.flag` 门禁读它），**不能在服务端改口径**；改为渲染层展示映射——新增 `client/src/clueFlags.ts`（8 个旗标的 `CLUE_LABELS` + `displayClueFlags`，未收录 id 退化为「【线索】」），`StageEntry`/`HoloWindow` 统一过映射。日志原文、条目数、`data-*` 一律不动，视觉零位移。
+- 验收：新增 `scripts/e2e/prose-hygiene.mjs`（隔离实例 + DB 直落 `ch1_law`，点环顾四周 → 点 `read_the_law` 真选项 → 补动作到 5 次，断言 `.log` innerText 无 `/\b[a-z]+_[a-z_]+\b/`、每个「【线索…】」片段无 ASCII 字母、且确实走到线索分支）。连跑 2 次 PASS（6.8s / 7.4s）；恒等回退红证 FAIL（`read_the_law` 命中 1 次）；F196（choice-branching）、F240（dwell-guidance）回归 PASS。
+- 部署：`bash scripts/ci-deploy.sh`（未套 flock，P211 口径）→ 全量 E2E **30/30 passed**（本轮 action.mjs 未抖），`DEPLOY OK`，`.deployed-ref=a201ea7`，本地/公网 health 200；线上 bundle `index-Cp3pL-EJ.js` 内 `read_the_law` 仅作为映射表 key 出现 1 次。
+- 附带口径提醒（未修，P1 工程）：`scripts/verify.sh` 只认**行首缩进的 `verify:` 续行**，FEATURES 里大量条目写成行内「｜verify: …｜risk: low」→ `--list` 显示 `verify=MISSING`。F273 已改为续行格式；其余条目建议后续统一（否则「verify 必跑」在流程上等于空转）。
