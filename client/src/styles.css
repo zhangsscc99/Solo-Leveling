@@ -510,6 +510,10 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* F262：相对定位只做 .log-scroll-hint「还有下文」提示的锚，
+     自身布局不变；.stage 内既有的绝对定位元素（.combat-floats、
+     .gauge-track::after…）都有更近的定位祖先，锚点不受影响。 */
+  position: relative;
   background:
     radial-gradient(900px 380px at 50% 0%, rgba(35, 80, 160, 0.12), transparent 65%),
     var(--abyss);
@@ -535,6 +539,55 @@ button {
   padding: var(--sp-6) var(--sp-5) var(--edge-fade);
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--edge-fade)), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--edge-fade)), transparent);
+}
+
+/* F262 「还有下文」下缘指示：正文列可滚且未到底时，在列底（.actions
+   正上方）叠一条渐隐提示。绝对定位挂在 .stage 上、不占滚动流高，
+   因此不计入 .stage-col 的子节点行数口径（resume-log-count /
+   log-paging / first-entry-scroll 的 > * 计数全部不受影响），也不随
+   .stage-col 的 mask-image 二次淡化——它本身就是渐隐遮罩。到底后由
+   App 卸载节点（非 display:none，避免显隐改变 scrollHeight 抖动）。 */
+.log-scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: calc(72ch + 2 * var(--sp-5));
+  height: calc(var(--sp-8) + var(--sp-4));
+  background: linear-gradient(to bottom, transparent 0%, rgba(8, 13, 24, 0.82) 78%);
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+  color: var(--system-dim);
+  font-size: var(--fs-xs);
+  z-index: 5;
+}
+
+.log-scroll-hint .hint-mark {
+  font-family: var(--font-mono);
+  letter-spacing: 0.12em;
+  animation: log-hint-bob 1.6s ease-in-out infinite;
+}
+
+@keyframes log-hint-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .log-scroll-hint .hint-mark {
+    animation: none;
+  }
 }
 
 /* 旁白：衬线、缩进、更低对比、更宽行距 */
@@ -578,6 +631,9 @@ button {
   padding-left: calc(var(--sp-3) + 3px);
   border-left: 0 solid transparent;
   animation: log-entry-in 0.24s ease-out both;
+  /* F262：将来 scrollIntoView({block:'end'}) 定位最新条时，底缘在
+     渐隐区之上再留一档空隙，不会贴住 .actions 上缘。 */
+  scroll-margin-bottom: calc(var(--edge-fade, var(--sp-8)) + var(--sp-3));
 }
 
 .log-entry[data-latest="1"] {
@@ -1656,6 +1712,16 @@ button {
 .btn.cta-primary .rest-count {
   color: var(--system);
   border-color: var(--system-dim);
+}
+
+/* F262 桌面端主 CTA 与次键拉开体量差：次高键实测 44px（「?」帮助键），
+   主键 52px ≥ 次高 +8px，一眼即唯一主行动（d2 图「亮蓝主按钮与浅色
+   次按钮体量接近」主次竞争的修法）。只加高度不加宽/加亮——色值、
+   描边、辉光沿用 F228 口径；≤880px 窄屏归 F260/F264 约束，不动。 */
+@media (min-width: 881px) {
+  .btn.cta-primary {
+    min-height: 52px;
+  }
 }
 
 /* 次级（系统组）：更小的字号、更灰的字色、更窄的内距 */
