@@ -3224,3 +3224,11 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 **本轮未测（18 分钟硬时限到点）**
 - 「休息」×3 的非战斗态回报（当时处于交战，休息键禁用）；桌面战斗态；背包/商店面板的视觉分析；`m5-status`/`m6-reload` 两张图未过 vision。
 - 续档结论不一致，记 `F288`：同一存档 2 分钟内两次刷新，一次直接回到交战第 2 回合（HP 94/100、敌方 25/42 原样），一次回到门牌页且输入框为空、需凭记忆重输代号。两者不可预期，且界面从未提示「交战中刷新会丢进度」。
+## 第86轮调度（2026-11-19 05:41Z，单条 F272）
+- 选条：F272（P0 逻辑死路：must_choose 未决时「观察/潜行/休息」三键可点、点击后正文与 toast 都无变化，截图字节级相同）。闸门 green（CPU 32%，parallel=2），按「单轮只做 1 条」口径只开一条车道。
+- **本条 devin 额度不足（`Reached free model rate limit`，swe-2-high 跑到侦察阶段即退出，reset at 06:01 UTC，`git status` 为空）→ 已回退 OpenCode deepseek-flash 完成**，同一 worktree `feat/F272` 续写。
+- 修法（最小 diff，两处）：
+  1. 前端 `App.tsx`：`choiceLocked` 判据从「仅「前进」」扩到「前进/潜行/休息」——复用 F247 的 `forwardChoiceLocked` 与 F265 的 `.deny-tap-catcher` 承接壳，三键同口径 disabled + `choice-locked` + `lock-badge[data-locked]「需先选择」` + 点击弹 `DENY_CHOICE_TEXT`；快捷键 1–4 同步（不再发必拒请求）。「观察」不锁：它有真实产出，且自带 `obsBlocked`（看尽）锁定。
+  2. 服务端 `index.js`：`sneak` / `rest` intent 在 must_choose 场景补 `refused` 门（零消耗、零日志）——避免「自由输入「潜行」」绕过 UI 直接生效，界面承诺与结算口径一致。
+- 验收：新增 `scripts/e2e/choice-state-deadkeys.mjs`（隔离实例 + DB 直落 `ch1_law`，390/1440 双视口）：三键各真实坐标点按 2 次，每次 600ms 窗口内必须出现「日志 +1 / toast 出现 / 刚变锁定」之一；另断言抉择态潜行/休息 disabled + 角标含「选择」+ title 指路（仅灰不解释不算），以及普通探索场景无抉择锁定（防全局写死禁用洗绿）。`verify.sh F272` PASS（24.5s），连跑 3 次稳定；回归 forward-locked-in-choice / boot / observe-dedupe / rest-feedback / rest-full-feedback / prose-hygiene 全 PASS，`tsc --noEmit` 0。
+- 已知既有红：`action.mjs` 的 `second advance must cost vitals (HP 100->100, MP 20->20)` 在 main 上同样失败（GE2E-20261119 抖动，本轮未动该链路），非本条引入。

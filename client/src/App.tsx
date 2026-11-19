@@ -1367,7 +1367,12 @@ export default function App() {
         else if (b.input === "前进" && challengeBoss) dispatch("攻击");
         // F247：must_choose 未决时快捷键 1 与按钮同口径——不发这条
         // 必拒的「前进」请求，就地弹指路提示（不静默）。
-        else if (b.input === "前进" && forwardChoiceLocked) {
+        // F272：同一口径扩到「潜行/休息」——抉择未定时按下也立刻弹
+        // 指路提示，而不是发一条服务端必拒、界面上却什么都没发生的请求。
+        else if (
+          forwardChoiceLocked &&
+          (b.input === "前进" || b.input === "潜行" || b.input === "休息")
+        ) {
           showToast(DENY_CHOICE_TEXT);
           flashChoices();
         }
@@ -1894,8 +1899,13 @@ export default function App() {
                 const isCta = b.input === "前进" && primaryCta?.kind === "advance";
                 // F247：must_choose 未决只锁「探索前进」原形——叫阵/下章/
                 // 折返换标（上面三个布尔）仍是合法出路，不在锁定列。
+                // F272：同一判据一并覆盖「潜行」「休息」——抉择未定时它们
+                // 与「前进」一样是必拒死选项（服务端同口径 refused），可点
+                // 却零回执等于死键，玩家会以为卡死。「观察」不锁：它有真实
+                // 产出，且自带「此处已看尽」的 obsBlocked 锁定。
                 const choiceLocked =
-                  b.input === "前进" && forwardChoiceLocked;
+                  forwardChoiceLocked &&
+                  (b.input === "前进" || b.input === "潜行" || b.input === "休息");
                 const btn = (
                   <button
                     key={b.label}

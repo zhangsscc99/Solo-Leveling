@@ -3735,6 +3735,19 @@ const INTENTS = [
     id: "sneak",
     role: "narrator",
     build: (save) => {
+      // F272：抉择未定时「潜行」与「前进」同属必拒死选项——关键抉择不
+      // 得被绕开。前端已把该键置灰并弹指路 toast，这里补服务端同口径，
+      // 避免「自由输入「潜行」」绕过 UI 直接生效（两套规则会让玩家
+      // 觉得界面在说谎）。零消耗、零日志、refused 短路。
+      const sneakScene = chaptersEngine.getScene(save.scene);
+      if (sneakScene && sneakScene.must_choose === true && !save.combat) {
+        return {
+          patch: null,
+          refused: true,
+          content:
+            "【系统】这道抉择没做完，先选一个——点选项键，或输入「选择 <选项名>」。",
+        };
+      }
       // F106：MP 不足是门拒绝——潜行需 5 MP，不足时 refused 短路
       // （零消耗、零日志），不再按残量扣费放行。
       if (save.mp < 5) {
@@ -3779,6 +3792,18 @@ const INTENTS = [
     id: "rest",
     role: "narrator",
     build: (save) => {
+      // F272：抉择未定时「休息」同属必拒死选项（与「前进」「潜行」同一
+      // 口径）——先做完选择再喘气，避免用休息把抉择态无限拖长。前端
+      // 已置灰，这里补服务端门，自由输入「休息」同样零消耗被拒。
+      const restScene = chaptersEngine.getScene(save.scene);
+      if (restScene && restScene.must_choose === true && !save.combat) {
+        return {
+          patch: null,
+          refused: true,
+          content:
+            "【系统】这道抉择没做完，先选一个——点选项键，或输入「选择 <选项名>」。",
+        };
+      }
       const status = restStatus(save, store.getCombat(save.id));
       // 满血满蓝或配额耗尽：诚实拒绝，不产收益、不耗次数、不写虚构数值。
       // F106：门拒绝挂 refused——零消耗、零日志、零事件。
