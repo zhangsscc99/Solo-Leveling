@@ -3198,3 +3198,12 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 修法：新增 `MUST_CHOOSE_GUIDE_VAGUE`（「仍须在眼前这几条路中选定」）——整串点名只保留在本场景**第一次**观察的收束句（`dwell-guidance` 的「至少一次点名」契约由这一次承担），其后收束句、`OBSERVE_OVER_LINES_CHOOSE` 与复核区风险尾注改挂不点名措辞；`mustChooseGuide()` 本体不动（前进拒绝、自由输入回包、「看尽」拒绝行照旧点名）。「探索 N/N」「【看尽】」等锚点一字未改。
 - 验收：新增 `scripts/e2e/observe-mustchoose-prose.mjs`（隔离实例 + DB 直落 `ch1_law`，连点 6 次逐行断言）→ main 上 `verify.sh F244` PASS（19.9s，①②③④全绿，去重描述句 7 句）；本地隔离实例冒烟 boot PASS、dwell-guidance PASS、prose-hygiene PASS；`action.mjs` 3 跑 2 过 1 红，红项仍是既有抖动 GE2E-20261119（`second advance must cost vitals`，单跑即过），与本条无因果关系。
 - 工程口径：devin 落库的 FEATURES 行把 verify 写成反引号包裹的续行 → `verify.sh` 解析出反引号后实测 `OBS1: command not found` 假红；已在 main 上改正为无引号续行（`--list` 现显示 `[block]` 正常命令）。
+
+## 第86轮调度（2026-11-19 05:41Z，单条 F272）
+- 选条：F272（P0 逻辑死路：must_choose 未决时「观察/潜行/休息」三键可点、点击后正文与 toast 都无变化，截图字节级相同）。闸门 green（CPU 32%，parallel=2），按「单轮只做 1 条」口径只开一条车道。
+- **本条 devin 额度不足（`Reached free model rate limit`，swe-2-high 跑到侦察阶段即退出，reset at 06:01 UTC，`git status` 为空）→ 已回退 OpenCode deepseek-flash 完成**，同一 worktree `feat/F272` 续写。
+- 修法（最小 diff，两处）：
+  1. 前端 `App.tsx`：`choiceLocked` 判据从「仅「前进」」扩到「前进/潜行/休息」——复用 F247 的 `forwardChoiceLocked` 与 F265 的 `.deny-tap-catcher` 承接壳，三键同口径 disabled + `choice-locked` + `lock-badge[data-locked]「需先选择」` + 点击弹 `DENY_CHOICE_TEXT`；快捷键 1–4 同步（不再发必拒请求）。「观察」不锁：它有真实产出，且自带 `obsBlocked`（看尽）锁定。
+  2. 服务端 `index.js`：`sneak` / `rest` intent 在 must_choose 场景补 `refused` 门（零消耗、零日志）——避免「自由输入「潜行」」绕过 UI 直接生效，界面承诺与结算口径一致。
+- 验收：新增 `scripts/e2e/choice-state-deadkeys.mjs`（隔离实例 + DB 直落 `ch1_law`，390/1440 双视口）：三键各真实坐标点按 2 次，每次 600ms 窗口内必须出现「日志 +1 / toast 出现 / 刚变锁定」之一；另断言抉择态潜行/休息 disabled + 角标含「选择」+ title 指路（仅灰不解释不算），以及普通探索场景无抉择锁定（防全局写死禁用洗绿）。`verify.sh F272` PASS（24.5s），连跑 3 次稳定；回归 forward-locked-in-choice / boot / observe-dedupe / rest-feedback / rest-full-feedback / prose-hygiene 全 PASS，`tsc --noEmit` 0。
+- 已知既有红：`action.mjs` 的 `second advance must cost vitals (HP 100->100, MP 20->20)` 在 main 上同样失败（GE2E-20261119 抖动，本轮未动该链路），非本条引入。
