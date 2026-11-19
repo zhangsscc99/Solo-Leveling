@@ -452,7 +452,7 @@ function attackStatus(save, combat) {
   }
   return {
     available: false,
-    reason: "当前没有可攻击的目标——「前进」探索，遭遇会自己找上门",
+    reason: "当前没有可攻击的目标——继续探索，遭遇会自己找上门",
   };
 }
 

@@ -1936,6 +1936,15 @@ button {
   text-overflow: ellipsis;
 }
 
+/* F275b 禁点态：战斗入口纳入 data-act=combat 后须按禁键口径压暗
+   （与 .btn.combo-short/.btn.is-locked 同参数），虚线待命样式保留；
+   :not(.armed) 兜底——armed 且 busy 瞬间可点态不被压暗。 */
+.combat-entry:disabled:not(.armed) {
+  opacity: 0.45;
+  filter: grayscale(0.6) brightness(0.85);
+  cursor: default;
+}
+
 /* F275 可点态战斗入口：服务端 save.attack.available=true 时（守关者
    叫阵 / 保底必中）槽位由待命虚线转为实线实底的可按键——键面文案
    同步换「叫阵即开战」，仍保持 32–44px 单行矮槽形态。 */
