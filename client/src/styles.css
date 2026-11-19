@@ -3893,6 +3893,21 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+  /* F307：每次点亮 key 翻新重挂载——240ms 入场微浮让连击的第 2/3 次
+     回执也有可见脉冲（同一文案重挂载若零动画，屏幕逐像素无变化等于
+     没有回执）。reduced-motion 下不播，文案 + ×N 计数仍作回执。 */
+  animation: toast-in 240ms ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 2px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 /* ── F084 日志回溯控件（stage 内、stage-col 外，与正文列同宽）──
@@ -4509,7 +4524,10 @@ button {
    「点了没反应」在玩家侧等价于「游戏坏了」。承接壳 .deny-tap-catcher
    绝对定位伪元素盖满键面收 pointer，点击当帧点亮 .sys-toast 并抖一次；
    data-denied 只活 460ms，不改变键尺寸/位置（transform 不参与布局）。
-   .rest-tap-catcher / .lock-tap-catcher 是既有锚点，同壳复用不改名。 */
+   .rest-tap-catcher / .lock-tap-catcher 是既有锚点，同壳复用不改名。
+   F307：data-denied 在 460ms 窗内恒为 "1"，CSS 抖动只在 0→1 边沿起播，
+   连点不重播——App 在 denyAction 里用 inline animation 关→开 + reflow
+   逐击重启本动画；壳上 data-receipt-seq 同步自增供 aria/断言通道读增量。 */
 .deny-tap-catcher {
   position: relative;
   display: inline-flex;
@@ -4566,7 +4584,8 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .deny-tap-catcher[data-denied="1"],
-  .btn[data-denied="1"] {
+  .btn[data-denied="1"],
+  .sys-toast {
     animation: none;
   }
 }

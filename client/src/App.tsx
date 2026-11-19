@@ -805,7 +805,7 @@ export default function App() {
   const [barList, setBarList] = useState<"skills" | "items" | null>(null);
   // F132 系统键就地反馈：脱战「战斗」空态 /「存档」进度与确认共用的
   // 短提示条（底栏上缘浮现，计时自动消散）。
-  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+  const [toast, setToast] = useState<{ id: number; text: string; n: number } | null>(null);
   // F118 降级一次性提示：本会话见过 degraded:true 回包即点亮细条，
   // × 收起后本会话不再出现（刷新后随会话态重置可再提示一次）；
   // degradedNoteRef 保证尾注只盖在第一条降级气泡上，不逐条盖章。
@@ -994,8 +994,22 @@ export default function App() {
   }, [drawer]);
 
   // 连续两次提示只重置计时与文案——同一 .sys-toast 槽位不换元素。
+  // F307：同文案连发时缀「· ×N」——aria-live 文本逐击变化（读屏重报）、
+  // 屏幕上有耐久的逐击增量；同文案重挂载在视觉/aria 上都是「零变化」，
+  // 第105轮线上连点拒绝即因此被判定为「点击被吞掉」。×N 计的是玩家
+  // 逐击次数而非内部点亮次数：一次指令的预拒/回包确认/重复拒绝标记
+  // 会同帧多点亮同文案，120ms 内同文案按同一次回执计。
+  const lastToastRef = useRef({ text: "", at: 0 });
   const showToast = useCallback((text: string) => {
-    setToast({ id: Date.now(), text });
+    const now = Date.now();
+    const sameBeat =
+      lastToastRef.current.text === text && now - lastToastRef.current.at < 120;
+    lastToastRef.current = { text, at: now };
+    setToast((t) => ({
+      id: now,
+      text,
+      n: t && t.text === text ? (sameBeat ? t.n : t.n + 1) : 1,
+    }));
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }, []);
@@ -1008,12 +1022,23 @@ export default function App() {
   const [denied, setDenied] = useState<{ key: string; id: number } | null>(null);
   const deniedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const denyAction = useCallback(
-    (key: string, reason: string, after?: () => void) => {
+    (key: string, reason: string, after?: () => void, el?: EventTarget | null) => {
       showToast(reason);
       after?.();
       setDenied({ key, id: Date.now() });
       if (deniedTimer.current) clearTimeout(deniedTimer.current);
       deniedTimer.current = setTimeout(() => setDenied(null), 460);
+      // F307：data-denied 在 460ms 窗内恒挂 "1"——CSS deny-shake 只在
+      // 属性 0→1 边沿起播，连点第 2/3 击不重演，屏幕与上一击逐像素相同。
+      // 强制 inline animation 关→开 + 一次 reflow，把已播完/在播的动画
+      // 拉回起点逐击重播；首击 data-denied 尚未挂上时此步是空操作，
+      // React 随后挂 "1" 照常起播。reduced-motion 下媒体查询本就
+      // animation:none，inline 清空后仍无动画（回执走 toast 文案+seq）。
+      if (el instanceof HTMLElement) {
+        el.style.animation = "none";
+        void el.offsetHeight;
+        el.style.animation = "";
+      }
     },
     [showToast]
   );
@@ -1030,15 +1055,16 @@ export default function App() {
         denied?.key === key ? " denied" : ""
       }`}
       data-denied={denied?.key === key ? "1" : undefined}
+      data-receipt-seq={denied?.key === key ? denied.id : undefined}
       role="button"
       tabIndex={0}
       aria-label={reason}
       title={reason}
-      onClick={() => denyAction(key, reason, after)}
+      onClick={(e) => denyAction(key, reason, after, e.currentTarget)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          denyAction(key, reason, after);
+          denyAction(key, reason, after, e.currentTarget);
         }
       }}
     >
@@ -1937,8 +1963,17 @@ export default function App() {
 
       <footer className="actions">
         {toast && (
-          <div key={toast.id} className="sys-toast" role="status">
+          // F307：data-receipt-seq 每次点亮自增（aria/回执断言通道的逐击
+          // 增量锚点）；同文案连发缀「· ×N」让 aria-live 文本与像素都
+          // 逐击可区分——拒绝回执不许「重挂载但零变化」。
+          <div
+            key={toast.id}
+            className="sys-toast"
+            role="status"
+            data-receipt-seq={toast.id}
+          >
             {toast.text}
+            {toast.n > 1 ? ` · ×${toast.n}` : ""}
           </div>
         )}
         {/* F255：F212 的首屏「左滑还有 地图/任务/影子…」暗示随横滑容器一并
@@ -2185,11 +2220,13 @@ export default function App() {
                             ? "守关者就在面前 — 叫阵开战"
                             : "当前没有可攻击的目标"
                     }
-                    onClick={() => {
+                    onClick={(e) => {
                       if (comboShort) {
                         denyAction(
                           `combat-${b.input}`,
-                          `魔力不足：连击需要 ${COMBO_MP_COST} MP（当前 ${save.mp} MP）·「攻击」零消耗，或先喝魔力药剂`
+                          `魔力不足：连击需要 ${COMBO_MP_COST} MP（当前 ${save.mp} MP）·「攻击」零消耗，或先喝魔力药剂`,
+                          undefined,
+                          e.currentTarget
                         );
                         return;
                       }
@@ -2252,11 +2289,13 @@ export default function App() {
                             ? `${c.label} · 代价：${c.cost}`
                             : c.label
                       }
-                      onClick={() => {
+                      onClick={(e) => {
                         if (locked) {
                           denyAction(
                             `choice-${c.id}`,
-                            c.locked_reason || `${c.label}：条件未满足`
+                            c.locked_reason || `${c.label}：条件未满足`,
+                            undefined,
+                            e.currentTarget
                           );
                           return;
                         }
@@ -2406,14 +2445,16 @@ export default function App() {
                       data-denied={denied?.key === "sys-save" ? "1" : undefined}
                       aria-disabled={busy || saveBlocked}
                       title={save.combat ? "交战中无法存档" : undefined}
-                      onClick={() => {
+                      onClick={(e) => {
                         // F279：交战态存档是死键（aria-disabled + 键内拒绝）——
                         // 点击当帧给「交战中无法写入存档」回执，与
                         // .save-blocked-hint 同口径，零请求零副作用。
                         if (saveBlocked) {
                           denyAction(
                             "sys-save",
-                            "交战中无法写入存档 · 先「逃跑」或打赢这一场"
+                            "交战中无法写入存档 · 先「逃跑」或打赢这一场",
+                            undefined,
+                            e.currentTarget
                           );
                           return;
                         }
