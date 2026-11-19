@@ -561,6 +561,15 @@ button {
      mask 钉在元素盒底缘、不随内容滚动；滚动条随内容同规则淡化。 */
   --edge-fade: var(--sp-8);
   padding: var(--sp-6) var(--sp-5) var(--edge-fade);
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* F277：下缘渐隐只在「下面确实还有内容」时挂（App 按 scrollHint 口径下发
+   data-edge-fade）——已滚到底再挂着 mask，末行会落在渐隐带里溶成半句
+   （第57轮 390 首屏「只剩『某个存』」）。到底态 mask 关掉后，末行停在
+   padding-bottom 的呼吸区之上，完整可读；停顶/中间态仍照 F242 溶出。 */
+.stage-col[data-edge-fade="1"] {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--edge-fade)), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--edge-fade)), transparent);
 }
