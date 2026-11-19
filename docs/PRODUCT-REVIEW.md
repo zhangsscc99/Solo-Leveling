@@ -3311,3 +3311,15 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 部署：按 P211 直接 `bash scripts/ci-deploy.sh`（不套外层 flock）。
 - 未跑 `scripts/report.sh`（P210 未修，全表 >50 分钟），汇报按本文件手写。
 - 相邻死路（留给后续轮）：F290（动静 n/4 只有文本披露、HUD 无独立 `[data-noise]` 指示）与本轮同一块账，本轮只做了「说清楚」，下一轮应把 `noise.cur/max` 直接渲染成顶栏图标并加 4/4 前预警；F289（decision-locked 键零回执）与 F292（系统串混进正文）仍是第91轮走查的头两号 P0/P2。
+
+## 回退记录
+
+- 第93轮（2026-11-19 09:31Z 调度）：派 devin swe-2-medium 做 **F277** 时 hit 免费额度共享池限流
+  （`Reached free model rate limit … reset in 23 minutes (at 10:01 UTC)`，退出码 1，worktree 零改动），
+  按规则**不重试**，同一 worktree（`feat/F277`）由调度器（OpenCode / deepseek-v4.1-flash）接手完成。
+  根因：F242 给 `.stage-col` 加的下缘 `mask-image` 常驻无闸门——即使已滚到底（下面没有新内容），
+  末行仍落在最后 24px 渐隐带里溶成半句（第57轮 390 首屏「只剩『某个存』」）。修法：按既有
+  `logHint`（可滚且未到底）下发 `data-edge-fade`，CSS 默认 `mask-image:none`，只有该属性为 `"1"`
+  时挂渐隐。红证：旧码 390×844 到底态 `mask=linear-gradient(rgb(0,0,0) calc(100% - 24px), transparent)` → FAIL；
+  修后 390 末条余量 88.7px / 1440 78.8px，`verify.sh F277` PASS，冒烟 `boot`/`action`/`mobile`/`desktop-log-occlusion` PASS，
+  部署闸门内全量 38/38 PASS，线上 `DEPLOYED_REF=2a0d4b2`、`/game/api/health` 200。
