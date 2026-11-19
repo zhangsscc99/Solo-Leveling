@@ -3358,6 +3358,10 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   `.stat-points` 补 8px 右内边距（原提示文字贴硬边 0px），并新建门禁 `scripts/e2e/attr-panel-mobile.mjs`
   （旧码红证 7 项 FAIL）。验收未降级：verify F291/F283 PASS + 新门禁连跑 2 次 + 回归 panels/mobile/gate-layout/
   attr-plus-disabled/desktop-layout + `tsc --noEmit` + build + `ci-deploy`（全量 E2E 无 FAIL）+ 公网 390 复测 PASS。
+- 第101轮（feat/F275 worktree）：**F275**（「战斗」键跨端不一致）由 devin 一次完成、未触发回退——可点性收为服务端
+  `attackStatus` 单一事实源（随 `save.attack` 下发 `available`/`reason`，与 `peacefulCombatIntent` 的「攻击」门禁同一判定），
+  前端 `.combat-entry` 只渲染；禁点 `title` + 键面常驻小字透传原因，新增门禁 `scripts/e2e/combat-btn-parity.mjs`
+  （双视口干净档同进度键态一致 + 禁点原因常驻 + 可点 800ms 内开战）。完成勾选由调度器负责。
 
 ---
 

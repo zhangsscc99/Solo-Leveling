@@ -415,6 +415,47 @@ function observeStatus(save, combat) {
   return { available: true, reason: null, ...disclosure };
 }
 
+// F275 战斗键可点性单一事实源：底部「战斗」键（[data-act=combat]）的
+// disabled 只读本字段——桌面/手机渲染同一份 save 视图，可点条件两端
+// 同态，不再各按布局猜。available=true ⇔ 此刻原地「攻击」经
+// peacefulCombatIntent 必开战（判定与行动管线同一组函数、同一组常数）：
+//   · 守关者叫阵——人站在守关房、守关者未清算（advance_mode 下发
+//     "challenge_boss" 同一判据），roll 的 boss 分支必中，含逃跑冷却
+//     期内原地「攻击」的 forceBoss 主动叫阵；
+//   · 遭遇保底到顶——场景可掷怪且 clock+1 ≥ PITY_LIMIT（与 roll 的
+//     c+1>=PITY_LIMIT 必中分支同一判定，none 场景的疾行解锁同样按
+//     roll 的闸口口径计入），下一次「攻击」必遇敌。
+// 禁点时 reason 给可读原因（键面小字与 title 同文透传），可点时
+// reason=null。概率掷点命中不点亮键面——available 只承诺「点下去
+// 必开战」，不把暗骰兑现成忽明忽暗的键态。
+function attackStatus(save, combat) {
+  if (!save) return { available: false, reason: "当前没有可攻击的目标" };
+  if (combat) return { available: true, reason: null };
+  if (endingEngine.hasCleared(save)) {
+    return { available: false, reason: "此地已无可战之敌——只剩归途" };
+  }
+  const scene = chaptersEngine.currentScene(save);
+  if (encounterBlockedByCooldown(save, scene)) {
+    return {
+      available: false,
+      reason: "附近的魔物刚被惊散——往前走走再叫阵",
+    };
+  }
+  if (advanceMode(save) === "challenge_boss") return { available: true, reason: null };
+  const rawClock = Math.trunc(Number(save.encounter_clock) || 0);
+  const rollable =
+    scene &&
+    (scene.encounters !== encounterEngine.ENCOUNTERS_NONE ||
+      encounterEngine.streakBonus(save.advance_streak) > 0);
+  if (rollable && Math.max(0, rawClock) + 1 >= encounterEngine.PITY_LIMIT) {
+    return { available: true, reason: null };
+  }
+  return {
+    available: false,
+    reason: "当前没有可攻击的目标——「前进」探索，遭遇会自己找上门",
+  };
+}
+
 // F096 收尾：守关者未击杀时玩家位置不得越过 boss 场景——人站在守关者
 // 身后（含主线链尾，多为旧档冷却期穿房的落点）时，「前进」的真实语义是
 // 折返回守关房再战而非继续推进。主按钮据此换标「折返守关者」：模式由
@@ -513,6 +554,9 @@ function saveView(save) {
     // F257：观察可用性随存档下发——「看尽」锁定/交战态的禁用原因由
     // 服务端给出，前端只渲染（与 save.rest 同一模式，不硬编码口径）。
     observe: observeStatus(save, combat),
+    // F275：「战斗」键可点性随存档下发——attackStatus 与
+    // peacefulCombatIntent 的「攻击」门禁同一判定，前端只渲染。
+    attack: attackStatus(save, combat),
     advance_mode: advanceMode(save),
     // F161：下一次「前进」的实付代价随存档下发——与 advanceCostView
     // 同一判定，前端按字段渲染预告，不猜场景。

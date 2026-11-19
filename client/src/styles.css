@@ -1936,6 +1936,25 @@ button {
   text-overflow: ellipsis;
 }
 
+/* F275 可点态战斗入口：服务端 save.attack.available=true 时（守关者
+   叫阵 / 保底必中）槽位由待命虚线转为实线实底的可按键——键面文案
+   同步换「叫阵即开战」，仍保持 32–44px 单行矮槽形态。 */
+.combat-entry.armed {
+  border-style: solid;
+  border-color: var(--blood);
+  background: rgba(153, 27, 27, 0.14);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.combat-entry.armed .combat-entry-label {
+  color: var(--text);
+}
+
+.combat-entry.armed .combat-entry-hint {
+  color: var(--system);
+}
+
 /* F172 数字快捷键角标：收进按钮右下角——无边无底色的低对比小字
    （opacity .5 / 10px），不再悬在按钮上缘像调试角标；
    pointer-events 穿透，不挡按钮自身点击。 */
@@ -2534,10 +2553,16 @@ button {
     flex: none;
   }
 
-  /* 折叠态战斗入口与系统条同行：吃内容宽，不够时先缩提示文案。 */
-  .combat-entry {
+  /* 折叠态战斗入口与系统条同行：吃内容宽，不够时先缩提示文案。
+     F275：禁点态外层 .deny-tap-catcher 承接壳同步可缩——壳是
+     .action-groups 的 flex 子项，不缩会把整行撑出视口。 */
+  .combat-entry,
+  .deny-tap-catcher.combat-tap-catcher {
     flex: 0 1 auto;
     min-width: 0;
+  }
+
+  .combat-entry {
     overflow: hidden;
   }
 

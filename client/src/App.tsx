@@ -2162,7 +2162,7 @@ export default function App() {
                       b.expand && barList === b.expand ? " on" : ""
                     }${b.cls ? ` ${b.cls}` : ""}${comboShort ? " combo-short" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
-                    data-act={b.input ?? b.expand}
+                    data-act={challengeable ? "combat" : (b.input ?? b.expand)}
                     data-hotkey={liveCombat ? combatHotkey(i) : undefined}
                     disabled={hardDisabled}
                     aria-disabled={disabled}
@@ -2305,23 +2305,58 @@ export default function App() {
                 {save.observe.reason}
               </div>
             )}
-            {/* F113/F119 非交战战斗入口：单行矮槽位，disabled +
-                aria-disabled 保留语义，文案即「当前没有可攻击的目标」提示；
-                桌面下跟随行动组同行，移动端与系统组共享一行 meta 条。 */}
-            {!liveCombat && !challengeBoss && (
-              <button
-                type="button"
-                className="combat-entry"
-                data-testid="combat-entry"
-                disabled
-                aria-disabled="true"
-                title="当前没有可攻击的目标"
-              >
-                <span className="combat-entry-label">战斗</span>
-                <i className="combat-entry-div" aria-hidden="true" />
-                <span className="combat-entry-hint">当前没有可攻击的目标</span>
-              </button>
-            )}
+            {/* F113/F119 非交战战斗入口：单行矮槽位，
+                桌面下跟随行动组同行，移动端与系统组共享一行 meta 条。
+                F275：disabled 不再是写死的占位——可点条件由服务端
+                save.attack（attackStatus）单一事实源下发，桌面/手机渲染
+                同一份 save 视图、键态两端同态；禁点时 title 与键面常驻
+                小字同文透传服务端 reason（触屏无 hover 也读得到），可点
+                时键面换叫阵提示、不再留误导性理由。 */}
+            {!liveCombat &&
+              !challengeBoss &&
+              (() => {
+                const atkInfo = save.attack;
+                const canAttack = Boolean(atkInfo && atkInfo.available);
+                const reason =
+                  (atkInfo && atkInfo.reason) || "当前没有可攻击的目标";
+                const disabled = busy || !canAttack;
+                const btn = (
+                  <button
+                    type="button"
+                    className={`combat-entry${canAttack ? " armed" : ""}`}
+                    data-testid="combat-entry"
+                    data-act="combat"
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    title={
+                      canAttack
+                        ? "附近有可乘之敌——叫阵即开战"
+                        : reason
+                    }
+                    onClick={() => {
+                      if (disabled) return;
+                      dispatch("攻击");
+                    }}
+                  >
+                    <span className="combat-entry-label">战斗</span>
+                    <i className="combat-entry-div" aria-hidden="true" />
+                    <span className="combat-entry-hint">
+                      {canAttack ? "叫阵即开战" : reason}
+                    </span>
+                  </button>
+                );
+                // F279/F245 同口径：原生 disabled 键吞点击零回执——禁点态
+                // 外包透明承接壳，真实点击/Enter/Space 点亮 .sys-toast
+                // （服务端 reason 同文透传）并抖一次，零请求零副作用。
+                return disabled
+                  ? denyShell(
+                      "combat",
+                      btn,
+                      canAttack ? "上一步还在结算，请稍等" : reason,
+                      "combat-tap-catcher"
+                    )
+                  : btn;
+              })()}
             {/* F212 横滑暗示容器：.sys-scroll 桌面 display:contents
                 透明透传（.btn-group-sys 仍是 .action-groups 的直接 flex
                 子项，结构语义不变）；≤880px 收成 position:relative 的

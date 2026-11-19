@@ -115,6 +115,15 @@ export interface ObserveStatus {
   badge: string | null;
 }
 
+// F275 战斗键可点性：available/reason 全部由服务端 attackStatus 随
+// save.attack 下发——底部「战斗」键（[data-act=combat]）的 disabled
+// 只读这个字段，桌面/手机同一口径（与 save.rest / save.observe 同一
+// 「服务端给口径、前端只渲染」模式）；禁点原因由服务端给文本。
+export interface AttackStatus {
+  available: boolean;
+  reason: string | null;
+}
+
 export interface Save {
   id: number;
   player_name: string;
@@ -135,6 +144,8 @@ export interface Save {
   combat: CombatState | null;
   rest: RestStatus;
   observe: ObserveStatus;
+  // F275：「战斗」键可点性（attackStatus 服务端判定），前端不自行推导。
+  attack: AttackStatus;
   cleared: boolean;
   // F089 终章态信号（=cleared，当前场景即 ch8_epilogue）：前端按字段渲染
   // 「查看结算」入口与终章横幅，不做文本匹配。
