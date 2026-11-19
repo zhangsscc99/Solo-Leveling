@@ -3594,3 +3594,12 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 新发现：GE2E-20261119d（`deny-feedback` 在整套全量里偶发 1332ms ≥ 800ms，单独连跑 2 次 PASS、下一轮全量 43/43 PASS → 疑似阈值/冷态抖动，需打点区分）。
 - 遗留：`report.sh` 全表模式仍受 P210 限制（>50 分钟、15 分钟单轮内跑不完），本轮汇报由调度器手写；建议下轮优先做 P210 增量模式。
 
+
+## 第103轮调度记录（2026-11-19T17:21Z，F301）
+
+- 闸门：`agent-gate check` RC=0（green，cpu 28%、load1 1.91、mem 46%），parallel=2；本轮按规模只做 1 条。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功，无回退/无限流），commit `97e62e9`，合并 `2001028`。
+- 条目：F301「休息」键被压成 44×20 → 删掉 F253 里写死的尺寸覆写（`height:20px`/`padding:0 10px`/`justify-self:center`），保留透明底+虚线边+低对比文字的降权语义；`.deny-tap-catcher > .btn { flex:1 }` 让承接壳内的禁键填满格（顺带消掉 F296 的半格空洞）；≥881px 给 `.actions-main .btn:not(.cta-primary)` `min-height:44` 与行动组 `min-width:90`（保留 F262 主 CTA 52px）。
+- 验收（调度器亲自复跑，全部用 node24 ABI-137 解释器）：`verify.sh F301` PASS（390 休息 85.5×44 vs 兄弟 85.5×44；1440 休息 90×44 vs 兄弟 90×44）；`rest-affordance` PASS（dim/dashed vs solid 互斥）；冒烟 `boot`/`action` PASS。首轮 `ci-deploy` 在 `boot-drawer-closed` 一处 FAIL（点「背包」后 `.drawer-veil` 未展开），新码单跑 2 次均 PASS → 判抖动；重试 deploy **43/43 PASS**，`DEPLOY OK`，`.deployed-ref=2001028`，公网 `https://openfolio.uk/game` 200。线上直跑 `mobile.mjs`（`E2E_BASE_URL`）复验 390/1440 双视口 44px 达标 PASS。
+- 口径变更：`rest-affordance.mjs` 里 F253 的「≤20px / Δ≥16」断言锁的是旧实现而非语义，随新契约改为锁「降权样式三件套（rest-dim + dashed + 透明底）+ 两态互斥」；不改则 F253 与 F301 互相打红。
+- 遗留：`boot-drawer-closed` 在全量回归里出现过 1 次抖动（单独 2 连跑 PASS），若再现应打点区分冷态与真回归。
