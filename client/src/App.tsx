@@ -1799,7 +1799,7 @@ export default function App() {
                 const btn = (
                   <button
                     key={b.label}
-                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked || obsBlocked ? " rest-dim" : ""}`}
+                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked || obsBlocked ? " rest-dim" : ""}${choiceLocked ? " choice-locked" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
                     data-rest-state={restInfo ? (restBlocked ? "blocked" : "available") : undefined}
                     data-observe-state={obsInfo ? (obsBlocked ? "locked" : "available") : undefined}
@@ -1833,6 +1833,11 @@ export default function App() {
                       b.label
                     )}
                     {restInfo ? <span className="rest-count">{restInfo.remaining}</span> : null}
+                    {choiceLocked ? (
+                      <span className="lock-badge" data-locked="1" aria-hidden="true">
+                        需先选择
+                      </span>
+                    ) : null}
                     {!restBlocked && !obsBlocked && <kbd className="key-badge">{i + 1}</kbd>}
                   </button>
                 );
@@ -1845,27 +1850,39 @@ export default function App() {
                 // 前端不硬编码）；原生 disabled 键不收 DOM .click()，F236
                 // 「禁用键零副作用」契约不破。可休息态整层不渲染，点击
                 // 照旧走 button onClick 真回血。
-                return restBlocked ? (
-                  <span
-                    key={b.label}
-                    className="rest-tap-catcher"
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`休息（${restInfo?.reason || "暂时无法休息"}）`}
-                    title={restInfo?.reason || "暂时无法休息"}
-                    onClick={() => showToast(restInfo?.reason || "暂时无法休息")}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        showToast(restInfo?.reason || "暂时无法休息");
-                      }
-                    }}
-                  >
-                    {btn}
-                  </span>
-                ) : (
-                  btn
-                );
+                // F265：同一承接壳口径扩到 must_choose 锁定态「探索前进」
+                // ——disabled 后点它同样零回执，壳上点亮指路 .sys-toast
+                // （DENY_CHOICE_TEXT，与快捷键 1/自由输入同文案）并闪一次
+                // 选项组，把视线引到真正要做的选择上。
+                if (restBlocked || choiceLocked) {
+                  const lockedReason = choiceLocked
+                    ? DENY_CHOICE_TEXT
+                    : restInfo?.reason || "暂时无法休息";
+                  const fire = () => {
+                    if (choiceLocked) flashChoices();
+                    showToast(lockedReason);
+                  };
+                  return (
+                    <span
+                      key={b.label}
+                      className={choiceLocked ? "lock-tap-catcher" : "rest-tap-catcher"}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${choiceLocked ? "探索前进" : "休息"}（${lockedReason}）`}
+                      title={lockedReason}
+                      onClick={fire}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          fire();
+                        }
+                      }}
+                    >
+                      {btn}
+                    </span>
+                  );
+                }
+                return btn;
               })}
               {/* F094/F113/F163 战斗五键：交战态整组展开（键帽 1–5），
                   是交战期唯一控制组——浮层战斗面板只剩情报不再渲染动作

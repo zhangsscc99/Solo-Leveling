@@ -4187,3 +4187,55 @@ button {
 }
 .btn.rest-dim .key-badge { display: none; }
 .btn.rest-dim:hover { background: transparent; border-color: rgba(120, 170, 210, 0.28); }
+
+/* ── F265 must_choose 锁定态「探索前进」──
+   F247 只做到 disabled+半透明——与同排可点键同形同高，玩家只能靠「点了
+   没反应」推断。三层补 signifier：
+   1. 键面左上 [data-locked] 小角标（锁形符号+「需先选择」），与
+      .rest-count 同一位点语言，不占布局、不增行高；
+   2. .choice-locked 在 .btn:disabled 的 0.45 透明度上再叠灰阶滤镜，
+      与同排可点键拉开质感差（不是「略暗」是「未解锁」）；
+   3. .lock-tap-catcher 透明承接壳（F245 同构）：原生 disabled 键不吃
+      真实点击，壳 ::after 覆盖全区域收 pointer，onClick 点亮指路
+      .sys-toast 并闪选项组。可点击态整层不渲染，不加宽不高、390 零
+      横向溢出；只锁原形「探索前进」，换标形态不命中。 */
+.lock-tap-catcher {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.lock-tap-catcher::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.lock-tap-catcher:focus-visible {
+  outline: 1px solid var(--system-dim);
+  outline-offset: 2px;
+}
+
+.btn.choice-locked {
+  filter: grayscale(0.6) brightness(0.82);
+}
+
+.btn .lock-badge {
+  position: absolute;
+  top: -8px;
+  left: -4px;
+  height: 14px;
+  padding: 0 4px;
+  line-height: 12px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+  color: var(--system-dim);
+  background: var(--hull);
+  border: 1px solid var(--system-dim);
+  border-radius: var(--r-hard);
+  pointer-events: none;
+}
