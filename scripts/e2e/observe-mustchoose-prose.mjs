@@ -169,6 +169,13 @@ run("observe-mustchoose-prose", async ({ page }) => {
 
   const lines = [];
   for (let i = 0; i < 6; i++) {
+    // F314：免费细看用尽后「环顾四周」整键置灰（disabled + 承接壳，
+    // 点击只弹 .sys-toast、零新增 .log-entry）——驱动路径跳过禁用键，
+    // 只对仍产出正文的点击取证，断言口径不变。
+    if (await observeBtn.isDisabled().catch(() => false)) {
+      console.log(`    OBS${i + 1} 键已锁（细看已尽）——跳过，已取 ${lines.length} 份正文`);
+      break;
+    }
     const before = await entryCount();
     const respP = page.waitForResponse(ACTION_RESP, { timeout: 8000 });
     await observeBtn.click();

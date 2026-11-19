@@ -414,6 +414,16 @@ function observeStatus(save, combat) {
   const scene = chaptersEngine.currentScene(save);
   const disclosure = observeDisclosure(save, scene);
   if (combat) return { available: false, reason: "交战中无法观察", ...disclosure };
+  // F314：must_choose 未决 + 免费细看已尽——观察再无任何新产出，
+  // 同「看尽」锁同一模式置灰（disabled + title + 就地小字），原因
+  // 文案带「抉择」指路；意图层同步 refused 短路兜底，连点零日志。
+  if (scene && scene.must_choose === true && disclosure.free_left === 0) {
+    return {
+      available: false,
+      reason: "抉择未定——此处已无新发现，先选定要走的路",
+      ...disclosure,
+    };
+  }
   if (scene && !observeSceneRollable(scene) && observeSpentSeen(save.id, scene)) {
     return {
       available: false,
@@ -867,18 +877,14 @@ const OBSERVE_OVER_LINES_CHOOSE = [
   (entity, guide) => `蹲在这里只是重数旧痕——${guide}，定了心才有下一步。`,
 ];
 
-// F293 must_choose 未决场景的过盖观察提示池：抉择态里「前进/潜行/
-// 休息」都被必选门锁死，「环顾四周」是少数还能点的键——它从第
-// OBSERVE_TOTAL+1 次起不得再是纯负收益死选项（observeOverCap 的
-// 动静账只在非抉择场景照走）。正文一律【系统】播报腔，明示先做抉
-// 择；不挂「探索」字样，不计入 observeCount/observeSceneCount 的
-// LIKE 账。按 (save_id) 确定性轮换，同档连点不重文。
-const OBSERVE_CHOOSE_SPENT_LINES = [
-  "【系统】抉择未定——这一带已经看熟了，先做抉择，再谈环顾四周。",
-  "【系统】抉择未定——再看也挤不出新东西，先做抉择，定下来才有下一步。",
-  "【系统】抉择未定——景物没有新变化，先做抉择，别在原地打转。",
-];
-const observeChooseSpentSeq = new Map();
+// F314 抉择态细看已尽的观察拒绝文案：must_choose 未决场景里免费
+// 观察次数用尽后，「环顾四周」按 save.observe.available=false 整键
+// 置灰；绕过禁用直达的观察输入（热键/自由输入/裸请求）由意图层
+// refused + choice_refusal_repeat 短路——零消耗、零落库，回包是
+// 负 id 瞬时轻提示（前端撤回乐观行、只弹 .sys-toast），连点多少次
+// 日志都不涨。文案保留 F293 的「先做抉择」指路口径。
+const OBSERVE_CHOOSE_SPENT_DENY =
+  "【系统】抉择未定——这一带已经看熟了，先做抉择，再谈环顾四周。";
 
 // F241 风险尾注措辞池：旧版可掷怪分支只剩两个固定变体（过/未过保底
 // 线各一），正文池 OBSERVE_OVER_LINES 在轮换、唯独尾注逐字复读——同
@@ -3757,22 +3763,22 @@ const INTENTS = [
           (proseStmts.observeSceneCount.get(save.id, `「${sceneNarrName(scene)}」——`) || {}).n
         ) || 0
       );
-      // F293：must_choose 未决场景的过盖观察不得是纯负收益死选项——抉
-      // 择态里「前进/潜行/休息」都被必选门锁死，唯一可点的「环顾四周」
-      // 从第 OBSERVE_TOTAL+1 次起只攒 encounter_clock 不产出信息。改
-      // 为零代价零动静：patch null（不扣 HP/MP、不推进动静账）、正文
-      // 换【系统】播报逐次明示先做抉择（不挂「探索」字样，不落
-      // observeSceneCount 账，sceneN 就此封顶）。非抉择场景的
-      // over-cap 口径不动——照旧走 observeOverCap 推进 clock/兑现遭遇。
+      // F293/F314：must_choose 未决场景的过盖观察不得是纯负收益死选
+      // 项——抉择态里「环顾四周」从第 OBSERVE_TOTAL+1 次起零产出，
+      // F293 曾改成零代价零动静的【系统】播报（patch null、不推进动
+      // 静账、不落 observeSceneCount 账），F314 进一步收口为门拒绝：
+      // 按钮已按 save.observe.available=false 置灰，绕过禁用直达的
+      // 输入在这里挂 refused + choice_refusal_repeat——零消耗、零落
+      // 库、回执走瞬时轻提示，连点刷屏的「回显+拒绝行」就此归零。
+      // 非抉择场景的 over-cap 口径不动——照旧走 observeOverCap 推进
+      // clock/兑现遭遇。
       if (sceneN >= OBSERVE_TOTAL) {
         if (scene.must_choose === true) {
-          const key = `${save.id}|choose-spent`;
-          const k = observeChooseSpentSeq.get(key) || 0;
-          observeChooseSpentSeq.set(key, k + 1);
           return {
             patch: null,
-            content:
-              OBSERVE_CHOOSE_SPENT_LINES[k % OBSERVE_CHOOSE_SPENT_LINES.length],
+            refused: true,
+            choice_refusal_repeat: true,
+            content: OBSERVE_CHOOSE_SPENT_DENY,
           };
         }
         return observeOverCap(save, scene, entity);

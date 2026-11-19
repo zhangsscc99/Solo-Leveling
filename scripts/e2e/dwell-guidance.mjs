@@ -147,6 +147,12 @@ run("dwell-guidance", async ({ page }) => {
   // ── (a)(b) 连点 6 次观察：指路句不含「前进」，且至少一次点名真实选项 ──
   const replies = [];
   for (let i = 0; i < 6; i++) {
+    // F314：免费细看用尽后「环顾四周」整键置灰，点击零回包零新增——
+    // 跳过禁用键，只对仍产出正文的点击取证，断言口径不变。
+    if (await observeBtn.isDisabled().catch(() => false)) {
+      console.log(`    [observe] 第 ${i + 1} 次起键已锁（细看已尽）——跳过`);
+      break;
+    }
     const respP = page.waitForResponse(ACTION_RESP, { timeout: 8000 });
     await observeBtn.click();
     const resp = await respP;
