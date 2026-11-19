@@ -5,6 +5,12 @@
 
 ## [BLOCKING] 阻塞回归（全量 E2E 守门，需优先于新功能）
 
+- [ ] GE2E-20261119 回归失败（高频抖动 4/6）：`action.mjs` 第二推体力未扣，`assert failed: second advance must cost vitals (HP 100->100, MP 20->20)`（must_choose 置灰后改点选项「按石碑所写，低头敬拜」分支）｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/action.mjs`｜risk: high
+  - 现场：2026-11-19T03:18Z 全量（commit `9bbc4b1`）28/29，`action` 9.0s FAIL；截图 `/root/logs/e2e-action-1795058316848.png`
+  - 非并发污染：跑测前后 `pgrep run-all.mjs|ci-deploy.sh|vitest` 无并发；隔离单跑 6 次 2 PASS / 4 FAIL（4.3–6.3s），load1≈2.6/4 核时更易红
+  - 与上次全绿同源：`git diff 205ea94..HEAD` 仅 docs 两文件，被测 bundle 构建于 revert 之后 → 既有测试/实现时序脆弱，非新改动引入
+  - 待查方向：`scripts/e2e/lib.mjs:126 readVitals` 只读 DOM 文本，`action.mjs:60-66` 的 `waitForFunction` 可能被"用户回声"节点先满足、早于 save 状态回写（读到旧体力）；或「低头敬拜」确为零消耗铺陈步（此时须确认产品意图再改断言口径，禁止为过测改断言）
+  - 报告：`docs/runs/e2e-20261119T031800Z.md`
 - [ ] GE2E-20261118 回归失败（偶发）：`quests.mjs` 打开任务面板后 `.quest` 20s 未出现，面板落到「任务信息不可用。与系统的连接中断」错误态｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/quests.mjs`｜risk: high
   - 现场：2026-11-18T15:48Z 全量（commit `d9ad5f1`）13/14，`quests` 24.6s FAIL，`page.waitForSelector: Timeout 20000ms exceeded … waiting for locator('.quest')`；截图 `/root/logs/e2e-quests-1795017013973.png` 显示侧栏「任务」已选中但内容区为错误文案
   - 非确定性：同命令隔离连跑 4 次全 PASS（4–5s），紧接着全量二跑 14/14 PASS；手工 `GET /game/api/saves/<id>/quests` 返回 200 且 payload 正常 → 一次瞬时 fetch 失败，非稳定回归

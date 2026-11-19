@@ -3116,3 +3116,5 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **本条 devin 失败：免费 SWE-2 额度耗尽（`Reached free model rate limit`，退出码 1；swe-2-high 与 swe-2-medium 均被限，03:01 UTC 重置）→ 已回退 OpenCode 执行**。回退后按实测证据推翻了该条前提，故未产出产品改动。
 - 建议：F272 交 product-walkthrough 用当前线上包重测；若仍复现，需附「点击后 600ms 网络请求条数」取证（区分「没点到/被壳拦下/请求被拒」三种成因），再定修法。
 - 部署插曲：两次 `ci-deploy.sh` 均在 e2e 步随机翻红（`action.mjs` 单条瞬时红，28~29/30），`run-all` 独立复跑 29/29 全绿 → 判为并发负载下的抖动，非本轮改动引入。
+
+⚠️ 全量 E2E 失败：`action.mjs`（second advance must cost vitals，隔离 6 跑 4 FAIL）（commit 9bbc4b1，2026-11-19T03:18Z，28/29）
