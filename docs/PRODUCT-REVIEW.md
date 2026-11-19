@@ -3702,3 +3702,15 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 部署：`bash scripts/ci-deploy.sh`（P211 口径，不外套 flock）→ **45/45 E2E PASS**、`DEPLOY OK`，`.deployed-ref=8e8c372`，本地 `/game/health` 200、公网 `https://openfolio.uk/game` 200、`/game/api/health` `{"ok":true}`。
 - 回退记录：无（devin 一次成功，未触发限流/回退）。
 - 遗留观察：① `report.sh` 仍无 `--changed` 增量模式（P210 未修），本轮汇报改为手写本条记录；② F308（「环顾四周 · 不耗体力魔力」与实扣 HP/MP 自相矛盾）与 F309（交战态点属性/背包静默吞点击）是同一族「文案/回执不可信」问题，建议下一轮优先 F308（玩家可当场验证的矛盾更伤信任）；③ 抉择态回执现在逐击可见，但「×N」文案属轻量权宜——若后续走查嫌计数碍眼，可改为仅抖动+seq，不再缀文案。
+
+## 第107轮调度（2026-11-19T19:21Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 18%、load1 1.42、mem 48%、swap 85%、disk_root 62%），parallel=2；按规模只做 1 条。
+- 选条理由：F309 与上轮 F307 同族——都是「点了没反应」的 Immediate 层缺失，且 105 轮已有硬证据（`m6/m7/m8/m9` 四张截图 166326 bytes 完全相同）。属信任级体验缺陷，改面小（App.tsx + styles.css + 服务端 panelOutcome + 一条新门禁）。
+- 执行者：**devin CLI `swe-2-high`**（首选通道一次成功，无回退 / 无限流），commit `abd7762`，合并 `fc21ecd`。耗时约 17 分钟（含 devin 自行诊断）。
+- 诊断修正（重要）：devin 实测发现走查结论只对了一半——**旧部署构建上 `openTab` 是无条件 `setDrawer(true)`，但交战态下抽屉开不出来**（面板未渲染 + 无 toast），所以屏幕确实零变化。故锁定口径不是「新增禁用」，而是「已有禁用/失效路径补可见回执」。
+- 修法：App.tsx 新增 `COMBAT_TAB_DENY` 逐键拒绝文案（属性/背包/技能/地图/任务/影子/存档/档案各自指认，不再一句泛文案）+ `aria-disabled`/`is-locked` 压暗 + 复用 F307 的 `data-receipt-seq` 逐击自增与 toast `· ×N`；styles.css 给 `.drawer-toggle.is-locked` 与徽标接 deny-shake；server/index.js 的 `panelOutcome(save, input)` 加交战门禁——交战态裸面板名（「背包」「属性」…）回 `refused` 战斗播报且不下发 `panel` 字段，`/action` 与 `/ai-action` 同口径、零副作用零收益。
+- 验收（调度器亲自复跑）：`verify.sh F309` **PASS 18.2s**；新门禁 `scripts/e2e/combat-lock-receipt.mjs` 旧码红证「[390] 「属性」交战态缺 aria-disabled=true」FAIL，新码 8 键 ×2 次真实点击、390/1440 双视口、`.sidebar.open` 零出现、零 `/api` 请求、日志零增长、自由输入「休息」得 refused 回执行，全绿；冒烟 `boot` 3.3s / `action` 5.2s PASS（合并 main 后复跑）。
+- 部署：`bash scripts/ci-deploy.sh`（P211 口径，不外套 flock）。**首跑 45/46，`combat-hp-distinct.mjs` 在 `page.waitForResponse` 15s 超时**（整套并发下服务端/Chromium 冷态），部署按门禁中止、未上线；调度器单独连跑该条 **4/4 PASS**，判定为并发抖动非 F309 回归，重跑部署 → **46/46 全绿、DEPLOY OK**，`.deployed-ref=fc21ecd`，公网 bundle `assets/index-BXPcMDcR.js` 内含「交战中无法打开属性面板」，`/game` 200、`/game/health` 200、`/game/api/health` `{"ok":true}`。
+- 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 遗留观察：① `combat-hp-distinct` 的 15s `waitForResponse` 在整套 45 条并发下已出现一次超时——与 GE2E-20261119d/e 同类，建议统一改成「相对基线 + 更长超时 + 失败信息带 server 耗时」而不是继续加绝对阈值；② 下一轮优先 **F308**（按钮写「不耗体力魔力 · 免费×3」，点一次正文印「HP 100→97 · MP 20→18」）——玩家当场可验证的自相矛盾最伤信任，且与 F256/F278/F280 的「机制播报混进小说」是同一族文案病；③ F309 之后「交战态所有功能键」都有回执，但**战斗本身仍无决策**（F298：攻击 3 次即杀，防御/道具/连击是死选项），这是核心循环的下一座山。
