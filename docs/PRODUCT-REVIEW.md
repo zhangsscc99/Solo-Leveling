@@ -3852,4 +3852,5 @@ F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍�
 - 验收（调度器亲自复跑，node24 ABI137 PATH）：`verify.sh F314` **PASS 11.55s**；新门禁 `observe-empty-spam.mjs` 连跑 3 次全 PASS（11.0/12.4/10.9s，耗尽后 `.log-entry 14→14`、刷新后仍 14 = 零落库）；冒烟 `boot` 2.9–3.8s / `action` 4.0–4.6s PASS（main 合入后复跑）。
 - 旧码红证（devin 留存）：`[E2E] observe-empty-spam FAIL (9.7s) assert failed: [390x844] B 耗尽后「环顾四周」未置灰：disabled=false aria-disabled=false`
 - 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 部署：**第一次 `ci-deploy.sh` 在 e2e 步失败并回滚**（唯一红项 `combat-hp-distinct.mjs`，全套件并发下 26.7s 超时；单独连跑 3/3 PASS、`combat-hp-sync`/`observe-empty-spam` 等 43 项全 PASS），判定为 GE2E-20261119d/e 同族的绝对超时偶发而非本次回归，重跑一次即 `OK e2e` / **DEPLOY OK**，`.deployed-ref=bc9bce5`，`/game/health` 200、公网 `https://openfolio.uk/game` 200。`combat-hp-distinct` 的超时口径应并入 GE2E 族一起改成相对基线判据。
 - 遗留观察：① **F318 应已被本条连带修掉**（拒绝行不再落库、按钮 aria-disabled、刷新正文无【系统】抉择未定），但需按 F318 自己的 verify 口径再跑一次才能勾选，本轮不预勾；② **F317（P0）仍未做**——抉择态「探索前进/潜行/休息」disabled 后点击零回执，比本条更伤，下一轮优先；③ `docs/PRODUCT-REVIEW.md` 的 report.sh 全表模式（P210）本轮仍未跑，报告为手写。
