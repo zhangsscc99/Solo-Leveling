@@ -8,6 +8,7 @@
 - [ ] GE2E-20261119b 回归失败：`forward-locked-in-choice.mjs`（移动端 390 视口锁定态 `opacity=1`，disabled 但满色高亮）｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API E2E_BASE_URL=http://127.0.0.1:3020/game node scripts/e2e/forward-locked-in-choice.mjs`｜risk: high
 - [ ] GE2E-20261119c 回归失败：`num-feedback.mjs`（F259 count-up 采样不足：150ms 内只采到 1 次中间值，要求 ≥3）｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API E2E_BASE_URL=http://127.0.0.1:3020/game node scripts/e2e/num-feedback.mjs`｜risk: high
   - 现场：2026-11-19T15:18Z 全量（commit `6791b26`）41/43，详见 `docs/runs/e2e-20261119T1526Z.md`
+  - 复现二次：2026-11-19T15:47Z 全量（commit `a8b7b0b`，仅 docs 变更）42/43，390 视口同一断言再红（`opacity=1 > 0.5`，命中口径 `c:disabled+hint`，1440 通过）；`num-feedback` 本轮已 PASS。详见 `docs/runs/e2e-20261119T1554Z.md` → 判定为稳定性/真实回归叠加，需开发 loop 定位「移动端锁定键置灰仍满色」的样式来源
 
 - [x] GE2E-20261119 回归失败（高频抖动 4/6）：`action.mjs` 第二推体力未扣，`assert failed: second advance must cost vitals (HP 100->100, MP 20->20)`（must_choose 置灰后改点选项「按石碑所写，低头敬拜」分支）｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API node scripts/e2e/action.mjs`｜risk: high
   - 现场：2026-11-19T03:18Z 全量（commit `9bbc4b1`）28/29，`action` 9.0s FAIL；截图 `/root/logs/e2e-action-1795058316848.png`

@@ -3531,3 +3531,5 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 
 ⚠️ 全量 E2E 失败：`forward-locked-in-choice`（commit 6791b26，390 视口锁定键 opacity=1）
 ⚠️ 全量 E2E 失败：`num-feedback`（commit 6791b26，count-up 采样不足 150ms 内仅 1 次）
+
+⚠️ 全量 E2E 失败：`forward-locked-in-choice`（commit a8b7b0b，390 视口锁定键 opacity=1，连续第二次全量红）
