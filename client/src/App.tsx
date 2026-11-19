@@ -305,6 +305,21 @@ const TABS: { key: TabKey; label: string }[] = [
 // 结算 tab 只在真通关（save.cleared：当前场景为 ch8_epilogue，与服务端
 // /ending 门禁同一判定）后出现，不占常驻快捷键位。
 const ENDING_TAB: { key: TabKey; label: string } = { key: "ending", label: "结算" };
+// F309：交战态系统页签整组锁定——与服务端交战门禁（COMBAT_INTENTS 之外
+// 一律 refused）同口径，面板不展开。文案按各自面板名指认（不共用一句
+// 泛泛拒绝），点击回执走 denyAction 三件套：.sys-toast 文案 + data-denied
+// 抖动 + data-receipt-seq 逐击自增，连点两次屏幕必变（F307 同构）。
+const COMBAT_TAB_DENY: Record<TabKey, string> = {
+  inventory: "交战中无法打开背包 · 先「逃跑」或打赢这一场",
+  skills: "交战中无法打开技能面板 · 先「逃跑」或打赢这一场",
+  stats: "交战中无法打开属性面板 · 先「逃跑」或打赢这一场",
+  map: "交战中无法打开地图 · 先「逃跑」或打赢这一场",
+  quests: "交战中无法打开任务面板 · 先「逃跑」或打赢这一场",
+  shadows: "交战中无法打开影子编队 · 先「逃跑」或打赢这一场",
+  ending: "交战中无法查看结算 · 先「逃跑」或打赢这一场",
+};
+const COMBAT_DRAWER_DENY = "交战中无法打开档案面板 · 先「逃跑」或打赢这一场";
+const COMBAT_FPB_DENY = "交战中无法分配属性点 · 先「逃跑」或打赢这一场";
 // F129：服务端「面板名直开」下发的 reply.panel 只认 TabKey 白名单——
 // 陌生串按普通日志处理，绝不弹面板。
 const PANEL_TAB_KEYS = new Set<TabKey>([...TABS.map((t) => t.key), ENDING_TAB.key]);
@@ -409,15 +424,17 @@ function StatusBar({
   onOpenDrawer,
   onHelp,
   onFreePoints,
+  denied,
 }: {
   save: Save;
   equipment: Equipment | null;
   degraded: boolean;
   saveHint: { id: number; text: string } | null;
   onDismissDegraded: () => void;
-  onOpenDrawer: () => void;
+  onOpenDrawer: (e?: { currentTarget?: EventTarget | null }) => void;
   onHelp: () => void;
-  onFreePoints: () => void;
+  onFreePoints: (e?: { currentTarget?: EventTarget | null }) => void;
+  denied?: { key: string; id: number } | null;
 }) {
   const s = save.stats;
   // 含装备加成：折算系数与 server/engine/stats.js 保持一致，改动需两边同步。
@@ -506,6 +523,7 @@ function StatusBar({
             type="button"
             className="stat-points-badge"
             onClick={onFreePoints}
+            data-denied={denied?.key === "fpb" ? "1" : undefined}
             title={inCombat ? "交战中无法分配属性点" : "打开「属性」面板分配"}
           >
             <span className="fpb-label">属性点</span>
@@ -553,7 +571,18 @@ function StatusBar({
           </i>
         </span>
       </div>
-      <button className="drawer-toggle" onClick={onOpenDrawer} aria-label="打开档案面板">
+      {/* F309：交战态「档案」键与系统页签同一条锁定口径——抽屉不展开，
+          点击经 denyAction 给逐击可区分回执（aria-disabled 不吞点击）。 */}
+      <button
+        className={`drawer-toggle${inCombat ? " is-locked" : ""}`}
+        onClick={onOpenDrawer}
+        aria-label="打开档案面板"
+        aria-disabled={inCombat || undefined}
+        data-lock-receipt={inCombat ? "1" : undefined}
+        data-denied={denied?.key === "drawer" ? "1" : undefined}
+        data-receipt-seq={denied?.key === "drawer" ? denied.id : undefined}
+        title={inCombat ? "交战中无法打开档案面板" : undefined}
+      >
         档案
       </button>
       {/* F221：帮助入口从兜底回包的指令表尾巴挪到顶栏「?」键——点击
@@ -1089,12 +1118,19 @@ export default function App() {
   }, []);
 
   // F164 状态栏属性点徽标：复用 openTab 直达「属性」面板，不另起面板
-  // 路由。交战中不静默——面板照开（面板内同口径禁用 +1），另浮一条
-  // 就地提示，文案与面板/服务端拒绝口径一致。
-  const onFreePointsBadge = useCallback(() => {
-    openTab("stats");
-    if (liveCombat) showToast("交战中无法分配属性点");
-  }, [openTab, showToast, liveCombat]);
+  // 路由。F309：交战态与页签同一条锁定口径——面板不展开，点击走
+  // denyAction 回执三件套（toast + data-denied 抖动 + seq 逐击自增），
+  // 文案与面板/服务端拒绝口径一致。
+  const onFreePointsBadge = useCallback(
+    (el?: { currentTarget?: EventTarget | null } | null) => {
+      if (liveCombat) {
+        denyAction("fpb", COMBAT_FPB_DENY, undefined, el?.currentTarget ?? null);
+        return;
+      }
+      openTab("stats");
+    },
+    [openTab, liveCombat, denyAction]
+  );
 
   // 返回本次指令是否真的发到服务端并收回回包（调用方据此决定是否
   // 播报完成态——如「存档已写入」）；busy/空输入/异常都算没落成。
@@ -1751,9 +1787,17 @@ export default function App() {
         degraded={degraded && !degradedDismissed}
         saveHint={saveHint}
         onDismissDegraded={() => setDegradedDismissed(true)}
-        onOpenDrawer={() => setDrawer(true)}
+        onOpenDrawer={(e) => {
+          // F309：交战态与页签同一锁定口径——抽屉不展开，给逐击可区分回执。
+          if (liveCombat) {
+            denyAction("drawer", COMBAT_DRAWER_DENY, undefined, e?.currentTarget ?? null);
+            return;
+          }
+          setDrawer(true);
+        }}
         onHelp={onHelpToggle}
         onFreePoints={onFreePointsBadge}
+        denied={denied}
       />
 
       <main className="stage">
@@ -2407,14 +2451,29 @@ export default function App() {
                 {tabs.map((t, i) => {
                   // F267：键位来自 sysHotkey 单一事实源（交战态为 null）。
                   const hk = sysHotkey(i, liveCombat);
+                  // F309：交战态页签锁定——与「存档」同一键内拒绝口径：
+                  // aria-disabled（不用原生 disabled，点击要能落回执）+
+                  // is-locked 压暗 + denyAction 三件套（toast/抖动/seq），
+                  // 面板不展开；脱战即恢复原 openTab 路径。
+                  const denyKey = `tab-${t.key}`;
                   return (
                   <button
                     key={t.key}
-                    className="btn"
-                    onClick={() => openTab(t.key)}
+                    className={`btn${liveCombat ? " is-locked" : ""}`}
+                    onClick={(e) => {
+                      if (liveCombat) {
+                        denyAction(denyKey, COMBAT_TAB_DENY[t.key], undefined, e.currentTarget);
+                        return;
+                      }
+                      openTab(t.key);
+                    }}
                     data-act={t.key}
                     data-hotkey={hk ?? undefined}
-                    title={hk !== null ? `快捷键 ${hk}` : undefined}
+                    data-denied={denied?.key === denyKey ? "1" : undefined}
+                    data-receipt-seq={denied?.key === denyKey ? denied.id : undefined}
+                    data-lock-receipt={liveCombat ? "1" : undefined}
+                    aria-disabled={liveCombat || undefined}
+                    title={liveCombat ? COMBAT_TAB_DENY[t.key] : hk !== null ? `快捷键 ${hk}` : undefined}
                   >
                     {t.label}
                     {/* F267：键帽只在该态真有键位时渲染——交战态 1–6 全归
@@ -2443,6 +2502,7 @@ export default function App() {
                       key="save"
                       className={`btn${saveBlocked ? " is-locked" : ""}`}
                       data-denied={denied?.key === "sys-save" ? "1" : undefined}
+                      data-receipt-seq={denied?.key === "sys-save" ? denied.id : undefined}
                       aria-disabled={busy || saveBlocked}
                       title={save.combat ? "交战中无法存档" : undefined}
                       onClick={(e) => {

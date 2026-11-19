@@ -4569,16 +4569,21 @@ button {
 }
 
 /* 键内拒绝（连击欠蓝 / 交战存档 / requires 未达的选项）：不占结构、
-   不打乱 .btn-group 的直接子项定位，只按禁键口径压暗 + 抖一次。 */
+   不打乱 .btn-group 的直接子项定位，只按禁键口径压暗 + 抖一次。
+   F309：.drawer-toggle.is-locked 同口径压暗（它不在 .btn 族谱里，
+   单列选择器）；.stat-points-badge 保持徽标原色，只借 deny-shake。 */
 .btn.combo-short,
-.btn.is-locked {
+.btn.is-locked,
+.drawer-toggle.is-locked {
   opacity: 0.45;
   filter: grayscale(0.6) brightness(0.85);
   cursor: default;
 }
 
 .btn.combo-short[data-denied="1"],
-.btn.is-locked[data-denied="1"] {
+.btn.is-locked[data-denied="1"],
+.drawer-toggle[data-denied="1"],
+.stat-points-badge[data-denied="1"] {
   animation: deny-shake 320ms ease-out;
 }
 
