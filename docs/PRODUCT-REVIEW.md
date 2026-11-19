@@ -3690,3 +3690,15 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 ### 本轮结论
 
 主线可玩、续档可靠、首屏在桌面端有改善；但**"选择"这一维仍然是 2 分**：决策点被静态锁、死选项仍可点、战斗只有一个有效键。下轮建议优先处理 F307/F308（回执与规则自相矛盾，属信任级问题），再处理 F298（战斗策略）。
+
+## 第106轮调度（2026-11-19T19:20Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 14%、load1 2.30、mem 47%、swap 85%、disk_root 62%），parallel=2；本轮按规模只做 1 条。
+- 选条理由：第105轮真实走查把「选择感」打到 2/5，三处硬伤中唯一属**信任级**的是 F307——`must_choose` 锁定态连点「探索前进」第 2/3 次屏幕上逐像素零变化，玩家会直接判定「游戏坏了」。F308/F309 同源同类，留待后续轮次。
+- 执行者：**devin CLI `swe-2-high`**（首选通道一次成功，无回退 / 无限流），commit `02a9ffb`，合并 `8e8c372`。
+- 根因（devin 诊断，调度器复核 diff）：承接壳与 `denyAction` 其实都在跑，但**回执是等幂的**——同文案 toast 重挂载零像素差、`data-denied` 在 460ms 窗内恒为 `"1"` 导致 CSS `deny-shake` 只播首击、`#act-lock-reason` 常显本身不算回执。屏幕与上一击相同 = 点击被吞。
+- 修法：`showToast` 同文案连发缀「· ×N」（120ms 同拍合一，×N 计玩家逐击次数）；`.sys-toast` 与承接壳挂 `data-receipt-seq` 逐击自增；`denyAction` 用 inline animation 关→开 + reflow 逐击重播抖动；`.sys-toast` 加 240ms `toast-in` 入场（reduced-motion 下关闭，回执仍走文案+seq）；`combo-short`/`is-locked`/`sys-save` 三处键内拒绝同步传 `currentTarget` 同享重播。
+- 验收（调度器亲自复跑）：`verify.sh F307` **PASS**；新门禁 `scripts/e2e/lock-receipt.mjs` 旧码红证为「第 2 击 300ms 内零可区分回执」，新码 鼠标×3（toast `· ×2`/`· ×3`、seq 递增、日志 9→9）/ Enter / 快捷键 1 / aria-live 四通道全绿 + 可点态反洗绿（正文 9→11、无拒绝文案）；`forward-locked-in-choice` PASS（未放宽断言）；`tsc --noEmit` + `npm run build` OK；冒烟 `boot` 7.4s / `action` 9.7s PASS（合并 main 后复跑）。
+- 部署：`bash scripts/ci-deploy.sh`（P211 口径，不外套 flock）→ **45/45 E2E PASS**、`DEPLOY OK`，`.deployed-ref=8e8c372`，本地 `/game/health` 200、公网 `https://openfolio.uk/game` 200、`/game/api/health` `{"ok":true}`。
+- 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 遗留观察：① `report.sh` 仍无 `--changed` 增量模式（P210 未修），本轮汇报改为手写本条记录；② F308（「环顾四周 · 不耗体力魔力」与实扣 HP/MP 自相矛盾）与 F309（交战态点属性/背包静默吞点击）是同一族「文案/回执不可信」问题，建议下一轮优先 F308（玩家可当场验证的矛盾更伤信任）；③ 抉择态回执现在逐击可见，但「×N」文案属轻量权宜——若后续走查嫌计数碍眼，可改为仅抖动+seq，不再缀文案。
