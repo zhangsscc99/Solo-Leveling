@@ -5,6 +5,9 @@
 
 ## [BLOCKING] 阻塞回归（全量 E2E 守门，需优先于新功能）
 
+- [ ] GE2E-20261119f （第113轮调度发现，低风险竞态，非功能回归）`choice-state-deadkeys.mjs` 在全量跑测期间**开发车道并发提交**的窗口里红：`[E2E] choice-state-deadkeys FAIL (5.8s) assert failed: [390] #2「观察」boundingBox 取不到`（前一击 `log 8 -> 9（77ms）` 已绿，红在重渲染后取元素盒子）。同一脚本隔离连跑 2 次 PASS（38.1s / 40.2s）；F317 并入后在干净树 `7069688` 重跑全量 **50/50 PASS**。要求：① 把「取 boundingBox」改成先 `waitFor({state:'stable'})` 或 `expect.poll` 重试（3×300ms 预算），失败时把当次 `.log-entry` 数与 toast 文案一起打进断言信息；② 断言 `for i in 1..3; do node scripts/e2e/run-all.mjs; done` 连绿，且三次跑测期间无并发提交｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE node scripts/e2e/choice-state-deadkeys.mjs`｜risk: low
+  - 现场：2026-11-19T22:48Z 全量（跑测中 `717fec4`/`f7d3807` 落盘），日志 `/www/hermes-home/run/fulle2e-game-20261119T2247Z.log`，记录 `docs/runs/e2e-20261119T2248Z.md`
+
 - [x] GE2E-20261119b 回归失败：`forward-locked-in-choice.mjs`（移动端 390 视口锁定态 `opacity=1`，disabled 但满色高亮）｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API E2E_BASE_URL=http://127.0.0.1:3020/game node scripts/e2e/forward-locked-in-choice.mjs`｜risk: high
   ✅ 第102轮复绿：F275 收尾压暗 + 本轮 ci-deploy 全量 43/43 PASS（`forward-locked-in-choice PASS (9.7s)`）
 - [x] GE2E-20261119c 回归失败：`num-feedback.mjs`（F259 count-up 采样不足：150ms 内只采到 1 次中间值，要求 ≥3）｜verify: `cd /www/Solo-Leveling && env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE -u E2E_BASE -u E2E_BASE_URL -u E2E_API E2E_BASE_URL=http://127.0.0.1:3020/game node scripts/e2e/num-feedback.mjs`｜risk: high
