@@ -3854,3 +3854,16 @@ F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍�
 - 回退记录：无（devin 一次成功，未触发限流/回退）。
 - 部署：**第一次 `ci-deploy.sh` 在 e2e 步失败并回滚**（唯一红项 `combat-hp-distinct.mjs`，全套件并发下 26.7s 超时；单独连跑 3/3 PASS、`combat-hp-sync`/`observe-empty-spam` 等 43 项全 PASS），判定为 GE2E-20261119d/e 同族的绝对超时偶发而非本次回归，重跑一次即 `OK e2e` / **DEPLOY OK**，`.deployed-ref=bc9bce5`，`/game/health` 200、公网 `https://openfolio.uk/game` 200。`combat-hp-distinct` 的超时口径应并入 GE2E 族一起改成相对基线判据。
 - 遗留观察：① **F318 应已被本条连带修掉**（拒绝行不再落库、按钮 aria-disabled、刷新正文无【系统】抉择未定），但需按 F318 自己的 verify 口径再跑一次才能勾选，本轮不预勾；② **F317（P0）仍未做**——抉择态「探索前进/潜行/休息」disabled 后点击零回执，比本条更伤，下一轮优先；③ `docs/PRODUCT-REVIEW.md` 的 report.sh 全表模式（P210）本轮仍未跑，报告为手写。
+
+## 第112轮调度（2026-11-19T22:41Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 31%、load1 1.58、mem 46%、swap 85%、disk_root 62%），parallel=2；按规模只做 1 条。
+- 选条理由：第111轮遗留观察点名「下一轮优先」的 **F317（P0）**——`must_choose` 态三键 `disabled` 后点击零回执，是本轮最伤的信任级缺陷。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功，无回退 / 无限流），commit `717fec4`，merge `f7d3807` 入 main。耗时约 5 分钟。
+- 关键发现：前端回执**其实已经在 F265/F272/F307 落齐**（三键同挂 `.deny-tap-catcher`，denyAction 三件套逐击 `data-receipt-seq` + `·×N` 计数、选项组 attn 高亮、Enter/快捷键 1 同口径）——第110轮看到的「零回执」是 F307 之前的线上构建。因此本轮落地物是**缺失的验收门禁** `scripts/e2e/must-choose-feedback.mjs`，把「三键必回执」变成红灯，防止未来回归。
+- 门禁内容：隔离实例直落 must_choose，对三键各做一次真实 pointer 点击（打在承接壳坐标，不绕 disabled 吞事件），断言 500ms 内可见且可区分回执、正文行数零增长、390 无横向溢出、键盘 Enter/快捷键 1 同口径，并反向洗绿（非抉择档三键可点无壳、「前进」真推进、无拒绝文案）。
+- 验收（调度器亲自复跑，node24 ABI137）：`verify.sh F317` **PASS 10.82s**；门禁连跑 2 次 PASS（10.1s / 11.9s）；冒烟 `boot` 5.3s / `action` 7.1s PASS；devin 侧回归 lock-receipt / locked-action-feedback / reject-spam / forward-locked-in-choice / disabled-denied-feedback 全 PASS。
+- 旧码红证：**未复验**——未在 F307 之前的构建上重跑门禁（需回滚 client 重建），本条不声称红证；门禁当前在 main 为绿，作为回归护栏生效。
+- 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 部署：`bash scripts/ci-deploy.sh` 一次通过 —— `[E2E-ALL] 50/50 passed` / **DEPLOY OK**，`.deployed-ref=f7d3807`，本地 `/game/api/health` 200、公网 `https://openfolio.uk/game` 200 / `/game/api/health` 200。
+- 遗留观察：① **F318（P0）仍未做**——免费观察用尽后按钮仍高亮可点、拒绝行入档，是下一个 P0；② F319/F320（首屏 CTA 权重与双主行动）仍需前端排版改造，建议下一轮取 F318 或 F319；③ 产品级观察：本轮确认「页面静止 = 玩家判卡死」这一类问题的根因是**回执机制先于门禁落地**——建议后续每个回执类条目必须同时交付门禁，否则无法判断线上构建是否带修复。
