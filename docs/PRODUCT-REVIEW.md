@@ -3271,3 +3271,6 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 部署：直接 `bash scripts/ci-deploy.sh`（按 P211 不套外层 flock）→ 全量 37/37 PASS → `DEPLOY OK`，`.deployed-ref=53b58f6`；health 200、https://openfolio.uk/game 200，公网 CSS 换包为 `index-DcaIbndA.css`（含 `0e5f74` 与 `repeating-linear-gradient(45deg`）。
 - 未跑 `scripts/report.sh`（P210：全表模式 >50 分钟，单轮预算内不可行），本轮汇报按本文件手写。
 - 相邻死路（留给后续轮）：F287（1440 无专用排版、正文行宽近 1000px、底部大片空档）与 F269（桌面大屏利用率、日志首条从半句开始）同属「桌面版式预算」；两者都只需 CSS 行宽/间距约束，可合并成一条桌面版式条目一次做完，别再分两轮。
+
+## F274 实现说明（devin worktree feat/F274）
+- 「观察」代价事前披露：observeStatus() 随 save.observe 下发 cost(恒 null，观察全程不扣 HP/MP)/free_left/free_total/noise{cur,max}/may_encounter/hint/badge，全部由服务端结算；前端「环顾四周」title=hint、键面左上挂 .obs-cost 角标（免费×N / 动静 cur/max），.log 末尾常驻 .log-hint 系统提示节点（非 .log-entry 旁白排版，交战/看尽锁定不渲染）；断言 scripts/e2e/observe-cost-disclosed.mjs 自起隔离实例逐字核对 DOM 提示与 API 字段（A/B/C/D 四断言），连跑 3 次 PASS；observe-cost/observe-dedupe/stage-bottom-clearance/desktop-log-occlusion 均无回归。
