@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCountUp } from "./useCountUp";
 import {
   baseAttack,
   baseDefense,
@@ -357,14 +358,23 @@ function Gauge({
   delta?: { key: number; delta: number } | null;
 }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  // F259：数值 count-up（~400ms 铺完差值）+ 血条残影（.gauge-ghost
+  // 与 fill 同源宽度，CSS transition-delay 让它在掉血方向滞后收拢）。
+  const num = useCountUp(value);
   return (
     <div className={`gauge gauge-${kind}${pct <= 30 ? " gauge-low" : ""}`}>
       <span className="gauge-label">{label}</span>
       <div className="gauge-track">
+        <div
+          className="gauge-ghost"
+          data-ghost="1"
+          style={{ width: `${pct}%` }}
+          aria-hidden="true"
+        />
         <div className="gauge-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span className="gauge-num">
-        {value}
+      <span className="gauge-num" data-anim="count" data-counting={num.counting ? "1" : "0"}>
+        {num.display}
         <i>/</i>
         {max}
         {delta && (
@@ -416,6 +426,10 @@ function StatusBar({
   // ≤1.1s 自动卸载。
   const hpDelta = useGaugeDelta(save.hp);
   const mpDelta = useGaugeDelta(save.mp);
+  // F259：金币/XP 数字与 HP/MP 同一 count-up 口径——滚动中挂
+  // data-counting，reduced-motion 直接落终值；title/aria 仍报真值。
+  const goldNum = useCountUp(save.gold);
+  const xpNum = useCountUp(save.xp);
   return (
     <header className="status">
       <div className="status-id">
@@ -478,14 +492,20 @@ function StatusBar({
           防<b>{def}</b>
         </span>
         <span className="stat stat-gold">
-          金币<b>{save.gold}</b>
+          金币
+          <b data-anim="count" data-counting={goldNum.counting ? "1" : "0"}>
+            {goldNum.display}
+          </b>
         </span>
         <span
           className="stat stat-xp"
           title={xpTip}
           aria-label={xpTip}
         >
-          XP<b>{save.xp}</b>
+          XP
+          <b data-anim="count" data-counting={xpNum.counting ? "1" : "0"}>
+            {xpNum.display}
+          </b>
           <i className="xp-bar" aria-hidden="true">
             <i className="xp-bar-fill" style={{ width: `${xpPct}%` }} />
           </i>
