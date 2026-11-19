@@ -18,8 +18,9 @@
 //        （底色/填充色不同）；
 //     c) 敌侧填充 backgroundImage 含 repeating-linear-gradient（斜纹
 //        非颜色标识），且敌侧 .gauge-num 仍渲染 \d+/\d+ 数字；
-//     d) 页面可见文本中，己方「hp/max_hp」数字串只出现 1 次（顶栏那次），
-//        浮层己方 HP 不再重复渲染该数字（role=meter 承载语义值）；
+//     d) F313 新口径：己方「hp/max_hp」数字串恰好出现 2 次——顶栏与
+//        面板玩家侧各 1 次（两处同读 save.hp 的活读数，非重复占位），
+//        面板侧以 role="meter" + aria-valuenow 承载同一数值；
 //     e) 390×844 与 1440×900 两个视口下，.combat 与 .combat-sides 均无
 //        横向溢出（scrollWidth <= clientWidth）。
 //     f) F303：顶栏 .status .gauge-hp .gauge-fill 与浮层己方填充的
@@ -165,14 +166,32 @@ async function check(tag, playerHpStr) {
   assert(/\d+\s*\/\s*\d+/.test(enemyNum), `(c) ${tag}: 敌方 HP 数字丢失: "${enemyNum}"`);
   console.log(`    [OK] (c) ${tag}: 敌侧斜纹 + 数字 "${enemyNum.trim()}" 均在`);
 
-  // (d) 己方 hp/max_hp 可见数字串全页只出现 1 次（顶栏独占）
+  // (d) F313 新口径：己方 hp/max_hp 可见数字串恰好出现 2 次——顶栏
+  //     .status 1 次 + 面板 [data-side="player"] 1 次，两处同读 save.hp
+  //     （同一事实源的活读数）；面板侧须以 role="meter" + aria-valuenow
+  //     承载同一数值，其余区域（系统行/日志）不得再出现该串。
   {
-    const bodyText = await page.locator("body").innerText();
     const re = new RegExp(`(?<![\\d/])${playerHpStr.replace("/", "\\s*/\\s*")}(?![\\d/])`, "g");
-    const hits = bodyText.match(re) || [];
+    const countIn = async (sel) =>
+      ((await page.locator(sel).innerText().catch(() => "")).match(re) || []).length;
+    const inStatus = await countIn(".status");
+    const inPlayer = await countIn('.combat [data-side="player"]');
+    const inBody = await countIn("body");
     assert(
-      hits.length === 1,
-      `(d) ${tag}: 己方 HP 数字 "${playerHpStr}" 在可见文本中出现 ${hits.length} 次（期望 1=顶栏独占）`
+      inStatus === 1 && inPlayer === 1 && inBody === 2,
+      `(d) ${tag}: 己方 HP 数字 "${playerHpStr}" 出现次数异常 ` +
+        `（.status=${inStatus} 面板玩家侧=${inPlayer} 全页=${inBody}，期望 1/1/2）`
+    );
+    const meter = page.locator('.combat [data-side="player"] .gauge-hp[role="meter"]').first();
+    assert(
+      (await meter.count()) > 0,
+      `(d) ${tag}: 面板己方 HP 条缺 role="meter" 语义承载`
+    );
+    const cur = Number(playerHpStr.split("/")[0]);
+    const vnow = Number(await meter.getAttribute("aria-valuenow"));
+    assert(
+      vnow === cur,
+      `(d) ${tag}: 面板己方 HP meter aria-valuenow=${vnow} ≠ 可见数字 ${cur}`
     );
   }
   // 顶栏状态区不得带 data-side（语义标记只属于浮层）
@@ -180,7 +199,7 @@ async function check(tag, playerHpStr) {
     (await page.locator(".status [data-side]").count()) === 0,
     `(d) ${tag}: 顶栏状态区被误标 data-side`
   );
-  console.log(`    [OK] (d) ${tag}: 己方 "${playerHpStr}" 仅顶栏出现 1 次，浮层不再重复`);
+  console.log(`    [OK] (d) ${tag}: 己方 "${playerHpStr}" 顶栏+面板各 1 次，meter 语义同值`);
 
   // (e) 浮层无横向溢出
   for (const sel of [".combat", ".combat-sides"]) {
@@ -265,7 +284,7 @@ try {
   await check("390×844", playerHpStr);
 
   await browser.close();
-  console.log("[E2E] combat-hp-distinct PASS：敌我血条色+纹双通道可分辨，己方 HP 数字顶栏独占");
+  console.log("[E2E] combat-hp-distinct PASS：敌我血条色+纹双通道可分辨，己方 HP 数字顶栏/面板同源");
   process.exit(0);
 } catch (e) {
   try {

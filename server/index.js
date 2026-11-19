@@ -1408,12 +1408,16 @@ function guardianWarning(save, chapter, boss, opts) {
   );
   const maxHp = Math.max(1, Math.trunc(Number(save.max_hp) || 1));
   const pct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
-  // F187：落地开战路径（opts.brief）把预警压成一句——敌 HP、我 HP、
-  // 下一步按什么，一屏只留三件事。玩家 HP<60% 仍走下方完整恢复指引
-  // （残血进门不指「休息/补给」就是死路）；门前被拒与房内重入两条
-  // inCombat:false 路径不经 brief，逐字不动。
+  // F187：落地开战路径（opts.brief）把预警压成一句——下一步按什么。
+  // 玩家 HP<60% 仍走下方完整恢复指引（残血进门不指「休息/补给」就是
+  // 死路）；门前被拒与房内重入两条 inCombat:false 路径不经 brief，
+  // 逐字不动。
+  // F313：brief 句不再写双方 HP 数字——它开战时定格、此后整战挂在
+  // 系统播报区冒充「实时提示」（第 108 轮同屏三口径：顶栏 87、此句
+  // 94/100、战报 94→87）。我方实时 HP 与敌方 HP 的唯一家是战斗面板
+  // （save.hp / save.combat 逐回合下发），此句只留可输入动词指引。
   if (o.inCombat && o.brief === true && pct >= 60) {
-    return `【系统】「${bossName}」HP ${bossHp} · 你 ${hp}/${maxHp}——说「攻击」开打，或「逃跑」撤离。`;
+    return `【系统】「${bossName}」交战已开始——说「攻击」继续，或「逃跑」撤离。`;
   }
   // 承伤估算：与 combatTurn 注入引擎的玩家实体同一口径——装备攻防折算进
   // 五项属性，敌方打击看玩家体力减伤与双方 rank 压制，区间 = 不暴击下限
