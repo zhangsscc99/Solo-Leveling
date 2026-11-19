@@ -1936,6 +1936,7 @@ button {
 
 /* 终端式单行输入：> 提示符 + 仅底部发丝线，聚焦才亮 */
 .input-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
@@ -2010,6 +2011,46 @@ button {
 .input-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* F285：抽屉展开时自由输入禁用——disabled 控件不派发任何指针事件，
+   盖一层 .input-veil 收点击换 .sys-toast 回执；.input-hint 为可见原因。
+   覆盖整行（含发送键），绝对定位不占行高；单行截断不横向撑宽。 */
+.input-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.input-row input:disabled {
+  color: var(--faint);
+}
+
+.input-veil {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  /* 让开左侧「>」提示符（mono --fs-md 约 0.6em 宽 + flex gap）；起点
+     宁可左移吃进提示符区（同底色不可见），不右移露出草稿首字。 */
+  left: calc(var(--fs-md) * 0.55 + var(--sp-3));
+  display: flex;
+  align-items: center;
+  background: var(--hull);
+  overflow: hidden;
+  cursor: default;
+}
+
+.input-hint {
+  font-size: 12px;
+  color: var(--system-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* ── 觉醒页 ───────────────────────────────── */
