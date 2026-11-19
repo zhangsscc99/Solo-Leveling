@@ -3533,3 +3533,21 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 ⚠️ 全量 E2E 失败：`num-feedback`（commit 6791b26，count-up 采样不足 150ms 内仅 1 次）
 
 ⚠️ 全量 E2E 失败：`forward-locked-in-choice`（commit a8b7b0b，390 视口锁定键 opacity=1，连续第二次全量红）
+
+### 第101轮（2026-11-19 15:00Z 调度，F275）：战斗键跨端可点性单一来源 + 禁点原因可见
+
+- 根因：`.combat-entry` 是写死 `disabled` 的「待命舱位」，桌面/手机在**同一存档**下各自按布局猜可点性
+  （桌面偶尔放行、手机恒灰），玩家侧就是「同一状态两套规则 + 点了没反应也不解释」。
+- 修法（devin swe-2-high）：服务端新增 `attackStatus(save, combat)`，判据与 `peacefulCombatIntent`
+  的「攻击」门禁同一组函数/常数（守关房叫阵 / 遭遇 clock+1 ≥ PITY_LIMIT 必中），随 `saveView` 下发
+  `save.attack`；前端两端只渲染同一份视图，禁点态 `title` + 键面常驻 reason + `denyShell` 点击回执，
+  可点态换「叫阵即开战」并直接 `dispatch("攻击")`。`data-act="combat"` 让该槽位正式进入全局禁键契约。
+- 收尾两处（devin swe-2-medium）：① 禁点态补 `:disabled:not(.armed)` 压暗（opacity .45 + grayscale），
+  修 `forward-locked-in-choice@390` 的「disabled 仍满色高亮」；② `combat-btn-parity` 进战等待 800ms → 4s，
+  去掉负载下的假红（实测 79–810ms 波动，旧口径必偶发红）。
+- 验收：`verify.sh F275` PASS（连跑 2 次）；`combat-btn-parity` 连跑 3 次 PASS；冒烟 `boot`/`action` PASS；
+  部署闸门 **43/43 PASS**，`DEPLOY OK`，线上 `https://openfolio.uk/game` 200、`/api/health` 200；
+  线上直跑 `combat-btn-parity`（`E2E_BASE_URL=…`）PASS：桌面 308ms / 手机 276ms 进战。
+- 顺带修：F276 作废条目的 verify 指向从未落库的 `mobile-attr-onetap.mjs`，导致 `ci-deploy` 的
+  verify-gate 误拦（先前两次部署失败即此因）——改挂已存在的 `scripts/e2e/attr-panel-mobile.mjs`。
+- 遗留：`num-feedback` 采样断言在负载下偶发红（同代码连跑先 FAIL 后 PASS），已记 F300 待修。
