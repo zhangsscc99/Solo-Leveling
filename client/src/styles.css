@@ -4495,3 +4495,16 @@ button {
     animation: none;
   }
 }
+
+/* F295 触屏/窄屏去键盘提示：.key-badge 键帽只控可见性（data-hotkey
+   派发逻辑与桌面快捷键说明原样保留），发送键抬到 ≥44px 触控高度
+   （「↵ Enter」↔「发送」文案由 App 的 narrow 条件渲染切换）。 */
+@media (pointer: coarse), (max-width: 640px) {
+  .key-badge {
+    display: none;
+  }
+
+  .input-send {
+    min-height: 44px;
+  }
+}
