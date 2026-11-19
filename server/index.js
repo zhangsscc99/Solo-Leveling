@@ -1233,7 +1233,14 @@ function vitalsCost(save) {
   const parts = [];
   if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
   if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
-  const note = parts.length ? `（体力消耗 ${parts.join(" · ")}）` : "（体力已见底）";
+  // F308：注脚必须带动作主语——裸「（体力消耗 X→Y）」与「环顾四周 ·
+  // 不耗体力魔力」同屏相邻时无法归因（第 105 轮玩家把它读成观察扣
+  // 血）。落款写死「这一步推进」：扣点永远属于本次前进/选择的推进，
+  // 观察全程 patch:null 不产生本注脚。「（体力消耗 」前缀一字不动
+  // ——F114 无位移剥离正则与若干门禁按该前缀认账。
+  const note = parts.length
+    ? `（体力消耗 ${parts.join(" · ")}——这一步推进的代价）`
+    : "（体力已见底）";
   return { patch: { hp, mp }, note };
 }
 
@@ -1997,7 +2004,9 @@ function advanceOutcome(save, choice) {
     const parts = [];
     if (hp !== save.hp) parts.push(`HP ${save.hp}→${hp}`);
     if (mp !== save.mp) parts.push(`MP ${save.mp}→${mp}`);
-    const vitNote = parts.length ? `（体力消耗 ${parts.join(" · ")}）` : "（体力已见底）";
+    const vitNote = parts.length
+      ? `（体力消耗 ${parts.join(" · ")}——这一步推进的代价）`
+      : "（体力已见底）";
     return {
       patch: { ...vit.patch, hp, mp, scene: next.id },
       rewards: fx.rewards,
