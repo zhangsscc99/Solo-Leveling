@@ -3351,6 +3351,13 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   同一 worktree（`feat/F289`）由调度器（OpenCode / deepseek-v4.1-flash）接手完成：补 `aria-describedby="act-lock-reason"`
   + 常驻可见原因节点，并新增门禁 `scripts/e2e/locked-action-feedback.mjs`（旧码无描述关系 → FAIL）。
   验收与部署口径未降级（verify + 3 条 E2E 各连跑 2 次 + tsc + build + ci-deploy 全量 40/40 + 公网冒烟）。
+- 第98轮（2026-11-19 12:47Z 调度）：派 devin swe-2-medium 做 **F291** 时 hit 免费额度共享池限流
+  （`Reached free model rate limit … reset in 14 minutes (at 13:01 UTC)`，退出码 0 但日志仅一条 Agent error，
+  worktree 零改动），按规则**不重试**，同一 worktree（`feat/F291`）由调度器（OpenCode / deepseek-v4.1-flash）接手完成：
+  `.stat-points-hint`/`.stat-xp-hint`/`.combat-nums-cols` 由 11px + `--faint`(2.48:1) 改为 12px + `--dim`(5.56:1)，
+  `.stat-points` 补 8px 右内边距（原提示文字贴硬边 0px），并新建门禁 `scripts/e2e/attr-panel-mobile.mjs`
+  （旧码红证 7 项 FAIL）。验收未降级：verify F291/F283 PASS + 新门禁连跑 2 次 + 回归 panels/mobile/gate-layout/
+  attr-plus-disabled/desktop-layout + `tsc --noEmit` + build + `ci-deploy`（全量 E2E 无 FAIL）+ 公网 390 复测 PASS。
 
 ---
 
@@ -3407,3 +3414,24 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   桌面 1440×900 实测：8 个键帽全部可见、发送键仍为「↵ Enter」（未误伤桌面快捷键）。
 
 下一轮建议：F292（系统串夹正文，与 F256/F278 同源，可一次收口）> F291（属性面板辅助字 11px / 2.54:1）> F295 已闭环。
+
+## 第98轮调度（2026-11-19 12:41Z，单条 F291，devin 限流 → 调度器回退）
+
+- 资源闸门 green（cpu 5% / mem 53% / load 0.78 / parallel 2）；本轮按规模只做 1 条。
+- 选条：F291（属性面板辅助文字 11px / 2.48:1）。理由：第91轮实测值明确、旧码可判红、
+  单轮可闭环且不动服务端；F292（系统串夹正文）与既有 `observe-dedupe.mjs`（断言正文仍含「动静 N/4」）
+  口径冲突，需连服务端叙事一起改，留后续轮。
+- 执行：devin swe-2-medium 首次派活即 hit 免费池限流（reset 13:01 UTC，worktree 零改动）→ 按规则不重试，
+  同一 worktree 由调度器（OpenCode / deepseek-v4.1-flash）接手。改动仅样式层（`client/src/styles.css` 三处辅助文案 +
+  `.stat-points` 右内边距）+ 新增门禁 `scripts/e2e/attr-panel-mobile.mjs`（同时覆盖 F283 的 ②③）。
+- 红/绿：旧码 7 项断言 FAIL（11px / 2.48:1 / 提示贴边 0px）→ 改后 12px / 5.56:1 / 12px 内收，
+  新门禁连跑 2 次 PASS，`verify.sh F291` PASS、`verify.sh F283` PASS。
+- 回归：panels / mobile / gate-layout / attr-plus-disabled / desktop-layout 全 PASS，`tsc --noEmit` 0 错。
+- 部署：`bash scripts/ci-deploy.sh`（不外套 flock，P211）→ `DEPLOY OK`，`DEPLOYED_REF=54165aa`，
+  闸门内全量 E2E 无 FAIL（92 条 PASS 行），线上 `/game/` 200、`/game/api/health` ok。
+  公网 bundle `index-yhv1tCrY.css` 命中新规则；`E2E_BASE_URL=线上` 复跑 attr-panel-mobile PASS。
+- 视觉复核（截图 + vision）：390 下三类辅助文案清晰、层级仍弱于主数值、无贴边/换行错位；
+  1440 无布局回退（vision 另提示「第 3/6 面板」文案与底部堆叠可再优化，未纳入本轮）。
+
+下一轮建议：F292（与 F256/F278/F293 同源的系统串收口，需先统一 `observe-dedupe.mjs` 的「动静 N/4 在正文」断言口径）
+> F275（战斗键跨端 disabled 不一致，P1）> F276（手机点「属性」落点，疑已被 F255 修复，需先复核是否仍成立）。
