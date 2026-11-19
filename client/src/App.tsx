@@ -165,6 +165,10 @@ const PRE_ADVANCE_INTENT_RE = new RegExp(
 // 落库行）里，瞬时层只说清「先选一个」这一步要做的动作。
 const DENY_CHOICE_TEXT = "抉择未定——先选一个：点选项键，或输入「选择 <选项名>」";
 
+// F285：档案抽屉展开时自由输入禁用——同一文案三处复用：.input-hint
+// 可见原因、禁用期 Enter/点击的 .sys-toast 回执、aria 说明。
+const DRAWER_INPUT_HINT = "抽屉已打开 · 关闭后继续输入";
+
 // F231：must_choose 由 saveView 随场景视图下发（api.ts 冻结不动——
 // 本地窄化取值，与 reply.panel 等回包附加字段同一读法）。带可选
 // 分支的非必选场景（next_choices ≥2 但 must_choose 缺席）不命中，
@@ -1356,6 +1360,13 @@ export default function App() {
         return;
       }
       const t = e.target as HTMLElement | null;
+      // F285：抽屉展开时输入框已 disabled 失焦，Enter 落到 body——不给它
+      // 静默吞掉的机会，点亮同一文案的 .sys-toast；落在抽屉内可交互元素
+      // （如 × 关闭键）上的 Enter 不拦截，让原生激活照常。
+      if (drawer && narrow && e.key === "Enter" && (!t || t === document.body)) {
+        showToast(DRAWER_INPUT_HINT);
+        return;
+      }
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const n = Number(e.key);
       if (n >= 1 && n <= COMBAT_BUTTONS.length && liveCombat) {
@@ -1403,7 +1414,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, forwardChoiceLocked, observeLocked, flashChoices, toggleBarSkills, toggleBarItems, save, showToast]);
+  }, [dispatch, openTab, tabs, cleared, liveCombat, challengeBoss, forwardChoiceLocked, observeLocked, flashChoices, toggleBarSkills, toggleBarItems, save, showToast, drawer, narrow]);
 
   // F136 接入既有存档的唯一入口：写入 localStorage 并回灌完整存档视图
   // （建档与「继续这个存档」共用，避免两条路径各自拼状态）。
@@ -1531,12 +1542,18 @@ export default function App() {
   const onSend = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
+      // F285：抽屉展开时输入框虽已 disabled，仍兜底拦截任何形式的提交
+      // （如程序化 dispatchEvent），不给静默吞输入的路径。
+      if (drawer && narrow) {
+        showToast(DRAWER_INPUT_HINT);
+        return;
+      }
       const text = input.trim();
       if (!text) return;
       setInput("");
       dispatch(text);
     },
-    [input, dispatch]
+    [input, dispatch, drawer, narrow, showToast]
   );
 
   // F159 重新登记：只解本机绑定（清 localStorage 的存档 id 并卸掉内存态），
@@ -2405,16 +2422,40 @@ export default function App() {
             </ul>
           )}
           <form className="input-row" onSubmit={onSend}>
-            <span className="input-prompt" aria-hidden="true">
-              &gt;
-            </span>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="做点别的……（自由行动）"
-              aria-label="自由行动输入"
-            />
-            <button type="submit" className="input-send" disabled={busy || !input.trim()} aria-label="发送">
+            <div className="input-field">
+              <span className="input-prompt" aria-hidden="true">
+                &gt;
+              </span>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="做点别的……（自由行动）"
+                aria-label="自由行动输入"
+                disabled={drawer && narrow}
+                aria-disabled={drawer && narrow}
+              />
+              {drawer && narrow && (
+                // F285：disabled 控件不吃任何指针事件——盖一层壳收点击，
+                // 保证「点了必有回执」；.input-hint 同时承担可见原因文本，
+                // 实底色盖住禁用前残留的草稿文字。
+                <div
+                  className="input-veil"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    showToast(DRAWER_INPUT_HINT);
+                  }}
+                >
+                  <span className="input-hint">{DRAWER_INPUT_HINT}</span>
+                </div>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="input-send"
+              disabled={busy || !input.trim() || (drawer && narrow)}
+              aria-disabled={busy || !input.trim() || (drawer && narrow)}
+              aria-label="发送"
+            >
               ↵ Enter
             </button>
           </form>
