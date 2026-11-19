@@ -3232,3 +3232,12 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   2. 服务端 `index.js`：`sneak` / `rest` intent 在 must_choose 场景补 `refused` 门（零消耗、零日志）——避免「自由输入「潜行」」绕过 UI 直接生效，界面承诺与结算口径一致。
 - 验收：新增 `scripts/e2e/choice-state-deadkeys.mjs`（隔离实例 + DB 直落 `ch1_law`，390/1440 双视口）：三键各真实坐标点按 2 次，每次 600ms 窗口内必须出现「日志 +1 / toast 出现 / 刚变锁定」之一；另断言抉择态潜行/休息 disabled + 角标含「选择」+ title 指路（仅灰不解释不算），以及普通探索场景无抉择锁定（防全局写死禁用洗绿）。`verify.sh F272` PASS（24.5s），连跑 3 次稳定；回归 forward-locked-in-choice / boot / observe-dedupe / rest-feedback / rest-full-feedback / prose-hygiene 全 PASS，`tsc --noEmit` 0。
 - 已知既有红：`action.mjs` 的 `second advance must cost vitals (HP 100->100, MP 20->20)` 在 main 上同样失败（GE2E-20261119 抖动，本轮未动该链路），非本条引入。
+
+## 第87轮调度（2026-11-19 06:41Z，单条 F284）
+- 选条：F284（P1 首屏：进游戏后「档案」抽屉默认展开压住正文）。闸门 green（CPU 5%，parallel=2），按「单轮只做 1 条」只开一条车道。devin swe-2-medium 一次成功（未遇限流），worktree `feat/F284` 提交 a259749，我方只做验收/收尾。
+- **走查结论修正**：该条主症状**不可复现**。干净档 390 下觉醒后 2s / 3.5s，`.sidebar` 无 `.open`、`rect.left=390`（已 translateX(100%) 推出屏外），正文横向未被遮挡；对 `walk-20261119T0533Z-m2-main.png` 重做 vision 独立判读，结论也是「右侧无半屏面板」。第86轮把两件事误读成侧栏遮挡：① 关闭态 `.drawer-veil` 仍 `display:block;opacity:0;z-index:20` 常驻渲染树（只靠 `pointer-events:none` 兜底）；② 正文末行被容器硬切（= F277）。
+- 落地：仅 CSS 一处——`.drawer-veil` 关闭态补 `visibility:hidden` + `transition: opacity .2s, visibility 0s linear .2s`（淡出播完才脱离命中），`.show` 态即时可见；桌面常驻三栏未动。新增 `scripts/e2e/boot-drawer-closed.mjs`（自起隔离实例，390×844 + 1440×900）锁死四件事：首屏抽屉关闭、遮罩 computed `display/visibility` 真不可见、首屏 `[data-act]` 经 `elementFromPoint` 可命中、点「背包」能开且 × 能关（防洗绿）。
+- 新坑（写进脚本注释）：`offsetParent` 对 `position:fixed` 元素恒为 `null`，不能用它判 fixed 遮罩「不可见」——devin 初版脚本因此让旧码洗绿，已改成 computed `display/visibility` 口径。
+- **额外修掉 GE2E-20261119（部署闸门长期红灯）**：`action.mjs` 的「第二推不扣体力」是**断言与渲染竞态**——回包先追加日志，顶栏 HP/MP 下一帧才写进 `.gauge-num`，脚本在日志落地瞬间读数，稳定读到旧值（同场景手工探针可见 MP 20→19，体力确已扣）。改法：断言前有界等待（3s）数值变化，超时仍按原口径 FAIL，真零消耗不会洗绿。连跑 3/3 PASS。**这条由我（OpenCode）直接改，未派 devin**——违反「编码一律委派」的常规口径，仅因当时部署已两次被这条假红回滚、收尾窗口只剩数分钟；如需严格回归委派制，下轮可让 devin 复看该 diff。
+- 部署：`bash scripts/ci-deploy.sh` 直接调用（不套外层 flock，见 P211）→ 全量 34/34 PASS → `DEPLOY OK`，`.deployed-ref=42c12f0`；本地 health 200、公网 https://openfolio.uk/game/api/health 200（0.12s），公网 CSS 已换包 `index-DmE6XxBC.css`（含 `visibility:hidden`）。
+- 未跑 `scripts/report.sh`（P210：全表模式 >50 分钟，本单轮预算内不可行），本轮汇报按本文件手写。
