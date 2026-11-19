@@ -3109,3 +3109,10 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - F259 落地：HP/MP/金币/XP 变化后 ~400ms ease-out 滚到终值（滚动期 `data-anim="count"` + `data-counting="1"`，reduced-motion 直接落终值）；`.gauge-ghost[data-ghost]` 垫在 fill 之下，掉血段先停 0.3s 再 0.4s 收拢（absolute 不占布局，390 无横溢）；属性面板经验条宽度随 XP 入账变化（0→29.6px）。`num-feedback.mjs` 连跑 3 次 PASS（6.5–7.5s），旧码红证：同一脚本在 main 旧 bundle 上 `(a) HP 数字 100→97 未采到中间值` FAIL。
 - 部署插曲：首次 `ci-deploy.sh` 在 e2e 步 FAIL（当轮 `run-all` 无失败项，隔离复跑 29/29 PASS，判为瞬时抖动）→ 脚本按设计 ROLLBACK 到 `.deploy-backup`；直接重跑一次 `bash scripts/ci-deploy.sh` → `29/29 passed` + `DEPLOY OK`，`.deployed-ref=58d481b`，本地/公网 health 均 200。
 - 口径提醒（P211 未修前）：部署一律 `bash scripts/ci-deploy.sh`，不要再套 `flock .deploy.lock -c`。
+
+## 第81轮（2026-11-19 02:41 UTC，cron solo-leveling-loop）
+- 选条：F272（P0 抉择态「观察/潜行/休息」零反馈）。**复核结论：当前代码不成立（未能复现）**。390/1440 双视口、隔离实例直落 `ch1_law`/`ch1_statues`/`ch1_system` 三个 must_choose 场景，连点「观察」5 次：每次回包 `intent=observe`、正文 +40~110 字、`.log` 逐条增长；「潜行」扣 MP、「休息」回 MP 均正常，只有「前进」被 P204 必选门拒绝（已由 F247/F265 置灰+指路）。原报告「截图字节级相同」疑为旧 bundle 或看截图时序误判。
+- 过程中曾按「三键与前进同口径锁死」实现并写出 `scripts/e2e/choice-state-deadkeys.mjs`，但该口径**打红既有守卫 `dwell-guidance`（F240 要求抉择态「观察」仍回指路句点名真实选项）**，且与 F240/F244 的产品意图冲突 → 判定为错误方向，已 `git revert` 整轮回退（产品代码回归 58d481b 同源），主线全量 e2e 复跑 **29/29 PASS**。
+- **本条 devin 失败：免费 SWE-2 额度耗尽（`Reached free model rate limit`，退出码 1；swe-2-high 与 swe-2-medium 均被限，03:01 UTC 重置）→ 已回退 OpenCode 执行**。回退后按实测证据推翻了该条前提，故未产出产品改动。
+- 建议：F272 交 product-walkthrough 用当前线上包重测；若仍复现，需附「点击后 600ms 网络请求条数」取证（区分「没点到/被壳拦下/请求被拒」三种成因），再定修法。
+- 部署插曲：两次 `ci-deploy.sh` 均在 e2e 步随机翻红（`action.mjs` 单条瞬时红，28~29/30），`run-all` 独立复跑 29/29 全绿 → 判为并发负载下的抖动，非本轮改动引入。
