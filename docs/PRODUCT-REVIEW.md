@@ -3103,3 +3103,9 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **F259（数字无动效）→ 仍在**：战后/观察后数值全部字符替换，无 count-up、无残影。
 - **续档**：刷新后 logCount / HP / XP / 章节四项完全一致，**无回归**。
 - **本轮新增 7 条**：F272（抉择态 4 个键点了无反馈）、F273（`read_the_law` 调试串进正文）、F274（观察消耗与遭遇无预警）、F275（「战斗」键跨端行为不一致）、F276（手机一次点击到不了属性）、F277（手机首屏正文末行裁切）、F278（数值播报以括注混入正文）。
+
+## 第80轮调度（2026-11-19 02:01Z，单条 F259）
+- **F259 devin 半程中断（免费额度）→ 收尾由 OpenCode 完成**：`swe-2-high` 已落 `useCountUp.ts` + `Gauge.gauge-ghost` + 顶栏金币/XP 与属性面板 XP 的 count-up，并在写 `scripts/e2e/num-feedback.mjs` 时命中 `Reached free model rate limit … reset at 03:01 UTC`（退出码 0 但脚本是半成品）。回退 OpenCode 只做两处最小修补：① `parseGauge/parseNum` 由 `const` 改函数声明（原脚本在 TDZ 里调用 → `Cannot access 'parseGauge' before initialization`）；② 断言脚本原先只在「`client/dist` 缺失」时构建，main 上残留上一次部署的旧 bundle 会把本轮改动误判 FAIL（实测 verify 首跑红），改为「源码 mtime 比 dist 新即重建」。
+- F259 落地：HP/MP/金币/XP 变化后 ~400ms ease-out 滚到终值（滚动期 `data-anim="count"` + `data-counting="1"`，reduced-motion 直接落终值）；`.gauge-ghost[data-ghost]` 垫在 fill 之下，掉血段先停 0.3s 再 0.4s 收拢（absolute 不占布局，390 无横溢）；属性面板经验条宽度随 XP 入账变化（0→29.6px）。`num-feedback.mjs` 连跑 3 次 PASS（6.5–7.5s），旧码红证：同一脚本在 main 旧 bundle 上 `(a) HP 数字 100→97 未采到中间值` FAIL。
+- 部署插曲：首次 `ci-deploy.sh` 在 e2e 步 FAIL（当轮 `run-all` 无失败项，隔离复跑 29/29 PASS，判为瞬时抖动）→ 脚本按设计 ROLLBACK 到 `.deploy-backup`；直接重跑一次 `bash scripts/ci-deploy.sh` → `29/29 passed` + `DEPLOY OK`，`.deployed-ref=58d481b`，本地/公网 health 均 200。
+- 口径提醒（P211 未修前）：部署一律 `bash scripts/ci-deploy.sh`，不要再套 `flock .deploy.lock -c`。
