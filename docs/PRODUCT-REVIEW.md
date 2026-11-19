@@ -3584,3 +3584,13 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 战斗键可点性跨端一致（F275）：390 下「战斗｜叫阵即开战」可点并正常进战。
 - 续档一致（F288 未复现）、辅助文案字号/对比（F291 已落地）、手机端无 `↵ Enter` 与快捷键数字（F295 已落地）。
 
+## 第102轮调度记录（2026-11-19T16:31Z，F300）
+
+- 闸门：`agent-gate check` RC=0（cpu 6%、load1 1.38、mem 51%），parallel=2，本轮按规模只做 1 条。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功，未触发回退/限流），commit `2d74eeb`，合并 `f1c8a9c`。
+- 条目：F300（P1 工程稳定性）num-feedback 采样偶发红 → `sampleWindow` 改 rAF 逐帧 + 20ms `setTimeout` 兜底泵，先采满「t≥200ms 且 ≥8 样本」；early 硬密度断言降级为「≥1 样本且出现过严格中间值」。
+- 验收（调度器亲自复跑）：`verify.sh F300` rc=0；`num-feedback` 5 连跑 rc=0×5（200ms 内 13–14 帧）；merge 后 main 上 `num-feedback`/`boot`/`action` 全 PASS；`ci-deploy` **43/43 E2E PASS**，`DEPLOYED_REF=f1c8a9c`，本地 health 200 / 公网 `https://openfolio.uk/game` 200。
+- 途中事故（已修，已立项 P213）：`better-sqlite3` 的 node ABI 与 pm2 解释器错配 → 首轮部署在 health-check 崩溃并进入 restart 循环（公网 502 数十秒）。处置：按 `ci-deploy.sh` STEP 2 口径用 node24 重编译，并 `pm2 restart solo-leveling --interpreter /www/moved/nvm/versions/node/v24.5.0/bin/node`；随后 deploy 两轮通过（第二轮 43/43）。教训：deploy 脚本 restart 必须显式带解释器，且 restart 前应做 ABI 探针（已写入 P213）。
+- 新发现：GE2E-20261119d（`deny-feedback` 在整套全量里偶发 1332ms ≥ 800ms，单独连跑 2 次 PASS、下一轮全量 43/43 PASS → 疑似阈值/冷态抖动，需打点区分）。
+- 遗留：`report.sh` 全表模式仍受 P210 限制（>50 分钟、15 分钟单轮内跑不完），本轮汇报由调度器手写；建议下轮优先做 P210 增量模式。
+
