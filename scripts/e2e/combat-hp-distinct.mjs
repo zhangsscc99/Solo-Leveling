@@ -22,6 +22,10 @@
 //        浮层己方 HP 不再重复渲染该数字（role=meter 承载语义值）；
 //     e) 390×844 与 1440×900 两个视口下，.combat 与 .combat-sides 均无
 //        横向溢出（scrollWidth <= clientWidth）。
+//     f) F303：顶栏 .status .gauge-hp .gauge-fill 与浮层己方填充的
+//        computed backgroundImage 字符串完全相等（共用 --hp-player-fill）；
+//     g) 敌方填充与该己方填充不相等，且仍含 repeating-linear-gradient
+//        斜纹（颜色+纹理双通道可分辨）。
 //
 //   旧码红证：前端回退到 F286 之前（无 data-side 标记、双方同款红条、
 //   浮层己方 HP 仍渲染 97/100）实测，(a) 即拦下，exit=1：
@@ -184,6 +188,28 @@ async function check(tag, playerHpStr) {
     assert(overflow <= 0, `(e) ${tag}: ${sel} 横向溢出 ${overflow}px`);
   }
   console.log(`    [OK] (e) ${tag}: .combat/.combat-sides 无横向溢出`);
+
+  // (f) F303 同一含义同一语言：顶栏己方 HP 填充与浮层己方 HP 填充的
+  //     computed backgroundImage 字符串完全相等（共用 --hp-player-fill）
+  const topFill = page.locator(".status .gauge-hp .gauge-fill").first();
+  assert((await topFill.count()) > 0, `(f) ${tag}: 顶栏无 .status .gauge-hp .gauge-fill`);
+  const tBg = await topFill.evaluate((el) => getComputedStyle(el).backgroundImage);
+  assert(
+    tBg === pBg,
+    `(f) ${tag}: 顶栏己方 HP 与浮层己方 HP 填充不一致\n      top=${tBg.slice(0, 140)}\n      cbt=${pBg.slice(0, 140)}`
+  );
+  console.log(`    [OK] (f) ${tag}: 顶栏/浮层己方 HP 填充完全一致 ${tBg.slice(0, 60)}…`);
+
+  // (g) 敌方填充与（顶栏=浮层）己方填充不相等，且仍含 45° 斜纹标识
+  assert(
+    eBg !== tBg,
+    `(g) ${tag}: 敌方 HP 填充与己方填充相同（无法区分）: ${eBg.slice(0, 120)}`
+  );
+  assert(
+    /repeating-linear-gradient/.test(eBg),
+    `(g) ${tag}: 敌方 HP 填充丢失斜纹纹理标识（backgroundImage=${eBg.slice(0, 120)}）`
+  );
+  console.log(`    [OK] (g) ${tag}: 敌方填充 ≠ 己方且仍带斜纹`);
 }
 
 const browser = await launch();
