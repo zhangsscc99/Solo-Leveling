@@ -2524,7 +2524,7 @@ export default function App() {
               aria-disabled={busy || !input.trim() || (drawer && narrow)}
               aria-label="发送"
             >
-              ↵ Enter
+              {narrow ? "发送" : "↵ Enter"}
             </button>
           </form>
         </div>
