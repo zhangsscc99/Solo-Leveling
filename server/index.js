@@ -361,7 +361,11 @@ function observeDisclosure(save, scene) {
     max: encounterEngine.PITY_LIMIT,
   };
   const rollable = observeSceneRollable(scene);
-  const mayEncounter = rollable && freeLeft === 0;
+  // F293：must_choose 未决场景的过盖观察不再推进动静账（observe 构
+  // 建器同判据短路、patch null），披露不得再谎称「每看一次动静 +1、
+  // 攒满直接遇敌」——如实改写先做抉择。
+  const choosePending = scene && scene.must_choose === true;
+  const mayEncounter = rollable && freeLeft === 0 && !choosePending;
   const meter = `${noise.cur}/${noise.max}`;
   let hint;
   let badge = null;
@@ -369,9 +373,14 @@ function observeDisclosure(save, scene) {
     badge = `免费×${freeLeft}`;
     hint =
       `环顾四周 · 不耗体力魔力 · 本场景细看还剩 ${freeLeft} 次免费` +
-      (rollable
-        ? `；之后每看一次动静 +1（现 ${meter}），攒满直接遇敌`
-        : `；此处掷不出遭遇，细看用尽即「看尽」锁定`);
+      (choosePending
+        ? "；用尽后抉择未定——先选定要走的路，再看也不会有新发现"
+        : rollable
+          ? `；之后每看一次动静 +1（现 ${meter}），攒满直接遇敌`
+          : `；此处掷不出遭遇，细看用尽即「看尽」锁定`);
+  } else if (choosePending) {
+    badge = "先做抉择";
+    hint = "环顾四周 · 细看已尽 · 抉择未定——先做抉择，再看也不会有新发现";
   } else if (rollable) {
     badge = `动静 ${meter}`;
     hint =
@@ -857,6 +866,19 @@ const OBSERVE_OVER_LINES_CHOOSE = [
   (entity, guide) => `景物没有新变化，黑暗里的动静却在逼近——${guide}，别等它找上门。`,
   (entity, guide) => `蹲在这里只是重数旧痕——${guide}，定了心才有下一步。`,
 ];
+
+// F293 must_choose 未决场景的过盖观察提示池：抉择态里「前进/潜行/
+// 休息」都被必选门锁死，「环顾四周」是少数还能点的键——它从第
+// OBSERVE_TOTAL+1 次起不得再是纯负收益死选项（observeOverCap 的
+// 动静账只在非抉择场景照走）。正文一律【系统】播报腔，明示先做抉
+// 择；不挂「探索」字样，不计入 observeCount/observeSceneCount 的
+// LIKE 账。按 (save_id) 确定性轮换，同档连点不重文。
+const OBSERVE_CHOOSE_SPENT_LINES = [
+  "【系统】抉择未定——这一带已经看熟了，先做抉择，再谈环顾四周。",
+  "【系统】抉择未定——再看也挤不出新东西，先做抉择，定下来才有下一步。",
+  "【系统】抉择未定——景物没有新变化，先做抉择，别在原地打转。",
+];
+const observeChooseSpentSeq = new Map();
 
 // F241 风险尾注措辞池：旧版可掷怪分支只剩两个固定变体（过/未过保底
 // 线各一），正文池 OBSERVE_OVER_LINES 在轮换、唯独尾注逐字复读——同
@@ -3722,7 +3744,24 @@ const INTENTS = [
           (proseStmts.observeSceneCount.get(save.id, `「${sceneNarrName(scene)}」——`) || {}).n
         ) || 0
       );
+      // F293：must_choose 未决场景的过盖观察不得是纯负收益死选项——抉
+      // 择态里「前进/潜行/休息」都被必选门锁死，唯一可点的「环顾四周」
+      // 从第 OBSERVE_TOTAL+1 次起只攒 encounter_clock 不产出信息。改
+      // 为零代价零动静：patch null（不扣 HP/MP、不推进动静账）、正文
+      // 换【系统】播报逐次明示先做抉择（不挂「探索」字样，不落
+      // observeSceneCount 账，sceneN 就此封顶）。非抉择场景的
+      // over-cap 口径不动——照旧走 observeOverCap 推进 clock/兑现遭遇。
       if (sceneN >= OBSERVE_TOTAL) {
+        if (scene.must_choose === true) {
+          const key = `${save.id}|choose-spent`;
+          const k = observeChooseSpentSeq.get(key) || 0;
+          observeChooseSpentSeq.set(key, k + 1);
+          return {
+            patch: null,
+            content:
+              OBSERVE_CHOOSE_SPENT_LINES[k % OBSERVE_CHOOSE_SPENT_LINES.length],
+          };
+        }
         return observeOverCap(save, scene, entity);
       }
       const closing = observeClosing(save, scene, entity);
