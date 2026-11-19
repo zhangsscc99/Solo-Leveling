@@ -1451,8 +1451,16 @@ button {
 
 .stat-points-hint {
   margin-left: auto;
-  font-size: var(--fs-xs);
-  color: var(--faint);
+  /* F291：手机属性面板辅助文案——原 --fs-xs(11px)/--faint 对面板底实测
+     2.48:1，强光下读不出。抬到 12px + --dim(5.56:1)，仍明显弱于主数值
+     （--text 14.09:1），只解决可读性、不改信息层级。 */
+  font-size: 12px;
+  color: var(--dim);
+}
+
+/* F291：辅助文案不贴面板右硬边（走查实测右缘间距 0px）。 */
+.stat-points {
+  padding-right: 8px;
 }
 
 .stat-add {
@@ -1526,8 +1534,9 @@ button {
 
 .stat-xp-hint {
   margin-left: auto;
-  font-size: var(--fs-xs);
-  color: var(--faint);
+  /* F291：同 .stat-points-hint——12px + --dim，可读但弱于主数值。 */
+  font-size: 12px;
+  color: var(--dim);
 }
 
 .map-list {
@@ -3658,8 +3667,9 @@ button {
 }
 
 .combat-nums-cols {
-  font-size: var(--fs-xs);
-  color: var(--faint);
+  /* F291：表头「基础/装备/合计」同为辅助文案，11px/--faint 2.48:1 → 12px/--dim 5.56:1。 */
+  font-size: 12px;
+  color: var(--dim);
 }
 
 .combat-nums-cols span:not(:first-child) {
