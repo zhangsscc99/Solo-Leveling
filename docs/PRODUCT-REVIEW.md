@@ -3402,3 +3402,8 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 验收：verify F295 PASS；冒烟 `boot`/`action`/`mobile` 3/3 PASS（worktree 与 main 各跑一遍）。
   全量 E2E 交给独立 full-e2e 任务，本轮不跑。
 - 部署：`bash scripts/ci-deploy.sh`（不再外套 flock，见 P211）；
+  结果 `DEPLOY OK`、`DEPLOYED_REF=51f77cf`（含本次 merge），线上全量 E2E 40/40 PASS，`/game` 与 `/game/api/health` 均 200。
+  线上 390×844 实测：`.key-badge` 8 个全部 `display:none`、正文无 `↵`/`Enter`、发送键文案「发送」高 44px；
+  桌面 1440×900 实测：8 个键帽全部可见、发送键仍为「↵ Enter」（未误伤桌面快捷键）。
+
+下一轮建议：F292（系统串夹正文，与 F256/F278 同源，可一次收口）> F291（属性面板辅助字 11px / 2.54:1）> F295 已闭环。
