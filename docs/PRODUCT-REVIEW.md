@@ -3842,3 +3842,14 @@ F313（P1｜战斗数值口径不一致）、F314（P1｜观察空转刷日志�
 ### 本轮新增待办（6 条，其中视觉类 3 条）
 
 F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍可点、拒绝行入档）、F319（P1｜注册墙 CTA 权重不足）、F320（P1｜首幕双主行动冲突）、F321（P2｜手机末段叙事被压、无滚动提示）、F322（P2｜孤字换行 + 术语不一致）。
+
+## 第111轮调度（2026-11-19T22:01Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 20%、load1 0.84、mem 46%、swap 85%、disk_root 62%），parallel=2；按规模只做 1 条。
+- 选条理由：F314 是第109轮遗留观察里点名的下一个 P1 死选项；第110轮走查又把它升级成「拒绝行被写进存档」（F318），两条同根，一并收口。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功，无回退 / 无限流），commit `710312a`，ff-merge 入 main。耗时约 11 分钟。
+- 修法：① 服务端 `observeStatus()` 在 `must_choose && free_left===0` 时下发 `available:false` + 原因「抉择未定——此处已无新发现，先选定要走的路」，前端既有 obsBlocked 管线接管（disabled + aria-disabled + 灰化 + title + 就地小字）；② 意图层抉择态过盖分支由「写【系统】拒绝行入库」改为 `refused + choice_refusal_repeat`——零消耗、零落库，回执只走 `.sys-toast`，热键/自由输入/裸请求同一条路径；③ 删除 `OBSERVE_CHOOSE_SPENT_LINES` 轮换池（改单条常量）。
+- 验收（调度器亲自复跑，node24 ABI137 PATH）：`verify.sh F314` **PASS 11.55s**；新门禁 `observe-empty-spam.mjs` 连跑 3 次全 PASS（11.0/12.4/10.9s，耗尽后 `.log-entry 14→14`、刷新后仍 14 = 零落库）；冒烟 `boot` 2.9–3.8s / `action` 4.0–4.6s PASS（main 合入后复跑）。
+- 旧码红证（devin 留存）：`[E2E] observe-empty-spam FAIL (9.7s) assert failed: [390x844] B 耗尽后「环顾四周」未置灰：disabled=false aria-disabled=false`
+- 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 遗留观察：① **F318 应已被本条连带修掉**（拒绝行不再落库、按钮 aria-disabled、刷新正文无【系统】抉择未定），但需按 F318 自己的 verify 口径再跑一次才能勾选，本轮不预勾；② **F317（P0）仍未做**——抉择态「探索前进/潜行/休息」disabled 后点击零回执，比本条更伤，下一轮优先；③ `docs/PRODUCT-REVIEW.md` 的 report.sh 全表模式（P210）本轮仍未跑，报告为手写。
