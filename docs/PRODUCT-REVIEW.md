@@ -3324,6 +3324,17 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 未跑 `scripts/report.sh`（P210 未修，全表 >50 分钟），汇报按本文件手写。
 - 下一轮建议：F289（P0，`choice-locked` 键零回执——注意 F279 已实现 disabled 三件套，需先复测确认是否仍复现再动刀）> F292（系统串混正文）> F291（属性面板辅助文字 12px/4.5:1）。
 
+## 第95轮调度（2026-11-19 10:41Z，单条 F289）
+
+- 闸门：`agent-gate.sh check solo-leveling` → green（cpu 8%、load 1.10/4 核、mem 50%、disk 61/45），parallel=2，按「单轮只做 1 条」开一条车道。
+- 选条：F289（P0，抉择锁定键零回执）。上一轮记录已指出「F279 已实现 disabled 三件套，需先复测」——实测复核结论：`.deny-tap-catcher` 回执**已存在且有效**（点锁定键能点亮 `.sys-toast` + `data-denied` 抖动），真正还缺的是 ① 没有任何门禁脚本（FEATURES 的 verify 文件不存在 → verify.sh NO_ASSERT_FILE 红），② 被锁键**没有 `aria-describedby`**，读屏/键盘用户拿不到「为什么点不动」的可见原因。故本轮只补这两块，不重写回执机制。
+- 执行：devin swe-2-medium 首次派活即撞免费池限流（`Reached free model rate limit … reset in 15 minutes (at 11:01 UTC)`，零改动），按规则**不重试**，同一 worktree `feat/F289` 由调度器（OpenCode / deepseek-v4.1-flash）接手完成。
+- 落地：`client/src/App.tsx` 在「行动」组内新增常驻可见原因 `#act-lock-reason`（复用 `.combat-lock-hint` 排印，文案取 `DENY_CHOICE_TEXT` 单一事实源，仅 `forwardChoiceLocked` 渲染，零新增行高、390 下 ellipsis 收尾）；被锁键（前进/潜行/休息）带 `aria-describedby="act-lock-reason"`。未改服务端、端口、反代、依赖。
+- 验收：新增 `scripts/e2e/locked-action-feedback.mjs`（自起隔离实例 + 临时 DB + AI key 置空，直落第 1 章 must_choose）：① 键为 choice-locked；② 真实鼠标点击 300ms 内必有回执；③ `aria-describedby` 指向存在、有尺寸、可见且文本含「选择」；④ 零副作用；⑤ 键位矩形不变、390 无横溢；⑥ 连点 3 次都有回执。连跑 2 次 PASS（6.1s / 6.5s）；回归 `disabled-denied-feedback`、`choice-state-deadkeys` 各连跑 2 次 PASS；`verify.sh F289` PASS（7.03s）；`tsc --noEmit` 0；`npm run build` 0。
+- 部署：按 P211 直接 `bash scripts/ci-deploy.sh`（不套外层 flock；首次前台跑因 datingagent 的 vitest 抢 CPU 撞 420s 工具超时，改后台日志方式重跑）。闸门内全量 **40/40 E2E PASS**，`DEPLOYED_REF=259f235`，本地 health 200、公网 `/game/` 200、公网 health `{"ok":true}`；冒烟 `boot`+`action` 对线上 PASS。
+- 未跑 `scripts/report.sh`（P210 未修，全表 >50 分钟），汇报按本文件手写。
+- 下一轮建议：F292（系统串夹在小说正文里）> F291（属性面板辅助文字 12px/4.5:1）> F288（同档刷新续档不一致，P1 存档信任）> F281（战斗缺敌方血条/伤害数字层）。
+
 ## 回退记录
 
 - 第93轮（2026-11-19 09:31Z 调度）：派 devin swe-2-medium 做 **F277** 时 hit 免费额度共享池限流
@@ -3335,3 +3346,8 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   时挂渐隐。红证：旧码 390×844 到底态 `mask=linear-gradient(rgb(0,0,0) calc(100% - 24px), transparent)` → FAIL；
   修后 390 末条余量 88.7px / 1440 78.8px，`verify.sh F277` PASS，冒烟 `boot`/`action`/`mobile`/`desktop-log-occlusion` PASS，
   部署闸门内全量 38/38 PASS，线上 `DEPLOYED_REF=2a0d4b2`、`/game/api/health` 200。
+- 第95轮（2026-11-19 10:44Z 调度）：派 devin swe-2-medium 做 **F289** 时 hit 免费额度共享池限流
+  （`Reached free model rate limit … reset in 15 minutes (at 11:01 UTC)`，worktree 零改动），按规则**不重试**，
+  同一 worktree（`feat/F289`）由调度器（OpenCode / deepseek-v4.1-flash）接手完成：补 `aria-describedby="act-lock-reason"`
+  + 常驻可见原因节点，并新增门禁 `scripts/e2e/locked-action-feedback.mjs`（旧码无描述关系 → FAIL）。
+  验收与部署口径未降级（verify + 3 条 E2E 各连跑 2 次 + tsc + build + ci-deploy 全量 40/40 + 公网冒烟）。
