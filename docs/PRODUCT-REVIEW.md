@@ -3386,3 +3386,19 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 
 ### 本轮新增待办
 见 `docs/FEATURES.md` F293–F296（含视觉类 3 条），并把 F291 的对比度证据补成实测值。
+
+## 第97轮调度（2026-11-19 12:01Z，单条 F295）
+
+- 资源闸门 green（cpu 27% / mem 47% / parallel 2），本轮按规模只做 1 条。
+- 选条：第96轮遗留的 F295（触屏仍印桌面快捷键 `1/2/3`、`5/6/7/8/9` 与「↵ Enter」）——P2 但纯视觉/无风险、
+  单轮可闭环；F251 已在历史里四次判为误报，跳过；F292/F291 留后续轮。
+- 执行：devin swe-2-medium（`feat/F295` worktree）一次成功，未触发限流，无回退。
+  - `App.tsx`：发送键 `{narrow ? "发送" : "↵ Enter"}`（桌面保留快捷键提示）。
+  - `styles.css`：`@media (pointer:coarse), (max-width:640px)` 隐藏 `.key-badge`，`.input-send` 抬到 44px；
+    只控可见性，`data-hotkey` 派发与桌面 `title="快捷键 N"` 原样保留。
+  - `mobile.mjs`：追加触屏断言（正文无 `↵`、无 `\bEnter\b`、键帽全部不可见、发送键 ≥44px 且触摸文案），
+    并按仓库 30/42 脚本的既有口径补了隔离实例自举（显式传 `E2E_BASE_URL` 时跳过）。
+- 红线：改动前断言 FAIL（`no ↵ Enter hint on touch`），改后 `verify.sh F295` PASS。
+- 验收：verify F295 PASS；冒烟 `boot`/`action`/`mobile` 3/3 PASS（worktree 与 main 各跑一遍）。
+  全量 E2E 交给独立 full-e2e 任务，本轮不跑。
+- 部署：`bash scripts/ci-deploy.sh`（不再外套 flock，见 P211）；
