@@ -100,9 +100,19 @@ export interface RestStatus {
 // F257 观察可用性：不可掷怪场景「看尽」锁定 / 交战态时 available=false
 // 且 reason 给出禁用原因——与 RestStatus 同一「服务端给口径」模式，
 // 前端据此置灰「环顾四周」并在 title / 就地小字透传理由。
+// F274 代价事前披露：cost/free_left/noise/may_encounter/hint/badge 全部
+// 服务端结算（观察真实机制不扣 HP/MP——cost 恒 null；代价是复核区观察
+// 每次动静 +1，攒满可掷怪场景直接遇敌），前端只渲染不硬编码数字。
 export interface ObserveStatus {
   available: boolean;
   reason: string | null;
+  cost: { hp: number; mp: number } | null;
+  free_left: number;
+  free_total: number;
+  noise: { cur: number; max: number };
+  may_encounter: boolean;
+  hint: string;
+  badge: string | null;
 }
 
 export interface Save {

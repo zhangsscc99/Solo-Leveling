@@ -4034,6 +4034,36 @@ button {
   }
 }
 
+/* ── F274 观察代价事前披露：.log 内常驻系统提示行 ──
+   服务端 save.observe.hint 原文透传，作为 .log 最新子节点渲染——与
+   .rest-hint 同一语气（弱一级对比度小字注），但落点是日志滚动区末尾：
+   1px 发丝线顶边把它与上方正文分开，非 .log-entry 旁白排版（无衬线、
+   无首行缩进），避免机制括注混进小说正文（F256/F278 口径）。窄屏允许
+   折行——披露文案必须整句可读，不做省略号截断；交战/「看尽」锁定态
+   不渲染，不占位。 */
+.log-hint {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-2) 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--faint);
+}
+
+.log-hint::before {
+  content: "▪";
+  margin-right: var(--sp-2);
+  color: var(--system-dim);
+}
+
+/* F274「环顾四周」键面代价角标：与 .rest-count 同一位点语言（左上角
+   小牌、mono 数值），色彩向系统青靠一档——它披露的是机制账不是剩余
+   次数。服务端 save.observe.badge 原文透传，移动端不靠 hover 可见。 */
+.btn .obs-cost {
+  color: var(--system);
+  border-color: var(--system-dim);
+}
+
 /* ── F177 「休息」死键原因的就地小字 ──
    与 .save-blocked-hint 同一语气：服务端 reason 原文透传，弱一级对比度，
    不是告警条。flex 整行落在行动组四键与系统 meta 行之间；单行不换行、

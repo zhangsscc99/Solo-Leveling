@@ -1763,6 +1763,17 @@ export default function App() {
               正在书写……
             </div>
           )}
+          {/* F274 观察代价事前披露：save.observe.hint 服务端原文透传——
+              作为 .log 的最新子节点常驻，玩家在任何一次点击之前就能读
+              到代价（刷新/续档进场景即渲染）。系统提示样式：不进
+              .log-entry 的旁白排版，避免机制括注混进小说正文。交战态
+              （liveCombat）与「看尽」锁定（available===false）不渲染、
+              不占位。 */}
+          {!liveCombat && save.observe && save.observe.available === true && save.observe.hint ? (
+            <div className="log-hint" data-observe-hint="1" role="note">
+              {save.observe.hint}
+            </div>
+          ) : null}
         </div>
         {logHint && (
           <div className="log-scroll-hint" data-scroll-hint="1" aria-hidden="true">
@@ -1994,7 +2005,9 @@ export default function App() {
                           ? `进入第${nextChapter.index}章 · 过门不耗体力 · 快捷键 ${i + 1}`
                           : retreatToBoss
                             ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
-                            : `快捷键 ${i + 1}`)
+                            : obsInfo && obsInfo.hint
+                              ? `${obsInfo.hint} · 快捷键 ${i + 1}`
+                              : `快捷键 ${i + 1}`)
                     }
                     aria-disabled={busy || restBlocked || choiceLocked || obsBlocked}
                   >
@@ -2013,6 +2026,14 @@ export default function App() {
                     {restInfo ? (
                       <span className="rest-count" data-rest-count="1" title="剩余休息次数">
                         {restInfo.remaining}
+                      </span>
+                    ) : null}
+                    {/* F274：「环顾四周」键面左上角代价角标——服务端
+                        save.observe.badge 原文透传（免费×N / 动静 cur/max），
+                        移动端没有 hover，不看 title 也读得到代价。 */}
+                    {obsInfo && !obsBlocked && obsInfo.badge ? (
+                      <span className="rest-count obs-cost" data-observe-cost="1">
+                        {obsInfo.badge}
                       </span>
                     ) : null}
                     {choiceLocked ? (

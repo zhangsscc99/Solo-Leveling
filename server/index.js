@@ -332,6 +332,65 @@ function restStatus(save, combat) {
   return { available: reason === null, remaining, reason };
 }
 
+// F274 观察代价事前披露（observeStatus 的下发字段全部由本函数结算，
+// 前端只渲染不猜数——真实机制是：
+//   · 前 OBSERVE_TOTAL 次「细看」patch:null——不扣 HP/MP、不推进任何账；
+//   · 本场景第 OBSERVE_TOTAL+1 次起进复核区：每次 encounter_clock +1
+//     （负值=守关房再入冷却向 0 收一格），可见计数即正文尾注的
+//     「动静 N/PITY_LIMIT」；
+//   · 可掷怪场景里推进后 clock 到 PITY_LIMIT 的那次观察直接复用
+//     tryEncounter 当场开战（observeOverCap 同一判定），不可掷怪场景
+//     则收口「看尽」锁定。
+// 玩家实测投诉「点一次环顾四周无预警被拖进遭遇战」——披露必须把这本账
+// 写在下发字段里：cost 恒 null（观察全程不动 HP/MP，前端不得编造数值）、
+// free_left/free_total 细看剩余与上限、noise 当前动静计、may_encounter
+// 下一次观察会不会推进遇敌账、hint 全文披露（title 与 .log 系统提示共用
+// 同一串）、badge 键面角标短文案。
+function observeDisclosure(save, scene) {
+  const sceneN = scene
+    ? Math.trunc(
+        Number(
+          (proseStmts.observeSceneCount.get(save.id, `「${sceneNarrName(scene)}」——`) || {}).n
+        ) || 0
+      )
+    : 0;
+  const freeLeft = Math.max(0, OBSERVE_TOTAL - sceneN);
+  const rawClock = Math.trunc(Number(save && save.encounter_clock) || 0);
+  const noise = {
+    cur: Math.min(Math.max(0, rawClock), encounterEngine.PITY_LIMIT),
+    max: encounterEngine.PITY_LIMIT,
+  };
+  const rollable = observeSceneRollable(scene);
+  const mayEncounter = rollable && freeLeft === 0;
+  const meter = `${noise.cur}/${noise.max}`;
+  let hint;
+  let badge = null;
+  if (freeLeft > 0) {
+    badge = `免费×${freeLeft}`;
+    hint =
+      `环顾四周 · 不耗体力魔力 · 本场景细看还剩 ${freeLeft} 次免费` +
+      (rollable
+        ? `；之后每看一次动静 +1（现 ${meter}），攒满直接遇敌`
+        : `；此处掷不出遭遇，细看用尽即「看尽」锁定`);
+  } else if (rollable) {
+    badge = `动静 ${meter}`;
+    hint =
+      `环顾四周 · 细看已尽 · 再看不耗体力魔力，` +
+      `但每次动静 +1（现 ${meter}），攒满直接遇敌`;
+  } else {
+    hint = "环顾四周 · 此处已看尽——再看也看不出新东西";
+  }
+  return {
+    cost: null,
+    free_left: freeLeft,
+    free_total: OBSERVE_TOTAL,
+    noise,
+    may_encounter: mayEncounter,
+    hint,
+    badge,
+  };
+}
+
 // F257 观察可用性：不可掷怪场景（encounters:"none"/终章）的复核区
 // 收口为「看尽」锁定后，available=false + reason 随存档下发——前端
 // 据此把「环顾四周」置灰（disabled + aria-disabled + title 与就地小
@@ -340,16 +399,20 @@ function restStatus(save, combat) {
 // 交战态也如实报不可用（观察意图本就被交战门禁拦回，按钮那时整组
 // 已换成战斗五键、不渲染，但字段口径不撒谎）。可掷怪场景永不锁：
 // 那里的复核区代价已在 observeOverCap 里兑现成真实遭遇。
+// F274：可用性之外把披露字段一并下发（observeDisclosure），锁定态
+// 也带同一本账——前端渲染口径不因 available 分叉。
 function observeStatus(save, combat) {
-  if (combat) return { available: false, reason: "交战中无法观察" };
   const scene = chaptersEngine.currentScene(save);
+  const disclosure = observeDisclosure(save, scene);
+  if (combat) return { available: false, reason: "交战中无法观察", ...disclosure };
   if (scene && !observeSceneRollable(scene) && observeSpentSeen(save.id, scene)) {
     return {
       available: false,
       reason: "此处已看尽——每个角落都翻检过了，再看也看不出新东西",
+      ...disclosure,
     };
   }
-  return { available: true, reason: null };
+  return { available: true, reason: null, ...disclosure };
 }
 
 // F096 收尾：守关者未击杀时玩家位置不得越过 boss 场景——人站在守关者
