@@ -2109,6 +2109,13 @@ button {
   line-height: 1.7;
 }
 
+/* F282「继续 xxx」一键接档键：挂在登记表单下、gate-note 上的次级
+   入口——沿用 .btn 体系不引新配色，只补行距与左对齐，390 下独占一行
+   不顶开首屏布局。 */
+.gate-continue {
+  margin-top: var(--sp-3);
+}
+
 .gate-conflict {
   margin-top: var(--sp-4);
   padding: var(--sp-3);

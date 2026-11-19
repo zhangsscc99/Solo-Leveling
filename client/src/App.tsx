@@ -42,6 +42,10 @@ import vocab from "../../shared/intents.json";
 import { displayClueFlags } from "./clueFlags";
 
 const STORAGE_KEY = "solo_leveling_save_id";
+// F282：本机最后一次成功建档/接入的猎人代号——刷新/重开后门牌页
+// 用它预填输入框并挂「继续」一键接档；与 STORAGE_KEY（存档 id 绑定）
+// 语义独立，不参与 F136 冲突判定。
+const LAST_HUNTER_KEY = "sl-last-hunter";
 
 // F084 日志回溯窗口：「加载更早」每次 +50，服务端硬上限 200。
 // 探测多取 1 条判断是否还有更早记录——fetched.length > limit 即还有历史。
@@ -730,7 +734,13 @@ export default function App() {
   const [shadowBusy, setShadowBusy] = useState(false);
   const [shadowNotice, setShadowNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [name, setName] = useState("");
+  // F282：门牌页代号输入框直接预填本机上次代号——玩家刷新后不用再凭
+  // 记忆敲一遍才看见「已有存档」提示。
+  const [name, setName] = useState(() => localStorage.getItem(LAST_HUNTER_KEY) || "");
+  // 「继续 xxx」一键接档键的代号来源：与可编辑的 name 分开记——玩家
+  // 涂改输入框不影响按钮指向；服务端查无此档时按钮就地隐去（降级为
+  // 纯预填），不报错弹窗。
+  const [lastHunter, setLastHunter] = useState(() => localStorage.getItem(LAST_HUNTER_KEY) || "");
   // F084：hidden = 没有更早记录（控件不渲染）；more = 还有历史可回溯；
   // start = 已到最初（控件留作「已到最初」死键占位，不再发请求）。
   const [logLimit, setLogLimit] = useState(LOG_PAGE);
@@ -1400,6 +1410,10 @@ export default function App() {
   const enterSave = useCallback(async (saveId: number) => {
     localStorage.setItem(STORAGE_KEY, String(saveId));
     const full = await getSave(saveId);
+    // F282：成功接入即把代号记进 LAST_HUNTER_KEY，供下次门牌页预填/
+    // 一键继续——建档与「继续这个存档」共用本路径，一处写入两路生效。
+    localStorage.setItem(LAST_HUNTER_KEY, full.save.player_name);
+    setLastHunter(full.save.player_name);
     setSave(full.save);
     setInventory(full.inventory);
     setEquipment(full.equipment);
@@ -1492,6 +1506,28 @@ export default function App() {
     }
   }, [conflict, confirmNew, busy, enterSave]);
 
+  // F282「继续 xxx」：用既有 name→save 接入路径（findSaves 首条 +
+  // enterSave），不新写请求。服务端查无此档/请求失败 → 按钮就地隐去、
+  // 清掉失效代号，降级为普通预填，不弹错误。
+  const onResumeLast = useCallback(async () => {
+    if (!lastHunter || busy) return;
+    setBusy(true);
+    try {
+      const hits = await findSaves(lastHunter);
+      if (!hits.length) {
+        localStorage.removeItem(LAST_HUNTER_KEY);
+        setLastHunter("");
+        return;
+      }
+      await enterSave(hits[0].id);
+    } catch {
+      localStorage.removeItem(LAST_HUNTER_KEY);
+      setLastHunter("");
+    } finally {
+      setBusy(false);
+    }
+  }, [lastHunter, busy, enterSave]);
+
   const onSend = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
@@ -1571,6 +1607,19 @@ export default function App() {
               </form>
               {!name.trim() && (
                 <p className="gate-hint">先登记一个猎人代号，再按「觉醒」。</p>
+              )}
+              {lastHunter && !conflict && (
+                // F282 一键继续：本机存有上次代号时挂在「觉醒」行下的第二
+                // 入口——点一次走既有 findSaves+enterSave 接档，无需再敲
+                // 键盘。普通 .btn（非 primary），不与主 CTA 抢层级。
+                <button
+                  type="button"
+                  className="btn gate-continue"
+                  disabled={busy}
+                  onClick={onResumeLast}
+                >
+                  继续「{lastHunter}」
+                </button>
               )}
               <p className="gate-note">存档绑定本机浏览器，换设备请用同一猎人代号找回。</p>
               {conflict && (
