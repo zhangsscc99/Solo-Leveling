@@ -45,14 +45,38 @@ const ROOT = path.resolve(HERE, "..", "..");
 // 前端由 server 以 client/dist 静态托管。dist 缺失 → 补构建；dist 是指向
 // 外部产物的软链 → 摘掉再构建（与 log-increment-style 同口径）——本断言
 // 验的正是本 worktree 的客户端代码，外部 bundle 里没有 count-up/ghost。
+// 另：dist 存在但比源码旧（main 上残留上一次部署的产物）同样重建——否则
+// 「改了源码没重打包」会让断言读到旧 bundle，把本轮改动判成 FAIL。
 {
   const dist = path.join(ROOT, "client", "dist");
+  const newest = (dir) => {
+    let m = 0;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) m = Math.max(m, newest(p));
+      else if (e.isFile()) m = Math.max(m, fs.statSync(p).mtimeMs);
+    }
+    return m;
+  };
+  let stale = false;
+  try {
+    const idx = fs.statSync(path.join(dist, "index.html")).mtimeMs;
+    let src = 0;
+    for (const rel of ["src", "index.html", "package.json", "vite.config.ts", "vite.config.js"]) {
+      const p = path.join(ROOT, "client", rel);
+      if (!fs.existsSync(p)) continue;
+      src = Math.max(src, fs.statSync(p).isDirectory() ? newest(p) : fs.statSync(p).mtimeMs);
+    }
+    stale = src > idx;
+  } catch {
+    stale = true;
+  }
   let foreign = false;
   try {
     foreign = fs.lstatSync(dist).isSymbolicLink();
   } catch {}
   if (foreign) fs.rmSync(dist, { force: true });
-  if (!fs.existsSync(path.join(dist, "index.html"))) {
+  if (stale || !fs.existsSync(path.join(dist, "index.html"))) {
     const buildEnv = { ...process.env };
     delete buildEnv.NODE_CHANNEL_FD;
     delete buildEnv.NODE_CHANNEL_SERIALIZATION_MODE;
