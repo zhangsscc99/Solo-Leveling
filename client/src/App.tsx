@@ -1726,7 +1726,12 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className="stage-col log" ref={logRef} onScroll={syncLogHint}>
+        <div
+          className="stage-col log"
+          ref={logRef}
+          onScroll={syncLogHint}
+          data-edge-fade={logHint ? "1" : undefined}
+        >
           {/* F167：一条日志可拆成多个 .stage-col 子节点（遭遇/教学段独立
               成条），splitStageEntry 对回灌旧行与新行同规则生效。
               F252：每段再包一层 .log-entry——此前多段正文的每个

@@ -37,6 +37,11 @@
 //        （遮罩式布局），且 .stage 与 .actions 矩形不重叠
 //        （stage.bottom <= actions.top + 1），底栏须在视口内——
 //        证明间距不是靠把底栏挪出视口骗过的。
+//   (c2) F277（第58轮 390 首屏「只剩『某个存』」）：到底态不得再挂下缘
+//        渐隐，且最后一条 .log-entry 底边距裁剪缘 ≥8px。红证：旧码无
+//        data-edge-fade 闸门、mask 常驻，390x844 到底态报
+//        `mask-image=linear-gradient(rgb(0,0,0) calc(100% - 24px), rgba(0,0,0,0))`
+//        → FAIL；修后 390/1440 到底态 mask=none、末条余量 88.7/78.8px。
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -330,6 +335,51 @@ run("stage-bottom-clearance", async ({ page }) => {
       gap >= 8,
       `${tag}: 末行与 .actions 间距 ${gap.toFixed(1)}px < 8px ` +
         `(lastBottom=${m.lastBottom.toFixed(1)} actionsTop=${m.actionsTop.toFixed(1)})`
+    );
+
+    // (c2) F277：已滚到底 = 下面没有新内容，下缘渐隐必须关掉——否则末行
+    //      即使矩形「完整」也落在渐隐带里溶成半句（第57轮 390 首屏实测
+    //      「只剩『某个存』」）。断言到底态 mask-image 为 none，且最后一条
+    //      .log-entry 的底边距裁剪缘 ≥8px（不靠透明遮罩骗过几何）。
+    const edge = await page.evaluate(() => {
+      const col = document.querySelector(".stage-col");
+      const cs = getComputedStyle(col);
+      const r = col.getBoundingClientRect();
+      const clip = r.bottom - parseFloat(cs.borderBottomWidth);
+      const entries = [...col.querySelectorAll(".log-entry")];
+      const last = entries[entries.length - 1] || null;
+      const lastR = last ? last.getBoundingClientRect() : null;
+      return {
+        mask: cs.maskImage !== "none" ? cs.maskImage : cs.webkitMaskImage,
+        attr: col.getAttribute("data-edge-fade"),
+        atBottom:
+          col.scrollTop + col.clientHeight >= col.scrollHeight - 2,
+        clip,
+        lastBottom: lastR ? lastR.bottom : null,
+        entries: entries.length,
+      };
+    });
+    assert(
+      edge.entries > 0,
+      `${tag}: 无 .log-entry 节点（F252 结构失效？）`
+    );
+    assert(
+      edge.atBottom,
+      `${tag}: 未能滚到底 scrollTop 未达 max（断言环境不成立）`
+    );
+    assert(
+      typeof edge.mask !== "string" || edge.mask === "none",
+      `${tag}: 已到底仍挂下缘渐隐 mask-image=${String(edge.mask).slice(0, 80)} ` +
+        `data-edge-fade=${edge.attr}——末行在渐隐带里溶成半句（F277）`
+    );
+    assert(
+      edge.lastBottom <= edge.clip - 8,
+      `${tag}: 到底态最后一条 .log-entry bottom=${edge.lastBottom === null ? "null" : edge.lastBottom.toFixed(1)} ` +
+        `裁剪缘=${edge.clip.toFixed(1)}，余量 ${edge.lastBottom === null ? "?" : (edge.clip - edge.lastBottom).toFixed(1)}px < 8px（F277）`
+    );
+    console.log(
+      `    [${tag}] F277 到底态 mask=${edge.mask === "none" ? "none" : "有"} ` +
+        `data-edge-fade=${edge.attr} 末条余量=${(edge.clip - edge.lastBottom).toFixed(1)}px`
     );
 
     // (d) 末行中心 elementFromPoint 命中正文，不得命中 .actions/浮层。
