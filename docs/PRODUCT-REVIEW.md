@@ -3435,3 +3435,31 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 
 下一轮建议：F292（与 F256/F278/F293 同源的系统串收口，需先统一 `observe-dedupe.mjs` 的「动静 N/4 在正文」断言口径）
 > F275（战斗键跨端 disabled 不一致，P1）> F276（手机点「属性」落点，疑已被 F255 修复，需先复核是否仍成立）。
+
+## 第99轮调度（2026-11-19 13:51Z，单条 F261，devin 一次成功）
+
+- 资源闸门 green（cpu 21% / mem 45% / load 1.79 / parallel 2）；本轮按规模只做 1 条。
+- 选条：F261（正文最新条高亮弱到不可见 + 日志底部硬切）。理由是走查里少见的「数值写明、旧码可判红、
+  单轮可闭环且只动样式层」的条目；F292 仍与 `observe-dedupe.mjs` 的「动静 N/4 在正文」断言口径冲突，留后续轮。
+- 先行否决两条：F276 线上复测**已不成立**（点「属性」一次即 `.sidebar open`@16，力量/敏捷/体力三行同时可见，
+  F255 顺带修好）→ 已在 FEATURES 勾选并标注作废，避免后续轮反复「复核」。
+- 执行：`feat/F261` worktree，devin swe-2-medium 一次成功，未触发限流，无回退。
+  - `styles.css`：`.log-entry[data-latest="1"]` 左轨 `3px --system-dim` → `6px --system`，底色
+    `rgba(79,200,255,.05)` → `--system-veil`(8%)；非最新条预留边位同步 `+3px`→`+6px`，
+    高亮下移时正文不左右跳。未动 App.tsx（F262/F277 的渐隐/edge-fade 机制本就满足到底态）。
+  - 新增 `scripts/e2e/latest-entry-visible.mjs`（396 行，双视口 + 自起隔离实例）：
+    ① `borderLeftWidth ≥ 6px` 且「沿祖先链合成到 `--abyss` 后与上一条的 |ΔR|+|ΔG|+|ΔB| ≥ 18」，
+    ② `[data-latest="1"]` 入场动画非 none，③ 停顶态 24px 带内有渐隐提示、到底态末行完整且无 edge-fade 压行。
+- 红/绿：旧码 FAIL（`borderLeftWidth 3px < 6px`，双视口各 1 条）→ 改后 `blw=6px dRGB=39.8`，连跑 2 次 PASS。
+- 验收：`verify.sh F261` PASS（worktree + main 各一次）；冒烟 `boot` / `action` PASS；
+  部署闸门内全量 E2E **42/42 PASS**。`tsc --noEmit` 0 错。
+- 部署：`bash scripts/ci-deploy.sh`（不外套 flock，P211）→ `DEPLOY OK`，`.deployed-ref = e2d9ced`（含本次 merge），
+  `/game/` 公网 200、`/game/api/health` 200；公网复跑新门禁 PASS（blw 6px / dRGB 39.8）。
+- 视觉复核（390 截图 + vision）：最新条左轨与底色「一眼可辨认为新增条目、不刺眼、不像大片色块」，可辨识度 5/5。
+
+### 本轮发现的流程风险
+- `terminal` 前台 420s 上限短于 `ci-deploy.sh`（含全量 E2E 约 5 分钟）→ 首次调用被 kill 且 `.deployed-ref` 未前进。
+  后续部署一律 `background=true` + 轮询日志，勿用前台。
+
+下一轮建议：F275（战斗键跨端 disabled 不一致，P1，唯一仍在的 P1 交互一致性缺陷）
+> F270（战斗「连击/防御」收益未披露，支配策略）> F264（手机战斗六键 40px < 44 触控下限）。
