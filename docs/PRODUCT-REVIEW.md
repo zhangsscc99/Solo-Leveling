@@ -3051,3 +3051,8 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **F271 devin 失败 → 已回退 OpenCode**：devin CLI `swe-2-medium` 首次调用即被免费额度限流（`Reached free model rate limit … reset at 01:01 UTC`），worktree 零改动，按回退规则由主模型在 `feat/F271` 内实现。
 - F271（抉择只认序号/id）：`choiceSelFromInput` 载荷 24 字/无标点 → 80 字/允许标点；新增 `resolveSceneChoice`（id、逐字 label → 唯一前缀 ≥3 字 → 唯一包含 ≥6 字），歧义如实回问。线上 must_choose（`ch1_law`）实测：`选择 按石碑所写，低头敬拜` 旧码 `intent=unknown` 原地不动，新码 `intent=choice` → `ch1_worship`。
 - 顺带发现并修：`docs/FEATURES.md` 里 **F267 被两条待办重号使用**（第56轮热键 / 第75轮抉择文本），后者重编为 **F271**（否则 `verify.sh F267` 永远只跑第一条）。
+
+## 第78轮调度（2026-11-19 01:01Z，单条 F265）
+- **F265 devin 半程中断（免费额度），收尾由 OpenCode 完成**：`swe-2-medium` 完成 App.tsx/styles.css/断言三处改动并自测「连跑 2 次 PASS + 旧码 FAIL」，随后在跑全量冒烟档时命中 `Reached free model rate limit … reset at 02:01 UTC` 退出。主模型仅在 worktree 内做最小修补（去掉键面角标里的 emoji 🔒，改为纯文字「需先选择」——符合产品 UI 去 emoji 口径），并补跑冒烟档与 deploy 全量 E2E。
+- F265 落地：锁定态「探索前进」→ 键面左上 `[data-locked]`「需先选择」角标（与 `.rest-count` 同位点、绝对定位不增行高）+ `.choice-locked` `grayscale(.6)/brightness(.82)`；disabled 键外包 `.lock-tap-catcher` 透明壳（F245 同构），真实点击点亮 `.sys-toast`「先做出选择——点选项键，或输入「选择 <选项名>」」并闪选项组。390/1440 双视口断言通过，deploy `run-all` 27/27 PASS。
+- 顺带发现（本轮未修，留作待办候选）：`scripts/ci-deploy.sh` 内部已 `flock -n .deploy.lock`，调度口径再套一层 `flock .deploy.lock -c` 会自锁 → 脚本恒返回 `another deploy is running` 并以 0 退出（假成功）。直接 `bash scripts/ci-deploy.sh` 正确。
