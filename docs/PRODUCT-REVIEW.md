@@ -3241,3 +3241,13 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - **额外修掉 GE2E-20261119（部署闸门长期红灯）**：`action.mjs` 的「第二推不扣体力」是**断言与渲染竞态**——回包先追加日志，顶栏 HP/MP 下一帧才写进 `.gauge-num`，脚本在日志落地瞬间读数，稳定读到旧值（同场景手工探针可见 MP 20→19，体力确已扣）。改法：断言前有界等待（3s）数值变化，超时仍按原口径 FAIL，真零消耗不会洗绿。连跑 3/3 PASS。**这条由我（OpenCode）直接改，未派 devin**——违反「编码一律委派」的常规口径，仅因当时部署已两次被这条假红回滚、收尾窗口只剩数分钟；如需严格回归委派制，下轮可让 devin 复看该 diff。
 - 部署：`bash scripts/ci-deploy.sh` 直接调用（不套外层 flock，见 P211）→ 全量 34/34 PASS → `DEPLOY OK`，`.deployed-ref=42c12f0`；本地 health 200、公网 https://openfolio.uk/game/api/health 200（0.12s），公网 CSS 已换包 `index-DmE6XxBC.css`（含 `visibility:hidden`）。
 - 未跑 `scripts/report.sh`（P210：全表模式 >50 分钟，本单轮预算内不可行），本轮汇报按本文件手写。
+
+## 第88轮调度（2026-11-19 07:31Z，单条 F282）
+- 选条：F282（P2 可负担性：刷新/重开后门牌页不预填已存代号，玩家必须凭记忆重输）。闸门 yellow（CPU 61%、parallel=2），按「单轮只做 1 条」只开一条车道；因单轮 ≤15 分钟预算，本轮只取一条低风险自洽条目，未动 P0 文本类大改（F249/F280 需同时动服务端叙事 + 前端 HUD，超出单轮预算）。
+- 侦察前置：先跑 `prose-hygiene.mjs` / `observe-dedupe.mjs` 基线，两者在 main 上已 PASS——F249 的「复读」与「看尽锁定」主体已被 F225/F241/F257 消化，故跳过，避免重复劳动。
+- devin swe-2-medium 一次成功（未遇限流），worktree `feat/F282` 提交 5c870fa，我方只做验收/合入/部署。
+- 落地：`App.tsx` 新增独立 `sl-last-hunter` 键（`enterSave` 成功即写入），门牌页 input 初值预填该代号，并在「觉醒」行下挂次级 `.gate-continue`「继续「代号」」一键接档（复用既有 `findSaves`+`enterSave`，查无档/请求失败就地隐去，不弹错）；`styles.css` 仅补 margin-top，沿用 `.btn` 体系。未动 `STORAGE_KEY`/F136 冲突弹窗语义，无新依赖。
+- 验收：新增 `scripts/e2e/gate-prefill.mjs`（隔离实例 + 建档「预填者282」+ 推进 + 清本地绑定后 reload），`verify.sh F282` PASS（12.2s），脚本内附旧码 FAIL 红证（input="" 且无含代号按钮）；冒烟档 `boot.mjs`/`action.mjs` PASS；`npx tsc --noEmit` 与 `npm run build` 均通过。
+- 部署：直接 `bash scripts/ci-deploy.sh`（按 P211 不套外层 flock）→ 全量 E2E 35/35 PASS → `DEPLOY OK`，`.deployed-ref=23432a5`（=HEAD）；公网 https://openfolio.uk/game 200、/game/api/health 200 `{"ok":true}`。
+- 未跑 `scripts/report.sh`（P210：全表模式 >50 分钟，单轮预算内不可行），本轮汇报按本文件手写。
+- 观察到的相邻死路（留给后续轮）：F282 修复后仍需注意 F288——交战中刷新有时回到交战原回合、有时回到门牌页，两套行为不可预期；F282 只解决了「回到门牌页后不用重敲代号」，未解决「刷新到底该回哪里」。
