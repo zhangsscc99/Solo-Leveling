@@ -1318,12 +1318,6 @@ export default function App() {
           showToast(DENY_CHOICE_TEXT);
           flashChoices();
         }
-        // F272：同一必选门下「观察/潜行/休息」的快捷键也不能静默——
-        // 按键与按钮同口径，就地弹指路提示并闪选项组。
-        else if (forwardChoiceLocked) {
-          showToast(DENY_CHOICE_TEXT);
-          flashChoices();
-        }
         // F257：「看尽」锁定态快捷键与按钮同口径——不发这条必拒的
         // 「观察」请求，就地弹服务端下发的理由（不静默）。
         else if (b.input === "观察" && observeLocked)
@@ -1849,24 +1843,18 @@ export default function App() {
                 // 折返换标（上面三个布尔）仍是合法出路，不在锁定列。
                 const choiceLocked =
                   b.input === "前进" && forwardChoiceLocked;
-                // F272：must_choose 未决时「观察/潜行/休息」同样是死键——
-                // 服务端必拒这条意图（P204 必选门只放行选项），旧实现却
-                // 保持可点、点了零回执（正文/日志/toast 全无变化，玩家
-                // 以为卡死）。与「前进」同口径锁死并给可见拒绝反馈。
-                const choiceDead = forwardChoiceLocked && b.input !== "前进";
                 const btn = (
                   <button
                     key={b.label}
-                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked || obsBlocked || choiceDead ? " rest-dim" : ""}${choiceLocked || choiceDead ? " choice-locked" : ""}`}
+                    className={`btn${isCta ? " primary cta-primary" : ""}${nextChapter ? " cta-next" : ""}${restBlocked || obsBlocked ? " rest-dim" : ""}${choiceLocked ? " choice-locked" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
                     data-rest-state={restInfo ? (restBlocked ? "blocked" : "available") : undefined}
                     data-observe-state={obsInfo ? (obsBlocked ? "locked" : "available") : undefined}
                     data-act={challenge ? "攻击" : b.input}
                     data-hotkey={actionHotkey(i)}
-                    disabled={busy || restBlocked || choiceLocked || choiceDead || obsBlocked}
+                    disabled={busy || restBlocked || choiceLocked || obsBlocked}
                     onClick={() => dispatch(challenge ? "攻击" : b.input)}
                     title={
-                      (choiceDead && DENY_CHOICE_TEXT) ||
                       (obsBlocked && (obsInfo?.reason || "此处已看尽")) ||
                       (choiceLocked &&
                         "先做出选择——点选项键，或输入「选择 <选项名>」") ||
@@ -1879,7 +1867,7 @@ export default function App() {
                             ? `守关者未击杀 · 需先击败它 · 快捷键 ${i + 1}`
                             : `快捷键 ${i + 1}`)
                     }
-                    aria-disabled={busy || restBlocked || choiceLocked || choiceDead || obsBlocked}
+                    aria-disabled={busy || restBlocked || choiceLocked || obsBlocked}
                   >
                     {challenge ? (
                       "叫阵守关者"
@@ -1898,7 +1886,7 @@ export default function App() {
                         {restInfo.remaining}
                       </span>
                     ) : null}
-                    {choiceLocked || choiceDead ? (
+                    {choiceLocked ? (
                       <span className="lock-badge" data-locked="1" aria-hidden="true">
                         需先选择
                       </span>
@@ -1919,22 +1907,21 @@ export default function App() {
                 // ——disabled 后点它同样零回执，壳上点亮指路 .sys-toast
                 // （DENY_CHOICE_TEXT，与快捷键 1/自由输入同文案）并闪一次
                 // 选项组，把视线引到真正要做的选择上。
-                if (restBlocked || choiceLocked || choiceDead) {
-                  const deadlocked = choiceLocked || choiceDead;
-                  const lockedReason = deadlocked
+                if (restBlocked || choiceLocked) {
+                  const lockedReason = choiceLocked
                     ? DENY_CHOICE_TEXT
                     : restInfo?.reason || "暂时无法休息";
                   const fire = () => {
-                    if (deadlocked) flashChoices();
+                    if (choiceLocked) flashChoices();
                     showToast(lockedReason);
                   };
                   return (
                     <span
                       key={b.label}
-                      className={deadlocked ? "lock-tap-catcher" : "rest-tap-catcher"}
+                      className={choiceLocked ? "lock-tap-catcher" : "rest-tap-catcher"}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${choiceLocked ? "探索前进" : b.label}（${lockedReason}）`}
+                      aria-label={`${choiceLocked ? "探索前进" : "休息"}（${lockedReason}）`}
                       title={lockedReason}
                       onClick={fire}
                       onKeyDown={(e) => {
