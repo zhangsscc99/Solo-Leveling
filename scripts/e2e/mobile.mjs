@@ -85,7 +85,7 @@ if (!process.env.E2E_BASE_URL) {
   process.env.E2E_BASE_URL = `http://127.0.0.1:${port}/game`;
 }
 
-const { assert, createSave, run } = await import("./lib.mjs");
+const { assert, BASE_URL, createSave, run } = await import("./lib.mjs");
 
 const NAME = `e2e-mob-${Date.now().toString(36)}`;
 const VW = 390;
@@ -94,6 +94,78 @@ const VH = 844;
 run(
   "mobile",
   async ({ page }) => {
+    // ── F319 觉醒页主 CTA 权重（双视口，建档前的 gate 首屏实测）────
+    //   空输入：disabled === true、宽度 ≥ .gate-form 面板宽 50%、
+    //   computed opacity < 0.6；输入合法代号后 200ms 内 disabled 解开
+    //   且 opacity ≥ 0.9；两视口均断言按钮文字不被截断、页面无横向
+    //   溢出。断言只量呈现，不改语义；之后统一清空输入走 createSave。
+    const auditGateCta = async (tag) => {
+      const readBtn = () =>
+        page.evaluate(() => {
+          const btn = document.querySelector(".gate-form .btn.primary");
+          const form = document.querySelector(".gate-form");
+          const panel = form || document.querySelector(".holo-inner");
+          const cs = getComputedStyle(btn);
+          const r = btn.getBoundingClientRect();
+          return {
+            disabled: btn.disabled,
+            w: r.width,
+            panelW: panel.clientWidth,
+            opacity: parseFloat(cs.opacity),
+            sw: btn.scrollWidth,
+            cw: btn.clientWidth,
+            docSW: document.documentElement.scrollWidth,
+            innerW: window.innerWidth,
+          };
+        });
+
+      await page.fill(".gate-form input", "");
+      await page.waitForTimeout(60);
+      const off = await readBtn();
+      console.log(
+        `[F319-${tag}] empty: w=${off.w.toFixed(1)} panel=${off.panelW} ` +
+          `disabled=${off.disabled} opacity=${off.opacity}`
+      );
+      assert(off.disabled === true, `${tag}: 空输入时「觉醒」应 disabled`);
+      assert(
+        off.w >= 0.5 * off.panelW - 0.5,
+        `${tag}: CTA 宽 ${off.w.toFixed(1)} < 面板宽 ${off.panelW} 的 50%`
+      );
+      assert(off.opacity < 0.6, `${tag}: 禁用态 opacity=${off.opacity}（须 <0.6）`);
+
+      await page.fill(".gate-form input", "F319觉醒");
+      await page.waitForTimeout(200);
+      const on = await readBtn();
+      console.log(
+        `[F319-${tag}] filled: w=${on.w.toFixed(1)} panel=${on.panelW} ` +
+          `disabled=${on.disabled} opacity=${on.opacity}`
+      );
+      assert(on.disabled === false, `${tag}: 有输入后 200ms 内「觉醒」仍 disabled`);
+      assert(
+        on.opacity >= 0.9 && on.opacity >= off.opacity + 0.35,
+        `${tag}: 可用态 opacity=${on.opacity}（须 ≥0.9 且比禁用态 +0.35）`
+      );
+
+      assert(
+        on.sw <= on.cw + 1,
+        `${tag}: CTA 文字截断 scrollWidth=${on.sw} clientWidth=${on.cw}`
+      );
+      assert(
+        on.docSW <= on.innerW + 1,
+        `${tag}: 页面横向溢出 scrollWidth=${on.docSW} innerWidth=${on.innerW}`
+      );
+      await page.fill(".gate-form input", "");
+    };
+
+    await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".gate-form input");
+    await auditGateCta("390");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(200);
+    await auditGateCta("1440");
+    await page.setViewportSize({ width: VW, height: VH });
+    await page.waitForTimeout(150);
+
     await createSave(page, NAME);
 
     // Bottom action bar pinned to the viewport bottom.

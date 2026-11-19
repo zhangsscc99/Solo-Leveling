@@ -2219,6 +2219,7 @@ button {
 
 .gate-form input {
   flex: 1;
+  min-width: 0;
   min-height: 44px;
   padding: 0 var(--sp-3) 0 14px;
   background: rgba(0, 0, 0, 0.45);
@@ -2233,23 +2234,45 @@ button {
 .gate-form input:focus-visible {
   outline: none;
   border-color: var(--system);
+  /* F319：光晕收敛（14px/0.22 → 10px/0.14）——描边仍可见但不再
+     压过主 CTA 的实心青，焦点可见性不删（可访问性红线）。 */
   box-shadow:
     0 0 0 1px var(--system-dim),
-    0 0 14px rgba(79, 200, 255, 0.22);
+    0 0 10px rgba(79, 200, 255, 0.14);
 }
 
 /* F156 主 CTA：觉醒页本身就是系统窗（全场唯一被允许发光的东西），
    「觉醒」用实心系统青 + 微光，与哑光输入框拉开层级；形状仍是
-   2px 方角硬键，不引圆角色块。 */
+   2px 方角硬键，不引圆角色块。
+   F319：宽度提到 ≥ 面板一半（flex 基础 52%，原实测仅 46/62px），
+   禁用态压暗到哑光深灰 + 去发光，可用态才亮实心青。 */
 .gate-form .btn.primary {
+  flex: none;
+  width: 52%;
   margin-right: var(--sp-3);
   background: linear-gradient(180deg, #6fd3ff 0%, #2b9cd6 100%);
   border-color: var(--system);
   color: #061521;
   font-weight: 700;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease,
+    box-shadow 0.15s ease;
   box-shadow:
     0 0 18px rgba(79, 200, 255, 0.35),
     inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+/* F319 禁用态降权：哑光深灰 + 无发光 + 半透明，一眼即「还不能点」；
+   文字保留 dim 档对比（压暗面板上仍可读），44px 高度由 .btn 体系给。 */
+.gate-form .btn.primary:disabled {
+  opacity: 0.48;
+  background: linear-gradient(180deg, #2b3946 0%, #1b262f 100%);
+  border-color: var(--line-strong);
+  color: var(--dim);
+  box-shadow: none;
 }
 
 .gate-form .btn.primary:hover:not(:disabled) {
