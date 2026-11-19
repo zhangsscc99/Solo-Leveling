@@ -4062,11 +4062,28 @@ const PANEL_ROUTES = [
 // 由调用方继续走意图解析。/action 与 /ai-action 共用：后者在 AI 网关之前
 // 短路，裸面板名不值得白跑一趟上行。零副作用是硬约束——patch/events 全空、
 // 不占回合、不掷遭遇、不发奖励，照旧只写一条 system 日志。
-function panelOutcome(input) {
+function panelOutcome(save, input) {
   const text = typeof input === "string" ? input.trim() : "";
   if (!text) return null;
   for (const r of PANEL_ROUTES) {
     if (r.match.test(text)) {
+      // F309：交战态面板门禁——与 executeIntent 的 COMBAT_INTENTS 改判
+      // 同口径：敌我面前档案面板不展开，回一条诚实播报挂 refused
+      // （零副作用零收益），回包不带 panel 字段前端自然不开抽屉。
+      const cbt = save && store.getCombat(save.id);
+      if (cbt) {
+        return {
+          intent: "unknown",
+          role: "system",
+          panel: null,
+          patch: null,
+          events: [],
+          content:
+            `【战斗】${cbt.enemy.name}正堵在你面前，此刻无法调出${r.label}面板——` +
+            `先解决眼前的敌人，或以「逃跑」/「前进」寻隙撤离。`,
+          refused: true,
+        };
+      }
       return {
         intent: "unknown",
         role: "system",
@@ -4483,7 +4500,7 @@ function resolveAction(save, input, choiceSel, opts) {
   // 裸面板名最先走面板路由（F129）：比关键词表更靠前，因为「属性」
   // 「影子编队」本就会被 status/shadow_formation 意图接住而轮不到
   // unknown 分支——面板路由是同一意图的更好落地，不是新解析层。
-  const panel = panelOutcome(input);
+  const panel = panelOutcome(save, input);
   if (panel) return panel;
   // F196 显式分支指令：请求体 choice_id 或文本「选择 <序|id|label>」。
   // 先于关键词表拦截——选项 id 可能撞上 advance/observe 等英文关键词，
@@ -5174,17 +5191,19 @@ api.post("/ai-action", async (req, res) => {
     // F129 面板名直开：与 /action 同一面板路由——裸面板名在 AI 网关
     // 之前短路，不值得为它白跑一趟上行；零副作用，照旧只写一条
     // system 日志，回包带 panel 供前端开对应抽屉。
-    const direct = panelOutcome(input);
+    const direct = panelOutcome(save, input);
     if (direct) {
       store.appendLog(save.id, "user", input);
       const reply = store.appendLog(save.id, direct.role, direct.content);
-      reply.panel = direct.panel;
-      return res.json({
+      if (direct.panel) reply.panel = direct.panel;
+      const body = {
         reply,
         intent: "unknown",
-        panel: direct.panel,
         save: saveView(save),
-      });
+      };
+      if (direct.panel) body.panel = direct.panel;
+      if (direct.refused) body.refused = true;
+      return res.json(body);
     }
 
     // F231 must_choose 预选门：规则词表已判「前进」且当前场景挂
