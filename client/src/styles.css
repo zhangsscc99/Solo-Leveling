@@ -3027,6 +3027,26 @@ button {
   opacity: 0.35;
 }
 
+/* F286 敌我血条分色 + 纹理双通道（game-detail-bar §9d：不得只靠颜色）。
+   己方 HP 改青绿系纯色填充，与 MP 的蓝、敌方的红都不重；敌方保留红色系
+   但叠加 45° 斜纹——色相、明度、纹理三重差异，灰度/色盲下凭纹理仍可
+   分辨。只作用于交战浮层内的 data-side 容器，顶栏血条不受影响。 */
+.combat [data-side="player"] .gauge-hp .gauge-fill {
+  background: linear-gradient(90deg, #0e5f74, #2fbfae);
+}
+
+.combat [data-side="enemy"] .gauge-hp .gauge-fill {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(6, 11, 20, 0.5) 0,
+      rgba(6, 11, 20, 0.5) 3px,
+      transparent 3px,
+      transparent 7px
+    ),
+    linear-gradient(90deg, #8f1f36, var(--blood));
+}
+
 /* 伤害飘字：叠在血条上方，上浮淡出；reduced-motion 下静态显示 */
 .combat-floats {
   position: absolute;
