@@ -3175,3 +3175,10 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 验收：新增 `scripts/e2e/prose-hygiene.mjs`（隔离实例 + DB 直落 `ch1_law`，点环顾四周 → 点 `read_the_law` 真选项 → 补动作到 5 次，断言 `.log` innerText 无 `/\b[a-z]+_[a-z_]+\b/`、每个「【线索…】」片段无 ASCII 字母、且确实走到线索分支）。连跑 2 次 PASS（6.8s / 7.4s）；恒等回退红证 FAIL（`read_the_law` 命中 1 次）；F196（choice-branching）、F240（dwell-guidance）回归 PASS。
 - 部署：`bash scripts/ci-deploy.sh`（未套 flock，P211 口径）→ 全量 E2E **30/30 passed**（本轮 action.mjs 未抖），`DEPLOY OK`，`.deployed-ref=a201ea7`，本地/公网 health 200；线上 bundle `index-Cp3pL-EJ.js` 内 `read_the_law` 仅作为映射表 key 出现 1 次。
 - 附带口径提醒（未修，P1 工程）：`scripts/verify.sh` 只认**行首缩进的 `verify:` 续行**，FEATURES 里大量条目写成行内「｜verify: …｜risk: low」→ `--list` 显示 `verify=MISSING`。F273 已改为续行格式；其余条目建议后续统一（否则「verify 必跑」在流程上等于空转）。
+
+## 第83轮调度（2026-11-19 04:31Z，单条 P212）
+- 选条：P212（P1 工程死路：`verify.sh` 只认续行 `verify:`，行内「｜verify: …」全判 MISSING → 验收闸门静默空转）。
+- **本条 devin 失败：`Reached free model rate limit`（swe-2-high，退出码 1，额度 05:01 UTC 重置）→ 已回退 OpenCode 在 `feat/P212` 续写**（devin 已产出的解析器骨架保留，我补 `--check` 模式、ci-deploy 闸门与自检脚本）。
+- 修法：`parse()` 增 `inline_field()`（全/半角竖线都认，取到下一个 ｜ 或行尾、去反引号）；`--list` 标 `[inline]`/`[block]`；`assert_file()` 命中「新增/扩写/待实现」取首个 `scripts/*.mjs`，文件不存在 → `NO_ASSERT_FILE` 退出 3；新增 `--check <FID>` 只解析不执行（部署闸门不该对旧服务真跑断言，否则必然假红），`ci-deploy.sh` 在 preflight 后加 `verify-gate`，对本轮新勾选 FID 逐个 `--check`，`SL_SKIP_VERIFY_GATE=1` 可逃生。
+- 验收：新增 `scripts/assert/verify-parse-inline.mjs` 18 条断言全绿（临时副本 inline/block/MISSING/NO_ASSERT_FILE + 真实表回归），`verify.sh P212` PASS 0.76s。
+- 口径提醒：`--list` MISSING 64 行 → 34 行，剩余 33 条是本就没写 verify 的老 F0xx，不是解析问题。
