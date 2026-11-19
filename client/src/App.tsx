@@ -39,6 +39,7 @@ import ShadowsPanel from "./panels/ShadowsPanel";
 import SkillsPanel from "./panels/SkillsPanel";
 import StatsPanel from "./panels/StatsPanel";
 import vocab from "../../shared/intents.json";
+import { displayClueFlags } from "./clueFlags";
 
 const STORAGE_KEY = "solo_leveling_save_id";
 
@@ -556,9 +557,12 @@ function StatusBar({
 }
 
 function HoloWindow({ entry }: { entry: UiEntry }) {
-  const m = entry.content.match(/^【([^】]+)】\s*([\s\S]*)$/);
+  // F273：线索旗标的内部 id 只活在日志原文里（旗标账本），渲染前换成
+  // 中文可读名——玩家不该读到 snake_case 变量名。
+  const content = displayClueFlags(entry.content);
+  const m = content.match(/^【([^】]+)】\s*([\s\S]*)$/);
   const title = m ? m[1] : "系统";
-  const body = m ? m[2].trim() : entry.content;
+  const body = m ? m[2].trim() : content;
   const danger = /警|错误|失败|中断|危险|惩罚/.test(title);
   return (
     <div className={`holo${danger ? " holo-danger" : ""}${entry.ephemeral ? " holo-ephemeral" : ""}`}>
@@ -576,15 +580,18 @@ function HoloWindow({ entry }: { entry: UiEntry }) {
 }
 
 function StageEntry({ entry }: { entry: UiEntry }) {
+  // F273：渲染层统一做线索旗标展示映射——.log 内任何路径（系统气泡/
+  // 玩家回声/叙事段）都不会把内部 flag id 交给玩家。
+  const content = displayClueFlags(entry.content);
   if (entry.role === "system") return <HoloWindow entry={entry} />;
   if (entry.role === "user") {
     return (
       <div className="echo">
-        <span className="echo-text">{entry.content}</span>
+        <span className="echo-text">{content}</span>
       </div>
     );
   }
-  const paras = splitNarrationParas(entry.content);
+  const paras = splitNarrationParas(content);
   return (
     <>
       {paras.map((p, i) => (
