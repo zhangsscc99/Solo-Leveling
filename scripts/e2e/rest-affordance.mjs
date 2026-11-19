@@ -5,17 +5,19 @@
 //   DB_PATH，AI key 置空），浏览器走 lib.mjs launch()，新档由
 //   createSave 落地。断言「不可用即压缩、可用即复原」：
 //     A) 新档满状态（hp/mp 俱满，save.rest.available === false）：
-//        footer.actions 内「休息」offsetHeight <= 20（文字态）、
-//        disabled === true（禁用语义不动）、
-//        data-rest-state === "blocked"；
+//        footer.actions 内「休息」带 .rest-dim 降权样式（透明底 +
+//        dashed 虚线边 + 低对比文字）、disabled === true（禁用语义不动）、
+//        data-rest-state === "blocked"；F301 起触控尺寸回归——两态同
+//        ≥44px，降权只改质感不改尺寸；
 //     B) DB 直改 hp=max_hp/2、rest_used=0（encounter_cd=9 压掷敌，
 //        口径同 rest-feedback）后 reload：同一按钮
-//        offsetHeight >= 44（恢复完整按钮体积）、disabled === false、
-//        data-rest-state === "available"；
-//     C) heightBlocked < heightAvailable 且差值 >= 16px；
+//        offsetHeight >= 44（完整按钮体积）、disabled === false、
+//        data-rest-state === "available"、.rest-dim 摘除；
+//     C) 两态降权样式互斥：blocked 有 rest-dim + dashed + 透明底，
+//        available 三样全无（降权语义不随 F301 尺寸回归回退）；
 //     D) 两态 footer.actions 无横向溢出（scrollWidth <= clientWidth+1）
 //        且按钮内文字单行（scrollHeight <= clientHeight * 1.2）。
-//   旧码（无 rest-dim / 无 data-rest-state，按钮恒 40px+）上首跑即 FAIL。
+//   旧码（无 rest-dim / 无 data-rest-state，按钮恒满色）上首跑即 FAIL。
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -164,10 +166,15 @@ run("rest-affordance", async ({ page }) => {
       );
       if (!b) return null;
       const footer = b.closest("footer.actions");
+      const cs = getComputedStyle(b);
       return {
         height: b.offsetHeight,
+        width: b.offsetWidth,
         disabled: b.disabled,
         dataRestState: b.getAttribute("data-rest-state"),
+        dimCls: b.classList.contains("rest-dim"),
+        borderStyle: cs.borderStyle,
+        bg: cs.backgroundColor,
         footerScrollW: footer ? footer.scrollWidth : -1,
         footerClientW: footer ? footer.clientWidth : -1,
         scrollH: b.scrollHeight,
@@ -195,10 +202,16 @@ run("rest-affordance", async ({ page }) => {
 
   const stA = await restBtnState();
   assert(stA, "A: 「休息」按钮不在 footer.actions（选择器失效？）");
+  // F301：降权改由质感表达（rest-dim 透明底+虚线边），尺寸回归
+  // ≥44px 触控——不再断言 ≤20px 文字态，改锁降权样式三件套。
   assert(
-    stA.height <= 20,
-    `A: 满状态「休息」未降文字态 offsetHeight=${stA.height}（>20）` +
+    stA.height >= 44 && stA.width >= 44,
+    `A: 满状态「休息」触控尺寸 ${stA.width}x${stA.height}（须 ≥44x44，F301）` +
       ` disabled=${stA.disabled} data-rest-state=${stA.dataRestState}`
+  );
+  assert(
+    stA.dimCls && /dashed/.test(stA.borderStyle) && /,\s*0\)$/.test(stA.bg),
+    `A: 满状态「休息」缺降权样式 dimCls=${stA.dimCls} borderStyle=${stA.borderStyle} bg=${stA.bg}`
   );
   assert(
     stA.disabled === true,
@@ -211,7 +224,8 @@ run("rest-affordance", async ({ page }) => {
   checkFit("A", stA);
   await shot("A");
   console.log(
-    `[AFFORD-A] height=${stA.height} disabled=${stA.disabled} data-rest-state=${stA.dataRestState} ` +
+    `[AFFORD-A] size=${stA.width}x${stA.height} disabled=${stA.disabled} ` +
+      `data-rest-state=${stA.dataRestState} dim=${stA.dimCls} border=${stA.borderStyle} ` +
       `footer ${stA.footerScrollW}/${stA.footerClientW}`
   );
 
@@ -239,6 +253,10 @@ run("rest-affordance", async ({ page }) => {
     stB.dataRestState === "available",
     `B: data-rest-state=${stB.dataRestState}（≠"available"）height=${stB.height} disabled=${stB.disabled}`
   );
+  assert(
+    !stB.dimCls,
+    `B: 可休息态仍挂 .rest-dim 降权类 height=${stB.height}`
+  );
   checkFit("B", stB);
   await shot("B");
   console.log(
@@ -246,12 +264,17 @@ run("rest-affordance", async ({ page }) => {
       `footer ${stB.footerScrollW}/${stB.footerClientW}`
   );
 
-  // ── C 两态高度差 >= 16px ────────────────────────────────────────
+  // ── C 两态降权样式互斥（F301：尺寸不再区分，改锁质感差异）────────
   assert(
-    stA.height < stB.height && stB.height - stA.height >= 16,
-    `C: 两态高度差不足 heightBlocked=${stA.height} heightAvailable=${stB.height}` +
-      `（差 ${stB.height - stA.height}px < 16）disabled=${stA.disabled}->${stB.disabled} ` +
-      `data-rest-state=${stA.dataRestState}->${stB.dataRestState}`
+    stA.dimCls && !stB.dimCls,
+    `C: 降权态互斥破 dimCls blocked=${stA.dimCls} available=${stB.dimCls}`
   );
-  console.log(`[AFFORD-C] heightBlocked=${stA.height} heightAvailable=${stB.height} Δ=${stB.height - stA.height}px`);
+  assert(
+    /dashed/.test(stA.borderStyle) && !/dashed/.test(stB.borderStyle),
+    `C: 虚线边互斥破 borderStyle blocked=${stA.borderStyle} available=${stB.borderStyle}`
+  );
+  console.log(
+    `[AFFORD-C] blocked ${stA.width}x${stA.height} dim/dashed vs ` +
+      `available ${stB.width}x${stB.height} solid — 降权样式互斥成立`
+  );
 }, { viewport: { width: 390, height: 844 } });

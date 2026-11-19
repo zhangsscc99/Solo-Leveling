@@ -1829,6 +1829,21 @@ button {
   .btn.cta-primary {
     min-height: 52px;
   }
+
+  /* F301：桌面底栏全员 ≥44px（触控契约不分指针）；行动组内禁键
+     包在 .deny-tap-catcher 壳里顶替槽位，壳宽=内容宽——给组内键
+     （含壳内键）90px 下限，「潜行/休息」两字符键与四字键同格等宽。 */
+  .actions-main .btn:not(.cta-primary) {
+    min-height: 44px;
+  }
+
+  .actions-main .btn-group:not(.btn-group-sys):not(.btn-group-choice) > .btn,
+  .actions-main
+    .btn-group:not(.btn-group-sys):not(.btn-group-choice)
+    > .deny-tap-catcher
+    > .btn {
+    min-width: 90px;
+  }
 }
 
 /* 次级（系统组）：更小的字号、更灰的字色、更窄的内距 */
@@ -4413,16 +4428,12 @@ button {
   }
 }
 
-/* F253：满状态「休息」降为次级文字态，不再以完整按钮体积占位 */
+/* F253：满状态「休息」降为次级样式——透明底 + 虚线边 + 低对比文字，
+   表达「当前无收益」，不以满色实心占位。F301：视觉降权保留，尺寸回归
+   常规 .btn（不再写死 20px）——禁用键仍是唯一零成本回血入口，触控
+   面积须与同排兄弟键同格（承接壳内的伸展由 .deny-tap-catcher>.btn 管）。 */
 .btn.rest-dim {
-  align-self: center;
-  margin-block: auto;
-  justify-self: center;
-  min-height: 0;
-  height: 20px;
-  padding: 0 10px;
-  font-size: 11px;
-  line-height: 1;
+  font-size: var(--fs-sm);
   background: transparent;
   border-style: dashed;
   border-color: rgba(120, 170, 210, 0.28);
@@ -4504,6 +4515,15 @@ button {
   content: "";
   position: absolute;
   inset: 0;
+}
+
+/* F301：承接壳在窄屏按钮栅格里是 stretch 的 grid item（壳满格、
+   ::after 满壳收点击），壳内禁键 flex:1 填充——不再缩成格中央的
+   残尺寸控件（F296 半格空洞同源）；桌面 flex 行里壳按内容宽顶替
+   原槽位，flex:1 不产生额外撑开。 */
+.deny-tap-catcher > .btn {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .deny-tap-catcher:focus-visible {

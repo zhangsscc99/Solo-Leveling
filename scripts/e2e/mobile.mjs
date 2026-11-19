@@ -120,6 +120,54 @@ run(
       assert(!shown, `key badge #${i} hidden on touch`);
     }
 
+    // F301：底栏键触控尺寸 + 「休息」与同排兄弟键同格——直接量
+    // getBoundingClientRect()，390/1440 双视口各跑一遍（本函数在
+    // 1440 复跑一次，见 run 尾部）。
+    const auditActionBtns = async (tag) => {
+      const rows = await page.$$eval(".actions-main .btn", (els) =>
+        els.map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            act: el.getAttribute("data-act") || (el.textContent || "").trim().slice(0, 8),
+            dim: el.classList.contains("rest-dim"),
+            w: r.width,
+            h: r.height,
+            sw: el.scrollWidth,
+            cw: el.clientWidth,
+          };
+        })
+      );
+      assert(rows.length >= 4, `${tag}: .actions-main .btn 数量=${rows.length}`);
+      for (const s of rows) {
+        assert(
+          s.h >= 44 && s.w >= 44,
+          `${tag}: 「${s.act}」触控尺寸 ${s.w.toFixed(1)}x${s.h.toFixed(1)}（须 ≥44x44）`
+        );
+        assert(
+          s.sw <= s.cw + 1,
+          `${tag}: 「${s.act}」文字溢出 scrollWidth=${s.sw} clientWidth=${s.cw}`
+        );
+      }
+      const rest = rows.find((s) => s.dim);
+      assert(rest, `${tag}: 满状态「休息」不在 rest-dim 降权态`);
+      const sibs = rows.filter((s) => ["前进", "观察", "潜行"].includes(s.act));
+      assert(sibs.length >= 3, `${tag}: 同排兄弟键不足 3（前进/观察/潜行）`);
+      for (const s of sibs) {
+        assert(
+          Math.abs(s.w - rest.w) <= 4 && Math.abs(s.h - rest.h) <= 4,
+          `${tag}: 「休息」${rest.w.toFixed(1)}x${rest.h.toFixed(1)} 与「${s.act}」` +
+            `${s.w.toFixed(1)}x${s.h.toFixed(1)} 差值 >4px（网格半格空洞）`
+        );
+      }
+      return { rest, sibs };
+    };
+
+    const m390 = await auditActionBtns("390");
+    console.log(
+      `[F301-390] 休息 ${m390.rest.w.toFixed(1)}x${m390.rest.h.toFixed(1)} ` +
+        `兄弟 ${m390.sibs.map((s) => `${s.act}=${s.w.toFixed(1)}x${s.h.toFixed(1)}`).join(" ")}`
+    );
+
     const send = page.locator(".input-send");
     assert((await send.count()) >= 1, "send button present");
     const sbox2 = await send.boundingBox();
@@ -145,6 +193,15 @@ run(
     );
     const sbox = await page.locator(".sidebar.open").boundingBox();
     assert(sbox && sbox.width >= 200, `sidebar drawer slides in (w=${sbox && sbox.width})`);
+
+    // F301 第二视口：1440×900 下同一套触控尺寸/同格断言。
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(200);
+    const m1440 = await auditActionBtns("1440");
+    console.log(
+      `[F301-1440] 休息 ${m1440.rest.w.toFixed(1)}x${m1440.rest.h.toFixed(1)} ` +
+        `兄弟 ${m1440.sibs.map((s) => `${s.act}=${s.w.toFixed(1)}x${s.h.toFixed(1)}`).join(" ")}`
+    );
   },
   { viewport: { width: VW, height: VH }, context: { hasTouch: true, isMobile: true } }
 );
