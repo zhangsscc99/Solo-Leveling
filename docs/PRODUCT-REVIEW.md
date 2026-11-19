@@ -3251,3 +3251,13 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 部署：直接 `bash scripts/ci-deploy.sh`（按 P211 不套外层 flock）→ 全量 E2E 35/35 PASS → `DEPLOY OK`，`.deployed-ref=23432a5`（=HEAD）；公网 https://openfolio.uk/game 200、/game/api/health 200 `{"ok":true}`。
 - 未跑 `scripts/report.sh`（P210：全表模式 >50 分钟，单轮预算内不可行），本轮汇报按本文件手写。
 - 观察到的相邻死路（留给后续轮）：F282 修复后仍需注意 F288——交战中刷新有时回到交战原回合、有时回到门牌页，两套行为不可预期；F282 只解决了「回到门牌页后不用重敲代号」，未解决「刷新到底该回哪里」。
+
+## 第89轮调度（2026-11-19 08:11Z，单条 F285）
+- 选条：F285（P2 可负担性/反馈：抽屉展开时自由输入可聚焦输入，回车静默无回执、文本不清空）。闸门 green（CPU 9%、parallel=2），按「单轮只做 1 条」只开一条车道。
+- 选条前置核查：F251（建档后背包侧栏自动展开遮住正文）与第87轮已修的 F284 同源，实测不可复现 → 跳过；F276（手机点「属性」落背包页）当前 `openTab` 已同时 `setTab(key)+setDrawer(true)`，代码层已正确 → 跳过；F277/F278 的基础脚本（`stage-bottom-clearance.mjs`/`prose-hygiene.mjs`）在 main 上已 PASS，剩余为新增断言口径，留后续轮。
+- devin swe-2-medium 一次成功（未遇限流），worktree `feat/F285` 提交 687e873，我方只做验收/合入/部署。
+- 落地（方案 A，且仅 `drawer && narrow` 生效，桌面常驻三栏不受影响）：抽屉态输入框与发送键 `disabled`+`aria-disabled`；disabled 控件不派发指针事件，故加 `.input-veil` 壳层收点击换 `.sys-toast` 回执（`DRAWER_INPUT_HINT`），`.input-hint` 承载 12px 可见原因；全局 keydown 在抽屉态拦截落到 body 的 Enter；`onSend` 兜底同样先 toast 后 return，静默吞输入的路径归零。
+- 验收：新增 `scripts/e2e/free-input-behind-drawer.mjs`（自起隔离实例，390/1440 双视口，CDP 真实 Enter，600ms 内断言 (a) toast 变化 / (b) 清空且日志 +1 / (c) disabled+可见原因，390 追加关抽屉后恢复可输入）；旧码实测 FAIL（`toast=null logEntries 8->8 stageLen 582->582 disabled=false`）已写进脚本头与提交信息。`verify.sh F285` PASS(9.9s)、`tsc --noEmit` 0、`npm run build` 0、冒烟 `boot`/`action` PASS。
+- 合入后复跑冒烟档（本地隔离实例 3412）三脚本全 PASS；全量 E2E 交给 full-e2e 任务。
+- 部署：`bash scripts/ci-deploy.sh`（按 P211 不套外层 flock）。
+- 相邻死路（留给后续轮）：F286（敌我血条同色 + 己方 HP 顶栏/浮层重复）与 F281（无独立敌方血条/飘伤数字层）都在同一块 `CombatPanel` 上，且该面板已存在 `enemyHp/enemyMaxHp` 字段与 `.combat-float` 飘字——F281 的「我方血条缺失」判断已被 F088 部分消化，下一轮应先实测再决定是补 `[data-enemy-hp]`/`.dmg-num` 选择器还是修真实缺口，避免重复劳动。
