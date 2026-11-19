@@ -3312,6 +3312,18 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 未跑 `scripts/report.sh`（P210 未修，全表 >50 分钟），汇报按本文件手写。
 - 相邻死路（留给后续轮）：F290（动静 n/4 只有文本披露、HUD 无独立 `[data-noise]` 指示）与本轮同一块账，本轮只做了「说清楚」，下一轮应把 `noise.cur/max` 直接渲染成顶栏图标并加 4/4 前预警；F289（decision-locked 键零回执）与 F292（系统串混进正文）仍是第91轮走查的头两号 P0/P2。
 
+## 第94轮调度（2026-11-19 10:13Z，单条 F290）
+
+- 闸门：`agent-gate.sh check solo-leveling` → green（cpu 10%、load 0.98/4 核、mem 45%），parallel=2，按「单轮只做 1 条」开一条车道。
+- 选条：F290（P1 平衡/反馈）——「看得到代价」才谈得上取舍：观察的真实代价（动静 n/4）只活在正文括注里，HUD 无承载、4/4 前无预警。与上一轮 F274（文案披露）同一本账，本轮补可视层。
+- devin swe-2-medium 一次成功（未遇限流，无需回退 OpenCode）；worktree `feat/F290`，提交 d9bb508，main 合并 2305e07。
+- 落地：`StatusBar` 在 `.status-gauges` 增第三行 `[data-noise]`：`role=meter` + `aria-valuemin/now/max`，`max` 枚离散格、点亮格数 = `save.observe.noise.cur`，数值全部照服务端下发口径渲染（前端零推导，max 也不写死 4）；`cur>=max-1` 挂 `.warn`（点亮格转血红 + 1.4s 脉冲、数值转红、`title` 写「再看一次就要遇敌」）；交战态不渲染（观察键已下场）。`styles.css` 只加 `.noise-*` 与 keyframes，reduced-motion 沿用既有全局归零。未动服务端、端口、反代、依赖。
+- 验收：`verify.sh F290` PASS（10.46s in worktree / 6.11s on main）；新增 `scripts/e2e/noise-meter.mjs`（双视口 A aria 与 API 同源 + 点亮格数=cur、B 连点观察序列 0,0,0,1,2,3 严格递增、C max-1 出 warn、D 390 右缘 378≤382 且 docSW=390 无横溢、E 过线开战后计量条退场不报错）；旧码红证：stash 后 `[data-noise]` 等待超时 FAIL。回归 `boot`/`action`/`stat-row-fit`/`primary-cta`/`gate-layout` 全 PASS；`npm --prefix client run build` 0。
+- 部署：按 P211 直接 `bash scripts/ci-deploy.sh`（不套外层 flock），闸门内全量 39/39 E2E PASS，`DEPLOYED_REF=2305e07`，本地与公网 `/game/api/health` 均 200，线上 bundle 与本地构建同为 `index-D9aw3xGC.js`。
+- **本轮环境坑（重要）**：cron 会话 PATH 里的 `node` 是 `/www/hermes-home/tools/node-26.12.1-linux-x64/bin/node`（v26），而仓库 `better-sqlite3` 是按 node 24 编译（NODE_MODULE_VERSION 137 vs 147）→ 所有 E2E/verify 一律 `Error: … was compiled against a different Node.js version` 起不来，**看起来像代码失败，其实是环境**。修法：跑任何 node 命令前 `export PATH=/root/.nvm/versions/node/v24.5.0/bin:$PATH`（pm2 上 solo-leveling 也跑 24.5.0）。本轮已用该方法复跑全部断言。
+- 未跑 `scripts/report.sh`（P210 未修，全表 >50 分钟），汇报按本文件手写。
+- 下一轮建议：F289（P0，`choice-locked` 键零回执——注意 F279 已实现 disabled 三件套，需先复测确认是否仍复现再动刀）> F292（系统串混正文）> F291（属性面板辅助文字 12px/4.5:1）。
+
 ## 回退记录
 
 - 第93轮（2026-11-19 09:31Z 调度）：派 devin swe-2-medium 做 **F277** 时 hit 免费额度共享池限流
