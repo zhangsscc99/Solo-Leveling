@@ -3773,3 +3773,14 @@ F313（P1｜战斗数值口径不一致）、F314（P1｜观察空转刷日志�
 - 验收（调度器亲自复跑，node24 ABI137 PATH）：`verify.sh F308` **PASS 10.9s**（旧码红证：C 断言抓出「（体力消耗 HP 100→97 · MP 20→18）」落在无归属叙事条目上）；冒烟 `boot` 5.4s / `action` 7.0s PASS（合并 main 后复跑）；部署 `bash scripts/ci-deploy.sh` → **47/47 E2E PASS、DEPLOY OK**，`.deployed-ref=c96d5e3`，`/game/health` 200、`/game/api/health {"ok":true}`、公网 `https://openfolio.uk/game` 200。
 - 回退记录：无（devin 一次成功，未触发限流/回退）。
 - 遗留观察：① 本轮只是给括注补主语，**机制播报仍在叙事正文里**（F278/F256/F263 同族）——真正解法是把 HP/MP 变化交给 HUD 数字动效与独立战报行，下一轮可直接做 F278；② `encounter-split-log.mjs` 在改动前后都因 must_choose 态「探索前进」disabled 发不出请求而超时（前置性断裂，与本轮无关，需单独立条修 fixture）；③ 调度器环境跑 verify 必须先把 node24 放 PATH（`/www/moved/nvm/versions/node/v24.5.0/bin`），否则 better-sqlite3 ABI137 直接 ERR_DLOPEN_FAILED——这仍是 P213 的同一根因，建议尽快落 P213 的 ABI 自检。
+
+## 第109轮调度（2026-11-19T20:31Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（yellow，cpu 19%、load1 3.55、mem 53%、disk_root 62%），parallel=2；按规模只做 1 条。
+- 选条理由：**F313**（P1 信任级）——交战态同屏三个 HP 口径（顶栏 87/100、系统句「你94/100」、战报「94→87」），是第108轮走查里玩家「当场就能发现自相矛盾」的一条，且 verify 现成可写（新增 `combat-hp-sync.mjs`）。
+- 执行者：**devin CLI `swe-2-high`**（首选通道一次成功，无回退 / 无限流），commit `b6ac90f`，合并 `9b82644`。耗时约 22 分钟（含依赖安装与双视口 E2E 自测）。
+- 根因：`guardianWarning()` 的 brief 分支（`o.inCombat && brief && pct>=60`）在**开战瞬间**生成「敌 HP · 你 hp/max」快照句，此后整场战斗不再刷新，却长期挂在系统播报区冒充实时提示；同时战斗面板只渲染血条不渲染数字，玩家只能回看那句过期数字。
+- 修法（选 b：去数字）：① 开战 brief 句改为「「X」交战已开始——说「攻击」继续，或「逃跑」撤离。」，把数字唯一之家交给战斗面板；`inCombat:false`（门前被拒/房内重入）路径逐字不动；② `CombatPanel` 玩家/敌方 HP 恢复可见 `当前/上限` 数字，数据源仅 `save.hp`/`save.max_hp`/`save.combat`，`role="meter" + aria-valuenow` 承载同值；③ 旧门禁 `combat-hp-distinct` 的 (d) 从「全页只 1 次」改为「.status=1 + 面板玩家侧=1 + 全页=2 且 meter 值相同」（收紧而非放宽，未删断言）。
+- 验收（调度器亲自复跑，node24 ABI137 PATH）：`verify.sh F313` **PASS 8.06s / 8.97s（main）**；新门禁 `combat-hp-sync` 旧码红证 `[ASSERT] C 1440×900: 交战态可见区发现过期玩家 HP 数字 97/100（当前真值 90/100）` exit=1，修复后双视口 ×3 连跑全 PASS；`combat-hp-distinct` ×3 PASS；冒烟 `boot` 5.0s / `action` 4.9s PASS（main 重建 dist 后复跑）。
+- 回退记录：无（devin 一次成功，未触发限流/回退）。
+- 遗留观察：① `combat-hp-distinct` 在本轮首次连跑时出现过一次 `TimeoutError`（首跑冷态，随后 3/3 PASS），与 GE2E-20261119d/e 的绝对超时族同源，建议统一改「相对基线 + 更长超时」；② **F304 仍未做**——面板现在有数字了，但没有伤害跳字与「轮到谁」提示，战斗反馈仍靠读正文；③ F314（观察空转 +2 行/次）是下一个 P1 死选项，本轮连带确认「免费次数用尽后按钮仍可点」依旧成立。
