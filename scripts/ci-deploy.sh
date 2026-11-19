@@ -35,6 +35,33 @@ fi
 [ -f "$ROOT/client/package.json" ] || { echo "[$(ts)] client/package.json missing" >&2; fail; }
 echo "[$(ts)] OK preflight"
 
+# P212 部署闸门：本轮勾选的 FID 若「验收不可执行」（MISSING / NO_ASSERT_FILE）
+# 直接中止部署——否则调度器会以为跑过验收、其实一条都没跑。
+# 只做解析级检查（--check）：对旧服务真跑断言会假红，那是 full-e2e 的活。
+# 逃生阀：SL_SKIP_VERIFY_GATE=1。
+step verify-gate 1b
+if [ "${SL_SKIP_VERIFY_GATE:-0}" = "1" ]; then
+  echo "[$(ts)] WARN verify-gate skipped by SL_SKIP_VERIFY_GATE=1"
+else
+  prev_ref="$(cat "$DEPLOYED_REF_FILE" 2>/dev/null || echo '')"
+  if [ -z "$prev_ref" ] || ! git -C "$ROOT" cat-file -e "${prev_ref}^{commit}" 2>/dev/null; then
+    echo "[$(ts)] WARN verify-gate: no usable previous ref, skipped"
+  else
+    fids="$(git -C "$ROOT" diff "$prev_ref" HEAD -- docs/FEATURES.md 2>/dev/null \
+      | sed -n 's/^+[[:space:]]*-[[:space:]]*\[[xX]\][[:space:]]*\([A-Za-z0-9_-]\{2,\}\).*/\1/p' | sort -u)"
+    if [ -z "$fids" ]; then
+      echo "[$(ts)] WARN verify-gate: no newly checked FID in diff, skipped"
+    else
+      for fid in $fids; do
+        if bash "$ROOT/scripts/verify.sh" --check "$fid"; then :; else
+          echo "[$(ts)] verify-gate rejected $fid" >&2; fail
+        fi
+      done
+      echo "[$(ts)] OK verify-gate ($(echo $fids | wc -w) FID)"
+    fi
+  fi
+fi
+
 step node-runtime 2
 node_bin=""
 node_abi() { env -u NODE_CHANNEL_FD -u NODE_CHANNEL_SERIALIZATION_MODE "$1" -e 'process.stdout.write(process.versions.modules)' 2>/dev/null; }
