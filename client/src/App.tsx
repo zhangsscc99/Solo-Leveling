@@ -1959,6 +1959,14 @@ export default function App() {
                   交战中无法推进剧情 · 先打完或「逃跑」脱身
                 </span>
               )}
+              {/* F289：抉择锁定态必须有一个「为什么点不动」的常驻可见原因，
+                  并让被锁键用 aria-describedby 指向它（读屏/键盘同一条信息）。
+                  文案与点击回执同源（DENY_CHOICE_TEXT），锁定解除即不渲染。 */}
+              {!liveCombat && forwardChoiceLocked && (
+                <span className="combat-lock-hint choice-lock-hint" role="note" id="act-lock-reason">
+                  {DENY_CHOICE_TEXT}
+                </span>
+              )}
               {/* F094：探索组只在非交战渲染；交战中整组换为下方战斗五键，
                   服务端对和平意图的门禁（改判提示、零收益）与前台隐藏一致。 */}
               {!liveCombat &&
@@ -2048,6 +2056,7 @@ export default function App() {
                               : `快捷键 ${i + 1}`)
                     }
                     aria-disabled={busy || restBlocked || choiceLocked || obsBlocked}
+                    aria-describedby={choiceLocked ? "act-lock-reason" : undefined}
                   >
                     {challenge ? (
                       "叫阵守关者"
