@@ -3301,3 +3301,13 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 ## F274 实现说明（devin worktree feat/F274）
 - 「观察」代价事前披露：observeStatus() 随 save.observe 下发 cost(恒 null，观察全程不扣 HP/MP)/free_left/free_total/noise{cur,max}/may_encounter/hint/badge，全部由服务端结算；前端「环顾四周」title=hint、键面左上挂 .obs-cost 角标（免费×N / 动静 cur/max），.log 末尾常驻 .log-hint 系统提示节点（非 .log-entry 旁白排版，交战/看尽锁定不渲染）；断言 scripts/e2e/observe-cost-disclosed.mjs 自起隔离实例逐字核对 DOM 提示与 API 字段（A/B/C/D 四断言），连跑 3 次 PASS；observe-cost/observe-dedupe/stage-bottom-clearance/desktop-log-occlusion 均无回归。
 
+## 第92轮调度（2026-11-19 09:01Z，单条 F274）
+- 闸门：`agent-gate.sh check solo-leveling` → green（cpu 16%、load 2.34/4 核、mem 48%），parallel=2，按「单轮只做 1 条」开一条车道。
+- 选条：F274（P1 可负担性/Pre 层）——玩家实测点一次「环顾四周」无预警被拖进遭遇战，键面无消耗角标、无「可能遇敌」提示。
+- devin swe-2-high 一次成功（未遇限流，无需回退 OpenCode）；worktree `feat/F274` 提交 81198ca，期间 main 前进到 887d62b（第91轮走查文档），合并时 docs/PRODUCT-REVIEW.md 冲突按「两边都留」解决（走查正文在前、F274 实现说明在后），F289–F292 四条待办原样保留。
+- 落地（服务端为唯一事实源，最小改动）：`server/index.js` 新增 `observeDisclosure()`，随 `save.observe` 下发 `cost`/`free_left`/`free_total`/`noise{cur,max}`/`may_encounter`/`hint`/`badge`；`client/src/api.ts` 扩 `ObserveStatus`；`App.tsx`「环顾四周」title=服务端 hint、键面左上 `.obs-cost` 角标（免费×N → 动静 x/4）、`.log` 末尾常驻 `.log-hint[data-observe-hint]` 系统提示（非 `.log-entry` 旁白排版，交战/看尽锁定不渲染）；`styles.css` 只加两段局部样式。未动 HP/MP 结算、端口、反代、依赖。
+- 诚实性：实测观察全程不扣 HP/MP（前 `OBSERVE_TOTAL=3` 次免费，之后每次 `encounter_clock+1`，`PITY_LIMIT=4` 那一下直接开战），故 `cost` 恒 null，披露文案写的是真实的「免费额度 + 动静账 + 攒满遇敌」，没有编造 HP/MP 消耗——与 F274 原文里「观察扣 HP 3/MP 2」的现场描述不同，按代码事实披露。
+- 验收：`verify.sh F274` PASS（7.1s / 合入后 7.58s 复跑）；新增 `scripts/e2e/observe-cost-disclosed.mjs` 连跑 3 次 PASS（A title/角标命中、B 点击前 `.log` 最新节点即披露、C 数字与服务端常量交叉核对、D 点击后随机制刷新）；`observe-cost` / `observe-dedupe` 无回归；冒烟档 `boot` + `action` PASS（合入后复跑同 PASS）；`tsc --noEmit -p client` 0。
+- 部署：按 P211 直接 `bash scripts/ci-deploy.sh`（不套外层 flock）。
+- 未跑 `scripts/report.sh`（P210 未修，全表 >50 分钟），汇报按本文件手写。
+- 相邻死路（留给后续轮）：F290（动静 n/4 只有文本披露、HUD 无独立 `[data-noise]` 指示）与本轮同一块账，本轮只做了「说清楚」，下一轮应把 `noise.cur/max` 直接渲染成顶栏图标并加 4/4 前预警；F289（decision-locked 键零回执）与 F292（系统串混进正文）仍是第91轮走查的头两号 P0/P2。
