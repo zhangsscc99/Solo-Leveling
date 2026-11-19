@@ -4263,3 +4263,61 @@ button {
   border-radius: var(--r-hard);
   pointer-events: none;
 }
+
+/* ── F279 disabled 键的统一拒绝回执 ──────────────────────────────
+   原生 disabled 按钮不派发任何鼠标事件（连 pointerdown 都不冒泡），
+   「点了没反应」在玩家侧等价于「游戏坏了」。承接壳 .deny-tap-catcher
+   绝对定位伪元素盖满键面收 pointer，点击当帧点亮 .sys-toast 并抖一次；
+   data-denied 只活 460ms，不改变键尺寸/位置（transform 不参与布局）。
+   .rest-tap-catcher / .lock-tap-catcher 是既有锚点，同壳复用不改名。 */
+.deny-tap-catcher {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.deny-tap-catcher::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.deny-tap-catcher:focus-visible {
+  outline: 1px solid var(--system-dim);
+  outline-offset: 2px;
+}
+
+.deny-tap-catcher[data-denied="1"] {
+  animation: deny-shake 320ms ease-out;
+}
+
+@keyframes deny-shake {
+  0%, 100% { transform: translateX(0); }
+  22% { transform: translateX(-3px); }
+  52% { transform: translateX(3px); }
+  78% { transform: translateX(-1px); }
+}
+
+/* 键内拒绝（连击欠蓝 / 交战存档 / requires 未达的选项）：不占结构、
+   不打乱 .btn-group 的直接子项定位，只按禁键口径压暗 + 抖一次。 */
+.btn.combo-short,
+.btn.is-locked {
+  opacity: 0.45;
+  filter: grayscale(0.6) brightness(0.85);
+  cursor: default;
+}
+
+.btn.combo-short[data-denied="1"],
+.btn.is-locked[data-denied="1"] {
+  animation: deny-shake 320ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deny-tap-catcher[data-denied="1"],
+  .btn[data-denied="1"] {
+    animation: none;
+  }
+}

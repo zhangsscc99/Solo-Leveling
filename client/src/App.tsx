@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCountUp } from "./useCountUp";
 import {
   baseAttack,
@@ -952,6 +952,52 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }, []);
+
+  // F279：disabled 键的统一拒绝回执。原生 disabled 按钮不接收任何鼠标
+  // 事件（连 pointerdown 都不派发），所以壳层必须真的盖在键上（::after
+  // 覆盖全区域）才能收到点击——这是唯一能保证「点了必有回执」的路径。
+  // 回执三件套同帧触发：.sys-toast 文案（原因+下一步）、壳上 data-denied
+  // 抖动、aria-label 携带同一文案；零副作用（不发请求、不改存档）。
+  const [denied, setDenied] = useState<{ key: string; id: number } | null>(null);
+  const deniedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const denyAction = useCallback(
+    (key: string, reason: string, after?: () => void) => {
+      showToast(reason);
+      after?.();
+      setDenied({ key, id: Date.now() });
+      if (deniedTimer.current) clearTimeout(deniedTimer.current);
+      deniedTimer.current = setTimeout(() => setDenied(null), 460);
+    },
+    [showToast]
+  );
+  const denyShell = (
+    key: string,
+    node: ReactNode,
+    reason: string,
+    extraCls = "",
+    after?: () => void
+  ) => (
+    <span
+      key={`deny-${key}`}
+      className={`deny-tap-catcher${extraCls ? ` ${extraCls}` : ""}${
+        denied?.key === key ? " denied" : ""
+      }`}
+      data-denied={denied?.key === key ? "1" : undefined}
+      role="button"
+      tabIndex={0}
+      aria-label={reason}
+      title={reason}
+      onClick={() => denyAction(key, reason, after)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          denyAction(key, reason, after);
+        }
+      }}
+    >
+      {node}
+    </span>
+  );
 
   // 连续拒绝只重置计时——同一组选项键槽位不换元素，key 翻新让动画
   // 从头播，避免连点「前进」时第二次闪光被第一次吃掉。
@@ -1914,32 +1960,28 @@ export default function App() {
                 // ——disabled 后点它同样零回执，壳上点亮指路 .sys-toast
                 // （DENY_CHOICE_TEXT，与快捷键 1/自由输入同文案）并闪一次
                 // 选项组，把视线引到真正要做的选择上。
-                if (restBlocked || choiceLocked) {
+                if (busy || restBlocked || choiceLocked || obsBlocked) {
                   const lockedReason = choiceLocked
                     ? DENY_CHOICE_TEXT
-                    : restInfo?.reason || "暂时无法休息";
-                  const fire = () => {
-                    if (choiceLocked) flashChoices();
-                    showToast(lockedReason);
-                  };
-                  return (
-                    <span
-                      key={b.label}
-                      className={choiceLocked ? "lock-tap-catcher" : "rest-tap-catcher"}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${choiceLocked ? "探索前进" : "休息"}（${lockedReason}）`}
-                      title={lockedReason}
-                      onClick={fire}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          fire();
-                        }
-                      }}
-                    >
-                      {btn}
-                    </span>
+                    : obsBlocked
+                      ? obsInfo?.reason || "此处已看尽"
+                      : restBlocked
+                        ? restInfo?.reason || "暂时无法休息"
+                        : "上一步还在结算，请稍等";
+                  // 旧口径的壳类名保留（.lock-tap-catcher / .rest-tap-catcher
+                  // 是既有 E2E 与布局断言的锚点），新壳统一挂 .deny-tap-catcher
+                  // 承担 ::after 覆盖层与 denied 抖动。
+                  const legacyCls = choiceLocked
+                    ? "lock-tap-catcher"
+                    : restBlocked
+                      ? "rest-tap-catcher"
+                      : "obs-tap-catcher";
+                  return denyShell(
+                    `act-${b.input}`,
+                    btn,
+                    lockedReason,
+                    legacyCls,
+                    choiceLocked ? flashChoices : undefined
                   );
                 }
                 return btn;
@@ -1960,7 +2002,12 @@ export default function App() {
                 // aria-label 给完整口径；服务端同条件 refused 兜底。
                 const comboShort =
                   b.input === "连击" && liveCombat && save.mp < COMBO_MP_COST;
-                const disabled = busy || (!liveCombat && !challengeable) || comboShort;
+                // F279：连击欠蓝不用原生 disabled——原生禁键吞掉一切事件，
+                // 玩家点下去零回执（且外包壳会打乱 3+2 栅格的 nth-of-type
+                // 判位）。改为 aria-disabled + 键内拒绝：点击当帧点亮
+                // .sys-toast 并抖一次，零请求零副作用；视觉仍按禁键压暗。
+                const hardDisabled = busy || (!liveCombat && !challengeable);
+                const disabled = hardDisabled || comboShort;
                 // F228：交战主位只落在第一键「攻击」；叫阵态主位在行动组
                 // 「叫阵守关者」上，这里的「叫阵 · 攻击」降为普通键。
                 const isCta = primaryCta?.kind === "attack" && i === 0;
@@ -1969,11 +2016,11 @@ export default function App() {
                     key={b.label}
                     className={`btn${isCta ? " primary cta-primary" : ""}${
                       b.expand && barList === b.expand ? " on" : ""
-                    }${b.cls ? ` ${b.cls}` : ""}`}
+                    }${b.cls ? ` ${b.cls}` : ""}${comboShort ? " combo-short" : ""}`}
                     data-primary-cta={isCta ? "1" : undefined}
                     data-act={b.input ?? b.expand}
                     data-hotkey={liveCombat ? combatHotkey(i) : undefined}
-                    disabled={disabled}
+                    disabled={hardDisabled}
                     aria-disabled={disabled}
                     aria-expanded={b.expand ? barList === b.expand : undefined}
                     aria-label={
@@ -1994,13 +2041,19 @@ export default function App() {
                             ? "守关者就在面前 — 叫阵开战"
                             : "当前没有可攻击的目标"
                     }
-                    onClick={() =>
-                      b.expand === "skills"
-                        ? toggleBarSkills()
-                        : b.expand === "items"
-                          ? toggleBarItems()
-                          : dispatch(b.input as string)
-                    }
+                    onClick={() => {
+                      if (comboShort) {
+                        denyAction(
+                          `combat-${b.input}`,
+                          `魔力不足：连击需要 ${COMBO_MP_COST} MP（当前 ${save.mp} MP）·「攻击」零消耗，或先喝魔力药剂`
+                        );
+                        return;
+                      }
+                      if (hardDisabled) return;
+                      if (b.expand === "skills") toggleBarSkills();
+                      else if (b.expand === "items") toggleBarItems();
+                      else dispatch(b.input as string);
+                    }}
                   >
                     {challengeable ? "叫阵 · 攻击" : comboShort ? `${b.label}（不足）` : b.label}
                     {liveCombat && <kbd className="key-badge">{combatHotkey(i)}</kbd>}
@@ -2031,12 +2084,22 @@ export default function App() {
                   // F228：分支接管主位——第一条未锁定选项是唯一主 CTA，
                   // 其余分支键保持普通 .btn。
                   const isCta = primaryCta?.kind === "choice" && primaryCta.id === c.id;
+                  // F279：requires 未达的选项键不改 DOM 结构（.btn-group-choice
+                  // > .btn 是既有断言锚点），拒绝回执挂在按钮自身的 click 上：
+                  // 原生 disabled 吞事件，故锁定项改用 aria-disabled + 键内
+                  // 拒绝——点击当帧点亮 .sys-toast（locked_reason 原文）+ 抖动，
+                  // 不发请求、不改存档；视觉仍按禁键压暗。
                   return (
                     <button
                       key={c.id}
-                      className={`btn${isCta ? " primary cta-primary" : ""}`}
+                      className={`btn${isCta ? " primary cta-primary" : ""}${
+                        locked ? " is-locked" : ""
+                      }`}
                       data-primary-cta={isCta ? "1" : undefined}
-                      disabled={busy || locked}
+                      data-denied={
+                        denied?.key === `choice-${c.id}` ? "1" : undefined
+                      }
+                      disabled={busy}
                       aria-disabled={busy || locked}
                       title={
                         locked
@@ -2045,7 +2108,17 @@ export default function App() {
                             ? `${c.label} · 代价：${c.cost}`
                             : c.label
                       }
-                      onClick={() => dispatch(c.label, c.id)}
+                      onClick={() => {
+                        if (locked) {
+                          denyAction(
+                            `choice-${c.id}`,
+                            c.locked_reason || `${c.label}：条件未满足`
+                          );
+                          return;
+                        }
+                        if (busy) return;
+                        dispatch(c.label, c.id);
+                      }}
                     >
                       {c.label}
                       {c.cost ? <span className="rest-count">{c.cost}</span> : null}
@@ -2145,20 +2218,38 @@ export default function App() {
                 >
                   战斗
                 </button>
-                <button
-                  className="btn"
-                  disabled={busy || Boolean(save.combat)}
-                  title={save.combat ? "交战中无法存档" : undefined}
-                  onClick={() => {
-                    // F132：点击即给就地反馈；回包落地后换成完成确认。
-                    showToast("正在写入存档…");
-                    void dispatch("存档").then((ok) => {
-                      if (ok) showToast(`存档已写入 · 存档 #${save.id}`);
-                    });
-                  }}
-                >
-                  存档
-                </button>
+                {(() => {
+                  const saveBlocked = Boolean(save.combat);
+                  return (
+                    <button
+                      key="save"
+                      className={`btn${saveBlocked ? " is-locked" : ""}`}
+                      data-denied={denied?.key === "sys-save" ? "1" : undefined}
+                      aria-disabled={busy || saveBlocked}
+                      title={save.combat ? "交战中无法存档" : undefined}
+                      onClick={() => {
+                        // F279：交战态存档是死键（aria-disabled + 键内拒绝）——
+                        // 点击当帧给「交战中无法写入存档」回执，与
+                        // .save-blocked-hint 同口径，零请求零副作用。
+                        if (saveBlocked) {
+                          denyAction(
+                            "sys-save",
+                            "交战中无法写入存档 · 先「逃跑」或打赢这一场"
+                          );
+                          return;
+                        }
+                        if (busy) return;
+                        // F132：点击即给就地反馈；回包落地后换成完成确认。
+                        showToast("正在写入存档…");
+                        void dispatch("存档").then((ok) => {
+                          if (ok) showToast(`存档已写入 · 存档 #${save.id}`);
+                        });
+                      }}
+                    >
+                      存档
+                    </button>
+                  );
+                })()}
               </div>
               <i className="sys-fade sys-fade-l" aria-hidden="true" />
               <i className="sys-fade sys-fade-r" aria-hidden="true" />
