@@ -3619,3 +3619,12 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
   冒烟 `boot` 3.6s / `action` 4.2s PASS。
 - 走查线索（本轮未修，供后续）：`node scripts/verify.sh` 这类入口在默认 PATH 下必崩（P213 只修了部署口径，
   开发/验收口径未收口，建议在 verify.sh 头部加 ABI 探针并自动切解释器）。
+
+### 第104轮部署（同一轮内）
+
+- 首轮 `ci-deploy.sh` 闸门 **42/43**：`observe-threat-pays` 红（`[ASSERT] R2: 第7次观察（clock 未过线）就开了战——阈值提前到 3`），
+  随后自动回滚到 `2001028`。独立复跑该脚本 **2/2 PASS**（两次都在第 7 次观察才触发，R1 地下城狼 / R2 石像残兵），
+  与本轮 CSS 改动无因果关系 → 判为整套并发下的抖动，已立项 GE2E-20261119e。
+- 重试部署：**43/43 PASS**、`DEPLOY OK`，`.deployed-ref=f9db3a3`，本地 `/game/api/health` 200、公网 `https://openfolio.uk/game` 200。
+- 线上复验（`E2E_BASE_URL=https://openfolio.uk/game` 直跑 `combat-hp-distinct`）：双视口 (f)(g) 全绿，
+  顶栏与浮层己方 HP 均为 `linear-gradient(90deg, rgb(14,95,116), rgb(47,191,174))`，敌方仍带 45° 斜纹。
