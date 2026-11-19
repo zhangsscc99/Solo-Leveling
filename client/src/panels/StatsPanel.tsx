@@ -1,4 +1,5 @@
 import { baseAttack, baseDefense, Equipment, Save, StatKey } from "../api";
+import { useCountUp } from "../useCountUp";
 
 /* ────────────────────────────────────────────────
    属性面板：五项属性仪表行 + 自由属性点分配 + 经验条。
@@ -34,6 +35,8 @@ export default function StatsPanel({
   const capped = need <= 0;
   const xpPct = capped ? 100 : Math.min(100, (save.xp / need) * 100);
   const remain = Math.max(0, need - save.xp);
+  // F259：经验数字与顶栏同一 count-up 口径（面板开着时入账即滚动）。
+  const xpNum = useCountUp(save.xp);
 
   return (
     <div className="stat-panel" aria-busy={busy}>
@@ -121,8 +124,8 @@ export default function StatsPanel({
           <span className="stat-line-num">{capped ? "MAX" : `${Math.floor(xpPct)}%`}</span>
         </div>
         <div className="stat-xp-meta">
-          <span className="stat-xp-nums">
-            {save.xp}
+          <span className="stat-xp-nums" data-anim="count" data-counting={xpNum.counting ? "1" : "0"}>
+            {xpNum.display}
             <i>/</i>
             {capped ? "—" : need}
           </span>

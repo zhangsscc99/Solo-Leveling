@@ -336,8 +336,32 @@ button {
 }
 
 .gauge-fill {
+  position: relative;
   height: 100%;
   transition: width 0.25s ease;
+}
+
+/* F259 血条残影：垫在 .gauge-fill 之下的「丢失段」——宽度与 fill 同源
+   下发，但 transition 带 ~0.3s 延迟 + ~0.4s 收拢（game-detail-bar §9c：
+   a lost chunk flashes, holds about 0.3 s, then drains）。掉血时 fill
+   先收、残影停在旧宽度露出一段「刚被打掉的血」；回血时残影永远窄于
+   新 fill 被当场盖住，自然跟随。absolute 不占布局，track 尺寸口径不变；
+   reduced-motion 由全局 * 规则把 transition 归零，残影即收即齐。 */
+.gauge-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  transition: width 0.4s ease 0.3s;
+}
+
+.gauge-hp .gauge-ghost {
+  background: rgba(255, 77, 104, 0.55);
+}
+
+.gauge-mp .gauge-ghost {
+  background: rgba(79, 200, 255, 0.4);
 }
 
 .gauge-hp .gauge-fill {
