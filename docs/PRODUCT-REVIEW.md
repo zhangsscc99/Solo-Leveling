@@ -3109,3 +3109,8 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - F259 落地：HP/MP/金币/XP 变化后 ~400ms ease-out 滚到终值（滚动期 `data-anim="count"` + `data-counting="1"`，reduced-motion 直接落终值）；`.gauge-ghost[data-ghost]` 垫在 fill 之下，掉血段先停 0.3s 再 0.4s 收拢（absolute 不占布局，390 无横溢）；属性面板经验条宽度随 XP 入账变化（0→29.6px）。`num-feedback.mjs` 连跑 3 次 PASS（6.5–7.5s），旧码红证：同一脚本在 main 旧 bundle 上 `(a) HP 数字 100→97 未采到中间值` FAIL。
 - 部署插曲：首次 `ci-deploy.sh` 在 e2e 步 FAIL（当轮 `run-all` 无失败项，隔离复跑 29/29 PASS，判为瞬时抖动）→ 脚本按设计 ROLLBACK 到 `.deploy-backup`；直接重跑一次 `bash scripts/ci-deploy.sh` → `29/29 passed` + `DEPLOY OK`，`.deployed-ref=58d481b`，本地/公网 health 均 200。
 - 口径提醒（P211 未修前）：部署一律 `bash scripts/ci-deploy.sh`，不要再套 `flock .deploy.lock -c`。
+
+## 第81轮（2026-11-19 02:41 UTC，cron solo-leveling-loop）
+- 本轮 1 条：F272（P0 抉择态「观察/潜行/休息」死键）→ 已合入 main 并部署。
+- **本条 devin 失败：免费 SWE-2 额度耗尽（`Reached free model rate limit`，退出码 1，swe-2-high 与 swe-2-medium 均被限，03:01 UTC 才重置）→ 已回退 OpenCode 实现**。改动：`client/src/App.tsx` 在 `forwardChoiceLocked` 下把三键同口径锁死（disabled + `data-locked` 角标 + `lock-tap-catcher` 承接壳 toast + 选项组闪烁，快捷键分支同源），新增 `scripts/e2e/choice-state-deadkeys.mjs`（390/1440 双视口 + 普通场景反向）。
+- 验收：旧码红证 FAIL（「观察」disabled=false）→ 新码 PASS；`verify.sh F272` PASS；冒烟 `boot`/`action` PASS；`forward-locked-in-choice`（F247/F265）回归 PASS。
