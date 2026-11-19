@@ -592,6 +592,13 @@ function mustChooseGuide(scene) {
       : names[0];
   return `必须做出选择——说${opts}`;
 }
+// F244：观察正文里整串选项名只许完整点名一次（本场景第一次观察的收
+// 束句）——其后收束句、复核区正文与风险尾注改挂不点名措辞。旧码把
+// mustChooseGuide 的整串「「…」、「…」或「…」」拼进每一次观察的段
+// 尾，复核区一行甚至叠出两遍（正文句尾一遍 + 尾注一遍），选项名逐字
+// 复读 6 次。点名本体仍由 mustChooseGuide 承担：前进拒绝正文、自由
+// 输入回包、「看尽」拒绝行与首次观察收束句照旧。
+const MUST_CHOOSE_GUIDE_VAGUE = "仍须在眼前这几条路中选定";
 // must_choose 版收束变体：「探索 N/N」进度语与轮换口径和
 // OBSERVE_PROGRESS_TAILS 完全同律（计数标记同一常量），只把落点从
 // 「前进」换成 mustChooseGuide 的点名抉择。
@@ -699,7 +706,14 @@ function observeClosing(save, scene, entity) {
   );
   const prog = `${OBSERVE_COUNT_MARK} ${Math.min(sceneN + 1, OBSERVE_TOTAL)}/${OBSERVE_TOTAL}`;
   // F240：must_choose 场景指路改点名真实选项（「前进」在此必拒）。
-  const guide = scene && scene.must_choose === true ? mustChooseGuide(scene) : null;
+  // F244：整串点名只在本场景第一次观察出现一次（dwell-guidance 的
+  // 「至少一次点名」契约由这一次承担），其后收束句改不点名措辞。
+  const guide =
+    scene && scene.must_choose === true
+      ? sceneN === 0
+        ? mustChooseGuide(scene)
+        : MUST_CHOOSE_GUIDE_VAGUE
+      : null;
   const tail = guide
     ? globalN === 0
       ? `（${prog} · ${OBSERVE_MARK}；${guide}）`
@@ -809,7 +823,9 @@ function observeOverRiskTail(scene, clockNext) {
   // F240：must_choose 场景「前进/潜行」指路同样必被必选门拦下——风险
   // 尾注改点名当前抉择；「动静 N/4」与「已被惊动」判定口径一字不动。
   if (scene && scene.must_choose === true) {
-    const guide = mustChooseGuide(scene);
+    // F244：复核区尾注不再复读整串选项名——本场景第一次观察已完整
+    // 点名，这里只提醒「还没选定」。
+    const guide = MUST_CHOOSE_GUIDE_VAGUE;
     if (!rollable)
       return `（这一带已经看熟——再蹲下去也只是耗时间。${meter}，${guide}。）`;
     const pool = alerted ? OBSERVE_OVER_RISK_ALERT_CHOOSE : OBSERVE_OVER_RISK_WARN_CHOOSE;
@@ -929,7 +945,7 @@ function observeOverCap(save, scene, entity) {
       : scene && scene.must_choose === true
         ? OBSERVE_OVER_LINES_CHOOSE[Math.max(0, rawClock) % OBSERVE_OVER_LINES_CHOOSE.length](
             entity,
-            mustChooseGuide(scene)
+            MUST_CHOOSE_GUIDE_VAGUE
           )
         : OBSERVE_OVER_LINES[Math.max(0, rawClock) % OBSERVE_OVER_LINES.length](entity);
   return {
