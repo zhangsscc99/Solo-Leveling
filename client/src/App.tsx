@@ -801,6 +801,26 @@ export default function App() {
       .finally(() => setLoading(false));
   }, [resumeLog]);
 
+  // F262：正文列可滚且未到底时，在列底（.actions 正上方）挂
+  // 「还有下文」渐隐提示——首屏停顶态读者不再把渐隐行误读成
+  // 「被底栏裁切/遮住」。节点放在 .stage 内、.stage-col 外（不占
+  // 滚动流高，不进 > * 行数口径）；到底即卸载，非 display:none。
+  const [logHint, setLogHint] = useState(false);
+  const syncLogHint = useCallback(() => {
+    const el = logRef.current;
+    setLogHint(
+      Boolean(
+        el &&
+          el.scrollHeight > el.clientHeight + 4 &&
+          el.scrollTop + el.clientHeight < el.scrollHeight - 8
+      )
+    );
+  }, []);
+  useEffect(() => {
+    window.addEventListener("resize", syncLogHint);
+    return () => window.removeEventListener("resize", syncLogHint);
+  }, [syncLogHint]);
+
   useEffect(() => {
     const el = logRef.current;
     if (!el) return;
@@ -814,7 +834,10 @@ export default function App() {
     else if (log.some((entry) => entry.role === "user"))
       el.scrollTo({ top: el.scrollHeight });
     else el.scrollTo({ top: 0 });
-  }, [log]);
+    // scrollTo 是即时定位、scroll 事件随后才到——这里同步核一次，
+    // 保证沉底后提示立刻卸载、停顶后立刻挂上。
+    syncLogHint();
+  }, [log, syncLogHint]);
 
   // 战斗面板开合：save.combat（服务端真实交战态）是第一信号，日志里的
   // 明确交战信号（遭遇X / 第N回合）做兼容兜底；gate 由 engage 跳变到
@@ -1534,7 +1557,7 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className="stage-col log" ref={logRef}>
+        <div className="stage-col log" ref={logRef} onScroll={syncLogHint}>
           {/* F167：一条日志可拆成多个 .stage-col 子节点（遭遇/教学段独立
               成条），splitStageEntry 对回灌旧行与新行同规则生效。
               F252：每段再包一层 .log-entry——此前多段正文的每个
@@ -1572,6 +1595,11 @@ export default function App() {
             </div>
           )}
         </div>
+        {logHint && (
+          <div className="log-scroll-hint" data-scroll-hint="1" aria-hidden="true">
+            <span className="hint-mark">▾</span>
+          </div>
+        )}
       </main>
 
       <div className={`drawer-veil${drawer ? " show" : ""}`} onClick={() => setDrawer(false)} />
