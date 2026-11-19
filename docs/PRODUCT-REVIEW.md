@@ -3603,3 +3603,19 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 验收（调度器亲自复跑，全部用 node24 ABI-137 解释器）：`verify.sh F301` PASS（390 休息 85.5×44 vs 兄弟 85.5×44；1440 休息 90×44 vs 兄弟 90×44）；`rest-affordance` PASS（dim/dashed vs solid 互斥）；冒烟 `boot`/`action` PASS。首轮 `ci-deploy` 在 `boot-drawer-closed` 一处 FAIL（点「背包」后 `.drawer-veil` 未展开），新码单跑 2 次均 PASS → 判抖动；重试 deploy **43/43 PASS**，`DEPLOY OK`，`.deployed-ref=2001028`，公网 `https://openfolio.uk/game` 200。线上直跑 `mobile.mjs`（`E2E_BASE_URL`）复验 390/1440 双视口 44px 达标 PASS。
 - 口径变更：`rest-affordance.mjs` 里 F253 的「≤20px / Δ≥16」断言锁的是旧实现而非语义，随新契约改为锁「降权样式三件套（rest-dim + dashed + 透明底）+ 两态互斥」；不改则 F253 与 F301 互相打红。
 - 遗留：`boot-drawer-closed` 在全量回归里出现过 1 次抖动（单独 2 连跑 PASS），若再现应打点区分冷态与真回归。
+
+## 第104轮调度记录（2026-11-19T17:51Z，F303）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（orange，cpu 73%、load1 5.36、mem 48%、swap 85%），parallel=1；本轮按规模只做 1 条。
+- 环境坑（复现 P213 的下游影响）：系统默认 `node` 是 v20（ABI 115），而仓库 `node_modules` 是 node24（ABI 137）编译的 —— 直接 `bash scripts/verify.sh` 会 `ERR_DLOPEN_FAILED` 崩在 `server/db.js`。本轮所有验收命令统一前置
+  `export PATH=/www/moved/nvm/versions/node/v24.5.0/bin:$PATH` 后才跑通。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功，无回退/无限流），commit `3ead651`，合并 `b993b1a`。
+- 条目：F303 己方 HP 颜色语义分裂（顶栏红 / 战斗浮层青绿）。修法：`:root` 新增单一事实源
+  `--hp-player-fill`（`--hp-player-deep #0e5f74` → `--hp-player #2fbfae`），顶栏 `.gauge-hp .gauge-fill`
+  与 `.combat [data-side="player"] .gauge-hp .gauge-fill` 共用；敌方保持红色系 + 45° 斜纹（色相+纹理双通道），
+  MP 蓝不动，低血脉冲与残影语义不变。
+- 验收（调度器亲自复跑，均用 node24/ABI 137 解释器）：`verify.sh F303` PASS（新增断言 (f) 顶栏填充 === 浮层填充、
+  (g) 敌方 ≠ 己方且仍带 `repeating-linear-gradient`，双视口各一遍）；`combat-hp-distinct` 连跑 2 次 PASS；
+  冒烟 `boot` 3.6s / `action` 4.2s PASS。
+- 走查线索（本轮未修，供后续）：`node scripts/verify.sh` 这类入口在默认 PATH 下必崩（P213 只修了部署口径，
+  开发/验收口径未收口，建议在 verify.sh 头部加 ABI 探针并自动切解释器）。
