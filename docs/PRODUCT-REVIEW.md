@@ -3183,3 +3183,11 @@ F242（桌面底栏压正文）线上实测间隙仍为 1px，保持未完成 �
 - 验收：新增 `scripts/assert/verify-parse-inline.mjs` 18 条断言全绿（临时副本 inline/block/MISSING/NO_ASSERT_FILE + 真实表回归），`verify.sh P212` PASS 0.76s。
 - 口径提醒：`--list` MISSING 64 行 → 34 行，剩余 33 条是本就没写 verify 的老 F0xx，不是解析问题。
 - **部署阻塞（本轮未上线）**：`ci-deploy.sh` 的 e2e 闸门连续两轮 29/30，唯一红项是既有抖动 GE2E-20261119（`action FAIL: second advance must cost vitals (HP 100->100, MP 20->20)`，同一断言单独跑 `node scripts/e2e/action.mjs` 两次均 PASS）。两次部署均按设计回滚（`.deployed-ref` 仍 = a201ea7，线上 health 200，未出现新旧混合态）。本轮改动只涉及 `scripts/verify.sh`、`scripts/ci-deploy.sh`、新增 assert 脚本，不产出 client bundle，故线上无功能差异；`verify-gate` 已在真实部署中实测生效（`[GATE] P212 OK` → `OK verify-gate (1 FID)`）。**下一次带前端产物的部署前必须先解 GE2E-20261119，否则所有部署都会被这条抖动拦下。**
+
+## 第84轮调度（2026-11-19 04:41Z，单条 F279）
+- 选条：F279（P1 反馈死路：抉择态「探索前进」、满状态「休息」等 disabled 键点了零回执，玩家只能判定「游戏坏了」）。本轮并行 1 条（闸门 green，容量 2，按「单轮只做 1 条」口径）。
+- **本条 devin 额度不足（`Reached free model rate limit`，swe-2-medium 退出即报，reset at 05:01 UTC）→ 已回退 OpenCode deepseek-flash 完成**，同一 worktree `feat/F279` 续写（devin 未留下任何改动，`git status` 为空）。
+- 修法：新增统一的 `.deny-tap-catcher` 承接壳（App.tsx 内 `denyShell()` + `denyAction()`）——原生 disabled 键不派发任何鼠标事件，壳层 `::after` 盖满键面收 pointer，点击当帧点亮 `.sys-toast`（原因+下一步）、壳/键上 `data-denied="1"` 抖一次（320ms，`prefers-reduced-motion` 关闭），文案取服务端 reason 原文，零请求零副作用。覆盖面从原来的「休息/抉择锁 前进」扩到：观察看尽（`.obs-tap-catcher`）、交战存档、requires 未达的选项键。
+- 取舍：连击欠蓝 / 交战存档 / 锁定选项**不用外包壳**——`.btn-group-sys > .btn`、`.btn-group-choice > .btn`、交战 3+2 栅格的 `nth-of-type` 都是既有断言/布局锚点，外包节点会打乱直接子项与栅格判位；改为 `aria-disabled` + 键内拒绝（`combo-short`/`is-locked` 压暗），点击仍给同一回执，DOM 结构零变化。
+- 验收：新增 `scripts/e2e/disabled-denied-feedback.mjs`（隔离实例 + DB 直落 must_choose、DB 直落 combat 行 + MP=2）：must_choose 下前进/休息、交战态连击/存档四个死键逐个真实坐标点击，均 400ms 内出回执；断言日志条目、HP/MP/XP/金币不变、零 `/api/` 请求、键位矩形点击前后一致、390 无横向溢出。`verify.sh F279` PASS（15.3s），回归 boot / action / deny-feedback / rest-full-feedback / forward-locked-in-choice 全 PASS（本轮 action.mjs 未抖）。
+- 未做：观察看尽态（`save.observe.available=false`）的专项断言只在代码层覆盖（该状态需把复核区看尽，成本高于本轮预算），由后续 product-walkthrough 复核。
