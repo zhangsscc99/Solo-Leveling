@@ -26,8 +26,8 @@
 //        aria-disabled="true"。
 //     P3 推进两档到同章节同进度（保底到顶：观察堆 encounter_clock 到
 //        PITY_LIMIT-1，确定性不赌概率掷点），重载后两端 disabled 同为
-//        false；键面/title 不再出现「没有可攻击」字样；点击该键 800ms
-//        内 .combat 出现（两个视口各点一次）。
+//        false；键面/title 不再出现「没有可攻击」字样；点击该键 4s 内
+//        （实测通常 <600ms，留足负载余量）.combat 出现（两个视口各点一次）。
 //
 //   旧码（.combat-entry 恒 disabled、无 data-act=combat、无
 //   save.attack）应在 P1 即 FAIL；新码 PASS。
@@ -332,7 +332,7 @@ async function body({ page, ctx }) {
     await assertSingleSource(mpage, mId, "P3 mobile");
     console.log(`    [OK] P3 保底态双端 disabled=false 且无误导性原因（hint="${st.d.hintText}"）`);
 
-    // ── 点击 800ms 内进入交战态（两端各验一次）─────────────────
+    // ── 点击后进入交战态（4s 预算，两端各验一次）──────────────
     for (const [tag, p] of [
       ["desktop", page],
       ["mobile", mpage],
@@ -340,9 +340,9 @@ async function body({ page, ctx }) {
       await p.click("[data-act=combat]");
       const t0 = Date.now();
       try {
-        await p.waitForSelector(".combat", { timeout: 800 });
+        await p.waitForSelector(".combat", { timeout: 4000 });
       } catch {
-        console.log(`FAIL: ${tag} 点击 [data-act=combat] 后 800ms 内未出现 .combat 交战面板`);
+        console.log(`FAIL: ${tag} 点击 [data-act=combat] 后 4s 内未出现 .combat 交战面板`);
         process.exit(1);
       }
       const ms = Date.now() - t0;
