@@ -1453,7 +1453,7 @@ export default function App() {
             <div className="holo-title">觉醒协议</div>
             <div className="holo-body gate-body">
               <p className="gate-line">检测到适格者。最弱兵器，亦可登顶。</p>
-              <p className="gate-line">登记猎人代号，接入「系统」。</p>
+              <p className="gate-line gate-line-action">登记猎人代号，接入「系统」。</p>
               <form className="gate-form" onSubmit={onCreate}>
                 <input
                   value={name}

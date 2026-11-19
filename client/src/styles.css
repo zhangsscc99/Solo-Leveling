@@ -1994,21 +1994,35 @@ button {
   max-width: none;
 }
 
+/* F268 门牌页主次：第一行是氛围铺垫（略小、略暗、字重轻），第二行
+   是操作指令（.gate-line-action，恢复系统播报字号并加粗）。行高
+   仍 ≥1.6 不挤。 */
 .gate-body .gate-line {
   margin: 0 0 var(--sp-2);
   line-height: 1.8;
+  font-size: var(--fs-md);
+  font-weight: 400;
+  color: var(--dim);
 }
 
+.gate-body .gate-line-action {
+  font-size: var(--fs-holo);
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* F268：输入框与「觉醒」原是 8px 零呼吸紧贴；gap 提到 12px，
+   按钮再内收 12px 让它不贴 .holo-inner 右内缘。 */
 .gate-form {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   margin-top: var(--sp-4);
 }
 
 .gate-form input {
   flex: 1;
   min-height: 44px;
-  padding: 0 var(--sp-3);
+  padding: 0 var(--sp-3) 0 14px;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--system-dim);
   border-radius: var(--r-hard);
@@ -2030,6 +2044,7 @@ button {
    「觉醒」用实心系统青 + 微光，与哑光输入框拉开层级；形状仍是
    2px 方角硬键，不引圆角色块。 */
 .gate-form .btn.primary {
+  margin-right: var(--sp-3);
   background: linear-gradient(180deg, #6fd3ff 0%, #2b9cd6 100%);
   border-color: var(--system);
   color: #061521;
@@ -2055,7 +2070,7 @@ button {
 /* F136 建档常驻提示与重名二选一对话框——沿用 holo/gate 色系与 .btn，
    不新开组件库，只加版面类。 */
 .gate-note {
-  margin: var(--sp-3) 0 0;
+  margin: var(--sp-5) 0 0;
   font-size: var(--fs-sm);
   color: var(--dim);
   line-height: 1.7;
