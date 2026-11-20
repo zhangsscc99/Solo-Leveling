@@ -3920,3 +3920,13 @@ F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍�
 ### 结论一句话
 
 数值与存档是硬的，自由输入与抉择代价是活的；但**「点下去没反应」**这一类问题（死键、抉择态前进、战斗无决策）仍然把「有内容的文字 RPG」拉回「按键机」——第 3 步之后玩家面对的基本还是同一个「继续」。
+
+## 第115轮调度（2026-11-20T00:31Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 22%、load1 0.61、mem 51%、swap 85%、disk_root 62%、devin 0），parallel=2；按规模只做 1 条。
+- 选条理由：走查由独立任务 product-walkthrough 负责，本轮只消费 FEATURES 待办。F251（首屏背包侧栏遮挡）已被 F284 的 `boot-drawer-closed.mjs` 覆盖（重复条，未取）；产品级 P0/P1（F318/F320/F323/F288/F298…）改动面都跨模块，超出 15 分钟单轮预算，故选 **P214**（低风险工程摩擦，收益是之后每个 parallel 车道的 worktree 都能省下约 2 分钟的手工 `npm ci && npm run build`）。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功、无回退、无限流），commit `aca40f1`，merge 为 `e1d273d`。新增 `scripts/wt-prep.sh`（122 行）+ `AGENTS.md` 用法一节，未动任何业务代码。
+- 验收（调度器亲自复跑）：裸新 worktree（`--detach`）上 `bash scripts/wt-prep.sh --check` **rc=1** 且逐条列出缺失项 → 准备 rc=0（软链 root/scripts-e2e/client node_modules + 构建 dist 2.77s）→ `--check` **rc=0** → 幂等再跑 rc=0、`git status` 干净 → `boot.mjs` **PASS**；主树 `verify.sh P214` **PASS**，冒烟 `boot`/`action` PASS。
+- 回退记录：**无**（devin 一次成功，未触发任何限流）。
+- 部署：第 1 次 `ci-deploy.sh` 在 e2e 步骤 **49/50**（唯一红项 `combat-hp-distinct.mjs` 21.1s，GE2E 族负载型偶发；单独连跑 **PASS**），按门禁回滚、未上线；第 2 次 **`[E2E-ALL] 50/50 passed` / DEPLOY OK**，`.deployed-ref=e1d273d`，本地 `/game/api/health` 200、公网 `https://openfolio.uk/game` 200。
+- 遗留观察：① `ci-deploy.sh` STEP 8 必跑全量 E2E（实测 5–7 分钟），与本轮「全量交给 full-e2e」的口径冲突，且 15 分钟单轮预算里很容易被工具超时截断（本轮首次部署即因此被 kill、只得重跑）——建议给 deploy 加「e2e 由 full-e2e 结果背签」的路径；② `combat-hp-distinct` 的超时口径应并入 GE2E-20261119d/e 族一起改成相对基线判据；③ 产品待办里真正伤体验的仍是 **F297/F298（战斗与首屏无决策、同屏 15 个可点目标）** 与 **F288（刷新续档不一致）**，建议下一轮取其中一条。
