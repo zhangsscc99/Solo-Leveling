@@ -1739,7 +1739,7 @@ function choiceLockView(save, choice) {
   if (typeof req.flag === "string" && req.flag && !flagSeen(save.id, req.flag)) {
     return {
       locked: true,
-      locked_reason: `先「观察」一次四周，看清线索后这一步才放得开`,
+      locked_reason: `需先观察看清线索——说「观察」再看一遍四周，这一步才放得开`,
     };
   }
   return { locked: false, locked_reason: null };

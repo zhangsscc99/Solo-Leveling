@@ -8,10 +8,10 @@
 //   next_choices 下发 locked/locked_reason，前端置灰并在选项组
 //   下方常驻一行 .choice-hint 透传服务端文案。
 //
-//   五条断言：
+//   五条断言（F279 后「置灰」口径 = disabled===true 或 aria-disabled==="true"）：
 //     1) 新档全程不观察（ch1_double_gate 选「跟着队伍走向殿中央」→
 //        ch1_law 选「按石碑所写，低头敬拜」→ ch1_worship）：「盯住
-//        巨像的眼睛」键 disabled === true；
+//        巨像的眼睛」键 disabled===true 或 aria-disabled==="true"；
 //     2) 该键 title 或页面 .choice-hint 文案含「观察」（可执行提示，
 //        不是泛泛拒绝）；
 //     3) 服务端兜底：直接 POST /api/action {input: label,
@@ -193,8 +193,10 @@ await run(
     const saveId = () =>
       page.evaluate(() => Number(localStorage.getItem("solo_leveling_save_id") || 0));
 
-    // 「盯住巨像的眼睛」键的锁态现场：disabled/title/小字一次取回，
-    // 断言失败时把实测值打进报错便于复查。
+    // 「盯住巨像的眼睛」键的锁态现场：disabled/aria-disabled/title/小字
+    // 一次取回，断言失败时把实测值打进报错便于复查。
+    // F279：锁键改用 aria-disabled + 键内拒绝（原生 disabled 吞点击零
+    // 回执）——「置灰」语义 = disabled===true 或 aria-disabled==="true"。
     const stareState = () =>
       page.evaluate(() => {
         const b = [...document.querySelectorAll(".btn-group-choice .btn")].find(
@@ -204,6 +206,7 @@ await run(
         return {
           found: Boolean(b),
           disabled: b ? b.disabled : null,
+          ariaDisabled: b ? b.getAttribute("aria-disabled") : null,
           title: b ? b.getAttribute("title") || "" : "",
           hint: hint ? hint.textContent.trim() : "",
         };
@@ -225,12 +228,13 @@ await run(
     await ensureMarker("ch1_worship", "盯住巨像");
     await page.waitForTimeout(120);
 
-    // 断言 1)+2)：锁键 disabled===true，且 title 或 .choice-hint 含「观察」。
+    // 断言 1)+2)：锁键置灰（F279 口径：disabled 或 aria-disabled==="true"），
+    // 且 title 或 .choice-hint 含「观察」。
     const st = await stareState();
     assert(st.found, `断言1: 未找到「盯住巨像」选项键`);
     assert(
-      st.disabled === true,
-      `断言1: 未观察时「盯住巨像」键应置灰 — disabled=${st.disabled} title=「${st.title}」`
+      st.disabled === true || st.ariaDisabled === "true",
+      `断言1: 未观察时「盯住巨像」键应置灰 — disabled=${st.disabled} aria-disabled=${st.ariaDisabled} title=「${st.title}」`
     );
     assert(
       st.title.includes("观察") || st.hint.includes("观察"),
@@ -290,17 +294,21 @@ await run(
     await ensureMarker("ch1_worship", "盯住巨像");
     await page.waitForTimeout(120);
 
-    // 断言 4)：观察过石像后同一键恢复可点 disabled===false
-    // （busy 残影会让整组短时置灰——轮询到稳定值再判）。
+    // 断言 4)：观察过石像后同一键恢复可点 disabled===false 且不带
+    // aria-disabled 锁影（busy 残影会让整组短时置灰——轮询到稳定值再判）。
     let st2 = await stareState();
-    for (let i = 0; i < 20 && st2.found && st2.disabled !== false; i++) {
+    for (
+      let i = 0;
+      i < 20 && st2.found && (st2.disabled !== false || st2.ariaDisabled === "true");
+      i++
+    ) {
       await page.waitForTimeout(300);
       st2 = await stareState();
     }
     assert(st2.found, `断言4: 存档 B 未找到「盯住巨像」选项键`);
     assert(
-      st2.disabled === false,
-      `断言4: 观察后「盯住巨像」键应可点 — disabled=${st2.disabled} title=「${st2.title}」`
+      st2.disabled === false && st2.ariaDisabled !== "true",
+      `断言4: 观察后「盯住巨像」键应可点 — disabled=${st2.disabled} aria-disabled=${st2.ariaDisabled} title=「${st2.title}」`
     );
     const sidB = await saveId();
     assert(sidB > 0, `断言4: localStorage 未取到存档 B id（${sidB}）`);
