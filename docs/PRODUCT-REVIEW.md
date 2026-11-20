@@ -3869,3 +3869,14 @@ F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍�
 - 遗留观察：① **F318（P0）仍未做**——免费观察用尽后按钮仍高亮可点、拒绝行入档，是下一个 P0；② F319/F320（首屏 CTA 权重与双主行动）仍需前端排版改造，建议下一轮取 F318 或 F319；③ 产品级观察：本轮确认「页面静止 = 玩家判卡死」这一类问题的根因是**回执机制先于门禁落地**——建议后续每个回执类条目必须同时交付门禁，否则无法判断线上构建是否带修复。
 
 ⚠️ 全量 E2E 失败：`choice-state-deadkeys.mjs`（commit 3fed9a7，跑测期间 717fec4/f7d3807 并发落盘；干净树 7069688 重跑 50/50 全绿，登记为低风险竞态 GE2E-20261119f）
+
+## 第113轮调度（2026-11-20T00:20Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 8%、load1 1.93、mem 48%、swap 85%、disk_root 62%），parallel=2；按规模只做 1 条。
+- 选条理由：第110轮走查点名的 P1 首屏缺陷 **F319**（觉醒页主 CTA 权重不足）；F318/F312 因「已被 F314 连带修掉 / 会打破 num-feedback 的 XP+10 结算断言」而不适合单轮小改，F319 改动面最小、验收最硬。
+- 执行者：**devin CLI `swe-2-medium`**（首选通道一次成功、无回退、无限流），commit `77898a2`，rebase 到 main 后 ff-merge 为 `408977f`。耗时约 7 分钟。
+- 修法：`.gate-form .btn.primary` → `width:52%`，新增 `:disabled` 哑光深灰 + `opacity .48` + `box-shadow:none`（可用态 opacity 1、实心青渐变 + 外发光），`transition` 0.15s；`input:focus-visible` 光晕 14px/0.22 → 10px/0.14（焦点可见性保留）；`scripts/e2e/mobile.mjs` 增 F319 段（双视口 gate 首屏）。
+- 验收（调度器亲自复跑，node24 ABI137）：`verify.sh F319` **PASS 6.18s**（390 空档 w=168.5/324 panel、opacity .48；1440 w=211.1/406）／冒烟 `boot` 4.8s、`action` 4.2s PASS／`gate-layout.mjs` PASS。红证由 devin 留存：旧 CSS `w=46.0 < 面板宽 324 的 50%` → FAIL。
+- 回退记录：**无**（devin 一次成功，未触发限流）。
+- 部署：**前 3 次 `ci-deploy.sh` 均在 e2e 步骤红并回滚**（第 1 次失败用例未落日志；第 2 次 `boot-drawer-closed.mjs`「点「背包」后 .drawer-veil 未展开」；第 3 次 `combat-hp-distinct.mjs` 21.3s）——两个用例在**新构建上单独连跑 2/2 PASS**，判定为 GE2E 族负载型偶发（run-all 本身串行，非并发闸门）；第 4 次 **`[E2E-ALL] 50/50 passed` / DEPLOY OK**。`.deployed-ref=408977f406a515adf35f8aba31b83a3976d4c5de`，公网 `https://openfolio.uk/game` 200 / `/game/api/health` 200，线上 CSS `gate-form .btn.primary:disabled{opacity:.48;…}` 已换包。
+- 遗留观察：① **F318（P0）仍在**——免费观察用尽后按钮仅高亮文字劝退 + 每击 +1 行拒绝（F314 已把入档问题修掉，剩刷屏与「看起来还能点」）；② **F320（P1，med）**——首幕双主行动（剧情选项 vs 探索前进）比 F319 更伤选择感，建议下一轮取；③ **部署闸门本身在变脆**：一晚 4 次 ci-deploy 里 3 次因不同用例偶发红回滚，GE2E-20261119d/e/f 三条已登记但未修，host 负载（load1 1.7–3.9 / 4 核）下绝对阈值判据（800ms、20s+ 超时）注定抖动——建议把「超时类」断言统一改成相对基线 + 重试窗口，否则每次上线都在赌。
