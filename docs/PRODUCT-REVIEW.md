@@ -3940,3 +3940,5 @@ F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍�
 - 验收（调度器亲手复跑）：`verify.sh F323` **PASS**（13.6s，PASS 行含 `[A] 37ms toast` / `[B] log +4 → ch1_statues`）→ 合并 main 后冒烟 `boot` **PASS** / `action` **PASS**、`client build` OK → `ci-deploy.sh` 部署。
 - 回退记录：**无**。
 - 遗留观察：① **走查脚本有一个测量口径 bug**——`element.disabled` 对 `aria-disabled` 按钮恒为 false，走查据此判「死键」会反复误报 F317/F323 这一类；建议下一轮 product-walkthrough 改成读 `disabled || aria-disabled` 并同时抓 `.sys-toast`（本轮 F323 就是被这个口径带偏的）。② 仍待做的真问题：F324（抉择态前进静默）、F325（战斗恒定 14/7 支配策略）、F326（正文机制括注）。
+
+⚠️ 全量 E2E 失败：combat-hp-distinct.mjs（waitForResponse 15s 超时）+ attr-plus-disabled.mjs（waitForSelector 20s 超时，二轮）· 两轮均 50/51，单跑各绿，load1≈15/4核（commit 85806bd）
