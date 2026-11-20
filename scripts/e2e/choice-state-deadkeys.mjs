@@ -132,27 +132,48 @@ const probeClick = async (act, tag) => {
   const sel = `.actions-main button[data-act="${act}"]`;
   const loc = page.locator(sel).first();
   await loc.waitFor({ state: "attached", timeout: 8000 });
-  const box = await loc.boundingBox();
-  assert(box, `${tag}「${act}」boundingBox 取不到`);
+  // 重渲染会让已 attached 的节点瞬时脱盒（boundingBox 返回 null）——
+  // 先等 stable，再有界重试取盒；仍取不到才把现场快照打进失败信息。
+  const snapInfo = (s) =>
+    s
+      ? `logCount=${s.logCount}、toast「${s.toast.slice(0, 40)}」、disabled=${s.disabled}、className「${s.cls}」`
+      : "快照取不到（按钮不在 DOM）";
+  await loc.waitFor({ state: "stable", timeout: 3000 }).catch(() => {});
+  let box = null;
+  for (let i = 0; i < 3 && !box; i++) {
+    if (i > 0) await page.waitForTimeout(300);
+    box = await loc.boundingBox();
+  }
+  assert(
+    box,
+    `${tag}「${act}」boundingBox 重试 3 次仍取不到：${snapInfo(await snapshot(act))}`
+  );
   const before = await snapshot(act);
   assert(before, `${tag}「${act}」快照取不到`);
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  await page.waitForFunction(
-    ([x, y]) => {
-      const el = document.elementFromPoint(x, y);
-      return Boolean(
-        el &&
-          (el.closest(".deny-tap-catcher") ||
-            el.closest(".lock-tap-catcher") ||
-            el.closest(".rest-tap-catcher") ||
-            el.closest(".obs-tap-catcher") ||
-            (el.tagName === "BUTTON" && el.closest(".actions-main")))
-      );
-    },
-    [cx, cy],
-    { timeout: 5000 }
-  );
+  try {
+    await page.waitForFunction(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        return Boolean(
+          el &&
+            (el.closest(".deny-tap-catcher") ||
+              el.closest(".lock-tap-catcher") ||
+              el.closest(".rest-tap-catcher") ||
+              el.closest(".obs-tap-catcher") ||
+              (el.tagName === "BUTTON" && el.closest(".actions-main")))
+        );
+      },
+      [cx, cy],
+      { timeout: 5000 }
+    );
+  } catch (e) {
+    assert(
+      false,
+      `${tag}「${act}」elementFromPoint 5s 未命中点击层：${snapInfo(await snapshot(act))}（${e.message}）`
+    );
+  }
   // toast 是 2.6s 自动消失的一次性回执——点击前等它离场，这样「点击后
   // 又出现一条」才是本次点击的证据，而不是上一颗键残留的同一句文案。
   await page
