@@ -3930,3 +3930,13 @@ F317（P0｜抉择态三键静默无响应）、F318（P0｜免费用尽后仍�
 - 回退记录：**无**（devin 一次成功，未触发任何限流）。
 - 部署：第 1 次 `ci-deploy.sh` 在 e2e 步骤 **49/50**（唯一红项 `combat-hp-distinct.mjs` 21.1s，GE2E 族负载型偶发；单独连跑 **PASS**），按门禁回滚、未上线；第 2 次 **`[E2E-ALL] 50/50 passed` / DEPLOY OK**，`.deployed-ref=e1d273d`，本地 `/game/api/health` 200、公网 `https://openfolio.uk/game` 200。
 - 遗留观察：① `ci-deploy.sh` STEP 8 必跑全量 E2E（实测 5–7 分钟），与本轮「全量交给 full-e2e」的口径冲突，且 15 分钟单轮预算里很容易被工具超时截断（本轮首次部署即因此被 kill、只得重跑）——建议给 deploy 加「e2e 由 full-e2e 结果背签」的路径；② `combat-hp-distinct` 的超时口径应并入 GE2E-20261119d/e 族一起改成相对基线判据；③ 产品待办里真正伤体验的仍是 **F297/F298（战斗与首屏无决策、同屏 15 个可点目标）** 与 **F288（刷新续档不一致）**，建议下一轮取其中一条。
+
+## 第116轮调度（2026-11-20T02:01Z，game）
+
+- 闸门：`agent-gate check solo-leveling` RC=0（green，cpu 17%、load1 1.49、mem 48%、swap 85%、disk_root 62%、devin 1），parallel=2；按规模只做 1 条。
+- 取条：**F323（P0 抉择态死键）**——第114轮走查报「盯住巨像的眼睛」连点 6 次零回执。执行者 devin CLI `swe-2-high`，一次成功、无限流、无回退，commit `1b2ee08`。
+- 复现结论（devin 在隔离实例 + 真实 Playwright 上实测，调度器亲自复跑确认）：**main HEAD 的锁态链路本身是通的**——`server/index.js` 的 `choiceLockView` 下发 `locked:true` + `locked_reason`，前端落到 `aria-disabled=true` + `.choice-hint` 常驻理由，点击 37–53ms 出 `.sys-toast` 且日志零增长；解锁档点击 `log +4`、`save.scene→ch1_statues`。走查原文记的是 `disabled=false`——旧断言/走查只读原生 `disabled` 属性，F279 改 `aria-disabled` 后该属性本就是 false，故「看得见 disabled=false」不等于「没锁」。
+- 本轮实际改动（3 文件 / +445 −13，无架构/端口/依赖变更）：① 新增 `scripts/e2e/dead-choice-key.mjs`（424 行，双档：未满足态断言 `aria-disabled` + 可见理由 + 点击 500ms 内「先观察」toast 且 log 零增长、环顾四周×3 也不解锁；已满足态断言点击真推进）；② `locked_reason` 文案改为含字面「先观察」，与 toast 口径一致（旧文案「先『观察』一次」隔了引号，玩家/断言都读不到「先观察」）；③ 修复 **HEAD 上已红的** `scripts/assert/choice-precondition.mjs`（F211 遗留：仍断言原生 `disabled===true`，F279 改 `aria-disabled` 后必红）—— 对齐语义并给解锁态加严 `aria-disabled!=="true"`。
+- 验收（调度器亲手复跑）：`verify.sh F323` **PASS**（13.6s，PASS 行含 `[A] 37ms toast` / `[B] log +4 → ch1_statues`）→ 合并 main 后冒烟 `boot` **PASS** / `action` **PASS**、`client build` OK → `ci-deploy.sh` 部署。
+- 回退记录：**无**。
+- 遗留观察：① **走查脚本有一个测量口径 bug**——`element.disabled` 对 `aria-disabled` 按钮恒为 false，走查据此判「死键」会反复误报 F317/F323 这一类；建议下一轮 product-walkthrough 改成读 `disabled || aria-disabled` 并同时抓 `.sys-toast`（本轮 F323 就是被这个口径带偏的）。② 仍待做的真问题：F324（抉择态前进静默）、F325（战斗恒定 14/7 支配策略）、F326（正文机制括注）。
